@@ -245,8 +245,9 @@ claude1
 本地覆盖  >  CC Switch env  >  Claude Code 内置默认
 ```
 
-模型覆盖只写 `ANTHROPIC_MODEL`（其余 `DEFAULT_*` 槽位不动），effort 覆盖写入临时 settings 的
-`effortLevel`，与 Hub 槽位走同一字段。
+模型覆盖写入 `ANTHROPIC_MODEL`（其余 `DEFAULT_*` 槽位不动）及临时 settings 的展示模型；effort
+覆盖写入临时 settings 的 `effortLevel`，与 Hub 槽位走同一字段。未设 effort 的普通 provider 默认
+`medium`，不会继承 CC Switch 当前 provider 的全局模型、`[1M]` 标记或 effort。
 
 <a id="security"></a>
 
@@ -258,6 +259,9 @@ claude1
 - 不接管普通 `claude`；
 - provider 凭证只进入本次 Claude Code 子进程环境及其独享的临时 settings；临时 settings
   权限 `0600`，用于覆盖 CC Switch 的全局 current 配置，进程结束后立即删除；
+- resume 会话的路由身份只保存在 `~/.cc-switch/claude1-session-routes.json` 的脱敏元数据中
+  （session ID、provider 标识、协议和模型，权限 `0600`，最多保留 256 条），不写入凭证、URL
+  或请求内容；
 - Hub 以只读方式从 CC Switch DB 获取上游地址和凭证，配置示例中不保存上游 token。
 
 `claude1 current` 与 statusline 的 CC Switch 回退都以数据库中**唯一**的
@@ -566,8 +570,9 @@ input=$(cat)
 model=$(printf '%s' "$input" | ~/.claude/scripts/statusline-model.py)
 ```
 
-解析器优先使用最新 assistant 响应模型，并忽略回合末的 attachment、工具结果、mode、
-permission-mode、last-prompt、file-history 和 system 统计元条目；回退时按 stdin `.model.id`
+解析器对普通 Claude 进程优先使用最新 assistant 响应模型，并忽略回合末的 attachment、工具结果、mode、
+permission-mode、last-prompt、file-history 和 system 统计元条目；对 `claude1` 进程则优先显示本次
+启动器选择的 live route，避免恢复旧 session 时把历史模型误显示成当前路由。回退时按 stdin `.model.id`
 与各 slot 的实际值**精确比对**，不靠 `opus` / `sonnet` / `haiku` 关键词猜测。通过 CC Switch
 本地代理时，slot 映射只读取唯一的 DB current provider。
 

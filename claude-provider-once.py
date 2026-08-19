@@ -97,6 +97,13 @@ BACKEND_STATE = _env_path(
 BACKEND_STICKY = _env_path(
     "CLAUDE1_BACKEND_STICKY", HOME / ".cc-switch" / "claude1-backend"
 )
+# Session routing metadata is deliberately credential-free.  It lets a later
+# resume distinguish the transcript's historical model from the route selected
+# for the new process without trying to infer a provider from a model name.
+SESSION_ROUTES_PATH = _env_path(
+    "CLAUDE1_SESSION_ROUTES_PATH",
+    HOME / ".cc-switch" / "claude1-session-routes.json",
+)
 ANYROUTER_OBSERVER = _env_path(
     "CLAUDE1_ANYROUTER_OBSERVER", HOME / "anyrouter-tools" / "observe-claude1.sh"
 )
@@ -951,7 +958,7 @@ def build_settings(provider: dict) -> dict:
                 parts.append(host)
             env[key] = ",".join(parts)
     # claude1 本地覆盖（~/.cc-switch/claude1-config.json，绝不写 CC Switch
-    # 数据库）：model 覆盖只写 ANTHROPIC_MODEL，其余 DEFAULT_* 槽位不动；
+    # 数据库）：model 覆盖写入 ANTHROPIC_MODEL，其余 DEFAULT_* 槽位不动；
     # effort 覆盖走与 Hub 槽位相同的 effortLevel 字段。两者只影响本次会话。
     model_override, effort_override = load_provider_launch_overrides(
         str(provider.get("id") or "")
@@ -977,12 +984,18 @@ def build_settings(provider: dict) -> dict:
     env["CLAUDE1_PROVIDER_COMPATIBILITY_REASON"] = reason_code
     cfg["env"] = env
 
-    # Drop the cc-switch-specific top-level "model" alias (e.g. "opus[1m]");
-    # Claude Code --settings does not read it, and model selection is already
-    # fully expressed by the ANTHROPIC_*_MODEL env vars above.
-    cfg.pop("model", None)
+    # ``--settings`` is merged with ~/.claude/settings.json.  Never leave its
+    # top-level model or effort fields absent: a CC Switch current provider can
+    # otherwise leak an unrelated "Opus [1M] / high" identity into this
+    # isolated session.  The env remains the transport source of truth; these
+    # two fields keep Claude Code's own presentation and default effort honest.
+    resolved_models = _provider_models({"env": env}, include_placeholder=False)
+    cfg["model"] = resolved_models[0] if resolved_models else ""
+    configured_effort = cfg.get("effortLevel")
     if effort_override:
         cfg["effortLevel"] = effort_override
+    elif configured_effort not in HUB_EFFORT_LEVELS:
+        cfg["effortLevel"] = "medium"
 
     return cfg
 
@@ -5600,6 +5613,158 @@ def record_backend(kind: str, provider: str | None = None) -> None:
         pass
 
 
+def _resume_session_context(
+    claude_args: list[str],
+) -> tuple[str | None, Path | None, str | None]:
+    """Return ``(session_id, transcript, last_model)`` for a resume request."""
+    session_id: str | None = None
+    use_latest = False
+    index = 0
+    while index < len(claude_args):
+        arg = claude_args[index]
+        if arg == "--":
+            break
+        if arg in ("--continue", "-c"):
+            use_latest = True
+        elif arg in ("--resume", "-r"):
+            if (
+                index + 1 < len(claude_args)
+                and not claude_args[index + 1].startswith("-")
+            ):
+                session_id = claude_args[index + 1]
+                index += 1
+        elif arg.startswith("--resume="):
+            session_id = arg.split("=", 1)[1]
+        index += 1
+
+    if session_id is None and not use_latest:
+        return None, None, None
+
+    project_key = str(Path.cwd().resolve()).replace("/", "-")
+    transcript_dir = HOME / ".claude" / "projects" / project_key
+    if session_id is not None:
+        transcript = transcript_dir / f"{session_id}.jsonl"
+        if not transcript.is_file():
+            return session_id, None, None
+    else:
+        try:
+            transcripts = list(transcript_dir.glob("*.jsonl"))
+            if not transcripts:
+                return None, None, None
+            transcript = max(transcripts, key=lambda path: path.stat().st_mtime)
+        except OSError:
+            return None, None, None
+        session_id = transcript.stem
+
+    last_model: str | None = None
+    try:
+        with transcript.open(encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(entry, dict):
+                    continue
+                message = (
+                    entry.get("message")
+                    if entry.get("type") == "assistant"
+                    else None
+                )
+                model = message.get("model") if isinstance(message, dict) else None
+                if isinstance(model, str) and model:
+                    last_model = model
+    except OSError:
+        return session_id, transcript, None
+    return session_id, transcript, last_model
+
+
+def _load_session_routes() -> dict[str, dict]:
+    try:
+        raw = json.loads(SESSION_ROUTES_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    sessions = raw.get("sessions") if isinstance(raw, dict) else None
+    if not isinstance(sessions, dict):
+        return {}
+    return {
+        str(session_id): dict(route)
+        for session_id, route in sessions.items()
+        if isinstance(session_id, str) and isinstance(route, dict)
+    }
+
+
+def _route_label(route: dict | None) -> str:
+    if not isinstance(route, dict):
+        return "未知"
+    provider = str(route.get("provider_name") or route.get("provider_id") or "未知")
+    model = str(route.get("model") or route.get("selector") or "未知")
+    return f"{provider} / {model}"
+
+
+def _resume_route_notice(claude_args: list[str], route: dict) -> str | None:
+    session_id, _transcript, history_model = _resume_session_context(claude_args)
+    if session_id is None or _transcript is None:
+        return None
+    previous = _load_session_routes().get(session_id)
+    history = history_model or "未知"
+    prior = _route_label(previous)
+    current = _route_label(route)
+    print(
+        f"[claude1] 恢复会话 {session_id}: "
+        f"历史模型={history}; 原记录路由={prior}; 本次路由={current}"
+    )
+    return session_id
+
+
+def _record_session_route(session_id: str | None, route: dict) -> None:
+    if not session_id:
+        return
+    sessions = _load_session_routes()
+    safe_route = {
+        key: str(value)
+        for key, value in route.items()
+        if key
+        in {
+            "provider_id",
+            "provider_name",
+            "source",
+            "api_format",
+            "selector",
+            "model",
+        }
+        and value is not None
+    }
+    safe_route["recorded_at"] = time.time()
+    sessions[session_id] = safe_route
+    # Keep this best-effort and bounded; routing metadata must never block a
+    # Claude launch if the local state file is unavailable.
+    if len(sessions) > 256:
+        def recorded_at(item: tuple[str, dict]) -> float:
+            try:
+                return float(item[1].get("recorded_at", 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        ordered = sorted(
+            sessions.items(),
+            key=recorded_at,
+            reverse=True,
+        )
+        sessions = dict(ordered[:256])
+    try:
+        _atomic_private_write(
+            SESSION_ROUTES_PATH,
+            json.dumps(
+                {"version": 1, "sessions": sessions},
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+    except (OSError, TypeError, ValueError):
+        pass
+
+
 def _atomic_write_sticky(kind: str) -> None:
     _atomic_private_write(BACKEND_STICKY, kind + "\n")
 
@@ -6120,51 +6285,7 @@ def _resume_session_selector(
     channels: dict,
 ) -> str | None:
     """Return the Hub selector recorded by a resumed local session."""
-    session_id: str | None = None
-    use_latest = False
-    index = 0
-    while index < len(claude_args):
-        arg = claude_args[index]
-        if arg == "--":
-            break
-        if arg in ("--continue", "-c"):
-            use_latest = True
-        elif arg in ("--resume", "-r"):
-            if index + 1 < len(claude_args) and not claude_args[index + 1].startswith("-"):
-                session_id = claude_args[index + 1]
-                index += 1
-        elif arg.startswith("--resume="):
-            session_id = arg.split("=", 1)[1]
-        index += 1
-
-    if session_id is None and not use_latest:
-        return None
-
-    project_key = str(Path.cwd().resolve()).replace("/", "-")
-    transcript_dir = HOME / ".claude" / "projects" / project_key
-    if session_id is not None:
-        transcript = transcript_dir / f"{session_id}.jsonl"
-        if not transcript.is_file():
-            return None
-    else:
-        transcripts = list(transcript_dir.glob("*.jsonl"))
-        if not transcripts:
-            return None
-        transcript = max(transcripts, key=lambda path: path.stat().st_mtime)
-
-    last_model: str | None = None
-    with transcript.open(encoding="utf-8") as handle:
-        for line in handle:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if not isinstance(entry, dict):
-                continue
-            message = entry.get("message") if entry.get("type") == "assistant" else None
-            model = message.get("model") if isinstance(message, dict) else None
-            if isinstance(model, str) and model:
-                last_model = model
+    _session_id, _transcript, last_model = _resume_session_context(claude_args)
     if last_model is None:
         return None
 
@@ -6315,6 +6436,16 @@ def exec_hub(
     _seal_model_slots(settings_env)
     settings = {"env": settings_env}
     settings["effortLevel"] = effort_level
+    session_route = {
+        "source": "hub",
+        "provider_id": hub_ref.hub_id,
+        "provider_name": hub_ref.name,
+        "api_format": "hub",
+        "selector": main_model,
+        "model": main_model,
+    }
+    resume_session_id = _resume_route_notice(claude_args, session_route)
+    _record_session_route(resume_session_id, session_route)
     record_backend("hub", hub_ref.hub_id)
     aliases = ", ".join(str(alias) for alias in channels)
     print(
@@ -6869,6 +7000,17 @@ def launch_provider(
     settings = build_settings(selected)
     api_format = selected_provider_api_format(selected)
     transport = provider_transport_config(selected, settings)
+    provider_models = _provider_models(settings, include_placeholder=False)
+    session_route = {
+        "source": backend_kind,
+        "provider_id": selected.get("id"),
+        "provider_name": selected.get("name"),
+        "api_format": api_format,
+        "selector": f"id:{selected.get('id')}" if selected.get("id") else None,
+        "model": provider_models[0] if provider_models else None,
+    }
+    resume_session_id = _resume_route_notice(claude_args, session_route)
+    _record_session_route(resume_session_id, session_route)
     account_label = None
     if api_format == "anthropic" and transport["mode"] == "direct":
         settings, account_label = apply_native_account_pool(selected, settings)

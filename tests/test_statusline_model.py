@@ -169,6 +169,44 @@ class StatuslineModelTests(unittest.TestCase):
             "Flash Friendly Name",
         )
 
+    def test_claude1_live_provider_route_wins_over_old_transcript_model(self) -> None:
+        now = 2_000_000_000.0
+        with tempfile.TemporaryDirectory() as raw:
+            transcript = Path(raw) / "session.jsonl"
+            transcript.write_text(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "timestamp": iso(now - 1),
+                        "message": {"model": "claude-opus-5"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload = {
+                "model": {"id": "claude-opus-5", "display_name": "Opus"},
+                "transcript_path": str(transcript),
+            }
+            env = {
+                "CLAUDE1_SESSION_SOURCE": "provider",
+                "ANTHROPIC_MODEL": "deepseek-v4-flash",
+            }
+            self.assertEqual(
+                statusline.resolve_model(payload, env, now=now),
+                "deepseek-v4-flash",
+            )
+
+    def test_claude1_live_hub_route_strips_channel_alias_for_display(self) -> None:
+        payload = {"model": {"id": "claude-opus-5", "display_name": "Opus"}}
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "hub",
+            "CLAUDE1_CHANNEL_SELECTOR": "fixture-deep,deepseek-v4-flash",
+        }
+        self.assertEqual(
+            statusline.resolve_model(payload, env),
+            "deepseek-v4-flash",
+        )
+
     def test_missing_stdin_id_falls_back_to_process_model(self) -> None:
         payload = {"model": {"display_name": "Logical tier"}}
         self.assertEqual(

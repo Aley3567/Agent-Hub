@@ -146,6 +146,24 @@ def _model_from_env(model_id: str, env: dict[str, str]) -> str:
     return model_id
 
 
+def _claude1_live_route_model(env: dict[str, str]) -> str:
+    """Return the model selected by claude1, when this is a claude1 process."""
+    source = env.get("CLAUDE1_SESSION_SOURCE", "")
+    if source == "hub":
+        selector = env.get("CLAUDE1_CHANNEL_SELECTOR", "")
+        _alias, separator, model = selector.partition(",")
+        return model if separator and model else selector
+    if source == "provider":
+        model = env.get("ANTHROPIC_MODEL", "")
+        if model:
+            return model
+        for tier in MODEL_TIERS:
+            model = env.get(f"ANTHROPIC_DEFAULT_{tier}_MODEL", "")
+            if model:
+                return env.get(f"ANTHROPIC_DEFAULT_{tier}_MODEL_NAME") or model
+    return ""
+
+
 def _current_provider_env(db_path: Path) -> dict[str, str]:
     if not db_path.is_file():
         return {}
@@ -221,6 +239,9 @@ def resolve_model(
     ui_name = str(model.get("display_name") or "?") if isinstance(model, dict) else "?"
     model_id = str(model.get("id") or "") if isinstance(model, dict) else ""
     mapped = mapped_model(payload, env)
+    live_route = _claude1_live_route_model(env)
+    if live_route:
+        return live_route
     actual = latest_response_model(payload.get("transcript_path"), now=now)
     if actual:
         if mapped and _without_1m(mapped) == _without_1m(actual):

@@ -66,6 +66,7 @@ def isolated_env(home: Path, **overrides: str) -> dict[str, str]:
         "CLAUDE1_ACCOUNT_POOL_STATE": str(state / "account-state.sqlite3"),
         "CLAUDE1_BACKEND_STATE": str(state / "last-session.json"),
         "CLAUDE1_BACKEND_STICKY": str(state / "sticky"),
+        "CLAUDE1_SESSION_ROUTES_PATH": str(state / "session-routes.json"),
         "CLAUDE1_ANYROUTER_OBSERVER": str(home / "bin" / "observer"),
         "CLAUDE1_ANYROUTER_SETTINGS": str(home / "settings" / "anyrouter.json"),
         "CLAUDE1_NOTION_MCP": str(home / "settings" / "notion.json"),
@@ -484,6 +485,56 @@ class LauncherTuiLogicTests(unittest.TestCase):
                 self.assertNotIn("private.invalid", prompt)
                 self.assertNotIn("private-provider-id", prompt)
                 self.assertEqual(args[2:], ["-p", "--", "which channel?"])
+
+    def test_resume_route_metadata_distinguishes_history_from_live_route(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            home = Path(raw_home)
+            env = isolated_env(home)
+            session_id = "11111111-1111-4111-8111-111111111111"
+            project_key = str(Path.cwd().resolve()).replace("/", "-")
+            transcript_dir = home / ".claude" / "projects" / project_key
+            transcript_dir.mkdir(parents=True)
+            (transcript_dir / f"{session_id}.jsonl").write_text(
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "message": {"model": "claude-opus-5"},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with loaded_launcher(env) as launcher:
+                route = {
+                    "source": "provider",
+                    "provider_id": "provider-deep",
+                    "provider_name": "fixture-deep-provider",
+                    "api_format": "openai_responses",
+                    "selector": "id:provider-deep",
+                    "model": "deepseek-v4-flash",
+                }
+                with redirect_stdout(io.StringIO()) as output:
+                    resumed = launcher._resume_route_notice(
+                        ["--resume", session_id], route
+                    )
+                launcher._record_session_route(resumed, route)
+
+            self.assertEqual(resumed, session_id)
+            self.assertIn("历史模型=claude-opus-5", output.getvalue())
+            self.assertIn(
+                "本次路由=fixture-deep-provider / deepseek-v4-flash",
+                output.getvalue(),
+            )
+            path = Path(env["CLAUDE1_SESSION_ROUTES_PATH"])
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                saved["sessions"][session_id]["provider_id"],
+                "provider-deep",
+            )
+            self.assertNotIn("token", path.read_text(encoding="utf-8").lower())
+            if os.name == "posix":
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_duplicate_names_migrate_to_stable_ids_without_collapsing(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -1460,7 +1511,7 @@ class ProviderModelEffortOverrideTests(unittest.TestCase):
         )
         self.assertEqual(settings["effortLevel"], "xhigh")
 
-    def test_build_settings_without_overrides_keeps_env_and_no_effort(self) -> None:
+    def test_build_settings_without_overrides_seals_model_and_effort(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             env = isolated_env(Path(raw_home))
             with loaded_launcher(env) as launcher:
@@ -1475,7 +1526,8 @@ class ProviderModelEffortOverrideTests(unittest.TestCase):
             settings["env"]["CLAUDE1_PROVIDER_NAME"], self._provider()["name"]
         )
         self.assertEqual(settings["env"]["CLAUDE1_API_FORMAT"], "anthropic")
-        self.assertNotIn("effortLevel", settings)
+        self.assertEqual(settings["model"], "fixture-env-model")
+        self.assertEqual(settings["effortLevel"], "medium")
 
     def test_build_settings_ignores_invalid_override_values(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -1495,7 +1547,8 @@ class ProviderModelEffortOverrideTests(unittest.TestCase):
                 settings = launcher.build_settings(self._provider())
 
         self.assertEqual(settings["env"]["ANTHROPIC_MODEL"], "fixture-env-model")
-        self.assertNotIn("effortLevel", settings)
+        self.assertEqual(settings["model"], "fixture-env-model")
+        self.assertEqual(settings["effortLevel"], "medium")
 
     def test_resolve_effective_model_priority(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -2114,7 +2167,8 @@ class LauncherSafetyTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as raw_home:
             with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
-                env = launcher.build_settings(provider)["env"]
+                settings = launcher.build_settings(provider)
+                env = settings["env"]
 
         # Sealed, not absent: an absent key falls through from user settings.
         self.assertIn("ANTHROPIC_MODEL", env)
@@ -2123,6 +2177,8 @@ class LauncherSafetyTests(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "claude-opus-5[1M]")
         self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "claude-opus-5[1M]")
         self.assertEqual(env["CLAUDE_CODE_SUBAGENT_MODEL"], "")
+        self.assertEqual(settings["model"], "claude-opus-5[1M]")
+        self.assertEqual(settings["effortLevel"], "medium")
 
     def test_explicit_proxy_removes_the_api_host_from_no_proxy_case_insensitively(self) -> None:
         provider = {
@@ -4112,6 +4168,15 @@ class LauncherSafetyTests(unittest.TestCase):
                 "grok,grok-4.5",
             )
             self.assertEqual(launched["argv"][-2:], ["--resume", session_id])
+            routes = json.loads(
+                Path(env["CLAUDE1_SESSION_ROUTES_PATH"]).read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                routes["sessions"][session_id]["selector"],
+                "grok,grok-4.5",
+            )
 
     def test_hub_native_model_slots_route_fixture_and_other_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
