@@ -3240,6 +3240,50 @@ class ResponseCapabilityContractTests(unittest.TestCase):
             with self.subTest(body=body):
                 self.assertEqual(protocol.upstream_error_evidence(body), expected)
 
+    def test_html_error_pages_keep_their_title_and_server_signature(self) -> None:
+        # 中转网关用 nginx/CDN 的 HTML 页回自己的超时，没有 JSON 信封。整段丢掉
+        # 会让 journal 只剩一个状态码——分不出是网关闸门还是源站故障，也认不出
+        # 是哪一跳生成的。真实 nginx 504 页正好 160B，逐字复刻在这里。
+        nginx_504 = (
+            "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n"
+            "<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n"
+            "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+        )
+        self.assertEqual(len(nginx_504.encode()), 160)
+        self.assertEqual(
+            protocol.upstream_error_evidence(nginx_504),
+            (None, "504 Gateway Time-out / nginx"),
+        )
+
+        # 没有 <title> 时回落到 <h1>；缺服务器签名也不影响取证。
+        self.assertEqual(
+            protocol.upstream_error_evidence(
+                "<html><body><h1>502 Bad Gateway</h1></body></html>"
+            ),
+            (None, "502 Bad Gateway"),
+        )
+
+        # HTML 里的凭证形状仍然过脱敏器，与 JSON 通道同一条规则。
+        code, message = protocol.upstream_error_evidence(
+            "<html><head><title>401 from https://relay.invalid/v1</title></head></html>"
+        )
+        self.assertIsNone(code)
+        self.assertIn("[redacted-url]", message)
+        self.assertNotIn("relay.invalid", message)
+
+        # 非 HTML 的纯文本不该被当页面解析，仍然 fail-closed 回落 None。
+        self.assertEqual(
+            protocol.upstream_error_evidence("upstream connect error"), (None, None)
+        )
+
+        # 取证要真的走到下游错误体，否则客户端看到的仍是一个裸状态码。
+        downstream = protocol.transform_error(nginx_504, 504)
+        self.assertEqual(downstream["error"]["type"], "timeout_error")
+        self.assertEqual(
+            downstream["error"]["message"],
+            "upstream HTTP 504: 504 Gateway Time-out / nginx",
+        )
+
     def test_sanitizer_redacts_assignment_and_key_shapes(self) -> None:
         # 原来只脱敏 Bearer 与 URL，token=xxx 这类赋值形状会漏。流中错误
         # 详情要透传，前提就是清洗器先覆盖这些形状。

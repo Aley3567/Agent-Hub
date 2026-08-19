@@ -449,6 +449,39 @@ class ClaudeHubTests(unittest.TestCase):
         if os.name == "posix":
             self.assertEqual(self.errors_file.stat().st_mode & 0o777, 0o600)
 
+    def test_error_journal_attributes_the_upstream_and_its_latency(self):
+        # Without these, an upstream failure cannot be attributed to the account
+        # that produced it, and a gateway-imposed timeout cannot be told apart
+        # from a fast rejection — the latency distribution is what reveals it.
+        hub.record_error(
+            phase="response",
+            channel="fast",
+            model="fixture-model",
+            api_format="anthropic",
+            status=504,
+            message="504 Gateway Time-out / nginx",
+            instance_id="fixture-hub",
+            account_id="id:fixture-account",
+            elapsed_ms=120471,
+        )
+
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["hub"], "fixture-hub")
+        self.assertEqual(row["account"], "id:fixture-account")
+        self.assertEqual(row["ms"], 120471)
+        # Same journal keys record_usage already uses, so one ledger can be
+        # joined to the other without a translation table.
+        self.assertEqual(row["message"], "504 Gateway Time-out / nginx")
+
+    def test_error_journal_omits_absent_attribution_fields(self):
+        # A transport failure before any response has no account to name; the
+        # keys must be absent rather than written as null.
+        hub.record_error(phase="response", channel="fast", exc_type="ClientConnectorError")
+
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        for key in ("hub", "account", "ms"):
+            self.assertNotIn(key, row)
+
     def test_error_journal_records_unique_degrade_codes(self):
         hub.record_error(
             phase="response",
@@ -2811,6 +2844,12 @@ class ClaudeHubTests(unittest.TestCase):
             row["deg"],
             ["HUB_DEGRADE_UNKNOWN_REQUEST_FIELD_DROPPED"],
         )
+        # The journal must carry the status the client actually got, plus the
+        # account and latency that produced it; a null status made this class of
+        # 502 invisible to "how many 502s were there" queries.
+        self.assertEqual(row["status"], 502)
+        self.assertEqual(row["account"], "id:Fixture HTTPS")
+        self.assertIsInstance(row["ms"], int)
         self.assertFalse(self.usage_file.exists())
 
     def test_transformed_connect_failure_persists_request_degrade(self):
@@ -2843,6 +2882,12 @@ class ClaudeHubTests(unittest.TestCase):
             row["deg"],
             ["HUB_DEGRADE_UNKNOWN_REQUEST_FIELD_DROPPED"],
         )
+        # Failing before any response means no account was ever leased, so the
+        # key is absent instead of guessed. Reading it eagerly here would raise
+        # NameError straight through the forwarding path.
+        self.assertEqual(row["status"], 502)
+        self.assertNotIn("account", row)
+        self.assertIsInstance(row["ms"], int)
 
     def test_nonstream_transformed_upstream_error_persists_request_degrade(self):
         self._set_provider_endpoint(

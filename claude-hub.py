@@ -457,12 +457,19 @@ def record_error(
     message: str | None = None,
     exc_type: str | None = None,
     route: str | None = None,
+    instance_id: str | None = None,
+    account_id: str | None = None,
+    elapsed_ms: int | None = None,
     degrade_codes: tuple[str, ...] = (),
 ) -> None:
     """把一条已脱敏的错误事件追加到 JSONL。绝不能搞挂转发主路径，全部异常静默。
 
     ``code``/``message`` 只接受 ``upstream_error_evidence`` /
     ``sanitize_error_text`` 清洗过的文本；请求或响应 payload 一律不落盘。
+
+    ``instance_id``/``account_id``/``elapsed_ms`` 与 ``record_usage`` 同名同义；
+    少了它们，一次上游故障事后无法归因到具体上游账号，也看不出是快速拒绝还是
+    网关超时——上游侧的超时闸门只能靠耗时分布认出来。
     """
     try:
         row: dict = {"ts": int(time.time()), "phase": phase}
@@ -475,6 +482,9 @@ def record_error(
             ("message", message),
             ("exc", exc_type),
             ("route", route),
+            ("hub", instance_id),
+            ("account", account_id),
+            ("ms", elapsed_ms),
         ):
             if value is not None:
                 row[key] = value
@@ -1300,6 +1310,7 @@ class RouteTargetExhausted(Exception):
         retry_after: str | None = None,
         *,
         alias: str | None = None,
+        account_id: str | None = None,
         evidence_code: str | None = None,
         evidence_message: str | None = None,
         degrade_codes: tuple[str, ...] = (),
@@ -1308,13 +1319,21 @@ class RouteTargetExhausted(Exception):
         self.status = status
         self.retry_after = retry_after
         self.alias = alias
+        # The account that refused this request. Route exhaustion has to
+        # answer "which account rejected it"; without this the journal only
+        # keeps a channel alias and a status code.
+        self.account_id = account_id
         self.evidence_code = evidence_code
         self.evidence_message = evidence_message
         self.degrade_codes = tuple(degrade_codes)
 
 
 async def _route_target_exhausted(
-    upstream, alias: str, *, degrade_codes: tuple[str, ...] = ()
+    upstream,
+    alias: str,
+    *,
+    account_id: str | None = None,
+    degrade_codes: tuple[str, ...] = (),
 ) -> RouteTargetExhausted:
     """Build a RouteTargetExhausted carrying sanitized upstream evidence.
 
@@ -1337,6 +1356,7 @@ async def _route_target_exhausted(
         upstream.status,
         upstream.headers.get("retry-after"),
         alias=alias,
+        account_id=account_id,
         evidence_code=evidence_code,
         evidence_message=evidence_message,
         degrade_codes=degrade_codes,
@@ -2856,6 +2876,11 @@ async def _handle_transformed_messages(
     session = _upstream_session(request)
     timeout = aiohttp.ClientTimeout(total=None, connect=15, sock_read=600)
 
+    # Attribution sentinel: a transport that fails before any response
+    # arrives never binds ``account_attempt``, so referencing it from the
+    # except clause would take down the forwarding path with a NameError.
+    journal_account: str | None = None
+
     try:
         async with _post_with_account_failover(
             session=session,
@@ -2867,6 +2892,7 @@ async def _handle_transformed_messages(
             transport_policy=target.transport_policy(cfg, url),
             log_context=f"{request.path} '{model_in}' -> {alias}/{model_out}",
         ) as (upstream, account_attempt):
+            journal_account = account_attempt.lease.member
             if route_failover and upstream.status in ROUTE_FAILOVER_STATUSES:
                 # Every account and transport of this target rejected the
                 # request before any content was generated; the body is still
@@ -2874,6 +2900,7 @@ async def _handle_transformed_messages(
                 raise await _route_target_exhausted(
                     upstream,
                     alias,
+                    account_id=journal_account,
                     degrade_codes=request_warning_codes,
                 )
             content_type = (
@@ -2919,6 +2946,9 @@ async def _handle_transformed_messages(
                         code=evidence_code,
                         message=evidence_message,
                         route=route_name,
+                        instance_id=cfg.get("instance_id"),
+                        account_id=journal_account,
+                        elapsed_ms=int((time.monotonic() - started) * 1000),
                         degrade_codes=request_warning_codes,
                     )
                     error_headers = {
@@ -3066,6 +3096,9 @@ async def _handle_transformed_messages(
                         message=bridge.terminal_error_message,
                         exc_type="UpstreamSSEError",
                         route=route_name,
+                        instance_id=cfg.get("instance_id"),
+                        account_id=journal_account,
+                        elapsed_ms=int((time.monotonic() - started) * 1000),
                         degrade_codes=warning_codes,
                     )
                 else:
@@ -3130,6 +3163,9 @@ async def _handle_transformed_messages(
                     message=message,
                     exc_type=type(exc).__name__,
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=warning_codes,
                 )
                 if getattr(bridge, "stopped", False):
@@ -3213,6 +3249,10 @@ async def _handle_transformed_messages(
                 f"protocol transform failed at {exc.path or '$'}"
             ),
             route=route_name,
+            status=502,
+            instance_id=cfg.get("instance_id"),
+            account_id=journal_account,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
             degrade_codes=request_warning_codes,
         )
         return anthropic_error(
@@ -3232,6 +3272,10 @@ async def _handle_transformed_messages(
             api_format=api_format,
             exc_type=type(exc).__name__,
             route=route_name,
+            status=502,
+            instance_id=cfg.get("instance_id"),
+            account_id=journal_account,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
             degrade_codes=request_warning_codes,
         )
         return anthropic_error(
@@ -3353,6 +3397,9 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
             code=last_exhausted.evidence_code,
             message=last_exhausted.evidence_message,
             route=route_name,
+            instance_id=cfg.get("instance_id"),
+            account_id=last_exhausted.account_id,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
             degrade_codes=last_exhausted.degrade_codes,
         )
         response = anthropic_error(
@@ -3500,6 +3547,9 @@ async def _forward_to_channel(
         ensure_1m_beta(headers, model_out)
         return headers
 
+    # Same attribution sentinel as the transformed path; reasoning there.
+    journal_account: str | None = None
+
     try:
         async with _post_with_account_failover(
             session=session,
@@ -3511,6 +3561,7 @@ async def _forward_to_channel(
             transport_policy=target.transport_policy(cfg, url),
             log_context=f"{request.path} '{model_in}' -> {alias}/{model_out}",
         ) as (upstream, account_attempt):
+            journal_account = account_attempt.lease.member
             if route_failover and upstream.status in ROUTE_FAILOVER_STATUSES:
                 # Every account and transport of this target rejected the
                 # request before any content was generated; the buffered body
@@ -3518,6 +3569,7 @@ async def _forward_to_channel(
                 raise await _route_target_exhausted(
                     upstream,
                     alias,
+                    account_id=journal_account,
                     # A journal row attributes one failure, it never feeds a
                     # per-turn counter, so count probes keep their degrade
                     # codes here even though they no longer record usage.
@@ -3574,6 +3626,9 @@ async def _forward_to_channel(
                     code=evidence_code,
                     message=evidence_message,
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=protocol_warning_codes,
                 )
                 error_headers = {
@@ -3724,6 +3779,9 @@ async def _forward_to_channel(
                     ),
                     exc_type=type(exc).__name__,
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=protocol_warning_codes,
                 )
                 transport = request.transport
@@ -3751,6 +3809,9 @@ async def _forward_to_channel(
                     api_format="anthropic",
                     exc_type="IncompleteSSE",
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=protocol_warning_codes,
                 )
                 transport = request.transport
@@ -3769,6 +3830,9 @@ async def _forward_to_channel(
                     api_format="anthropic",
                     exc_type="UpstreamSSEError",
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=protocol_warning_codes,
                 )
             elif usage_tracker is not None and not is_count:
@@ -3838,6 +3902,9 @@ async def _forward_to_channel(
                     code=evidence_code,
                     message=evidence_message,
                     route=route_name,
+                    instance_id=cfg.get("instance_id"),
+                    account_id=journal_account,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
                     degrade_codes=protocol_warning_codes,
                 )
             log(
@@ -3892,6 +3959,10 @@ async def _forward_to_channel(
             api_format=api_format,
             exc_type=type(exc).__name__,
             route=route_name,
+            status=502,
+            instance_id=cfg.get("instance_id"),
+            account_id=journal_account,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
             degrade_codes=protocol_warning_codes,
         )
         return anthropic_error(

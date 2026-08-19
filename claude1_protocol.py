@@ -3947,6 +3947,51 @@ def sanitize_error_text(text: str) -> str | None:
     return candidate or None
 
 
+# Relays answer their own timeouts with an nginx or CDN error page rather than
+# a JSON envelope. Only the head of such a body is worth scanning: the useful
+# evidence is in <title>/<h1> and the server signature that follows the rule.
+_HTML_ERROR_SCAN_CHARS = 4096
+_HTML_ERROR_MARKUP = re.compile(
+    r"<\s*(?:!doctype\s+html|html|head|title|body|center|h1)\b", re.IGNORECASE
+)
+_HTML_ERROR_TITLE = re.compile(
+    r"<title[^>]*>(.*?)</\s*title\s*>", re.IGNORECASE | re.DOTALL
+)
+_HTML_ERROR_HEADING = re.compile(
+    r"<h1[^>]*>(.*?)</\s*h1\s*>", re.IGNORECASE | re.DOTALL
+)
+_HTML_ERROR_SERVER = re.compile(
+    r"<hr\s*/?>\s*<center[^>]*>(.*?)</\s*center\s*>", re.IGNORECASE | re.DOTALL
+)
+_HTML_ERROR_TAG = re.compile(r"<[^>]*>")
+
+
+def _html_error_summary(text: str) -> str | None:
+    """Reduce an HTML error page to one line of forwardable evidence.
+
+    A dropped HTML body left a bare status code in the journal, which cannot
+    distinguish a gateway-imposed read timeout from an origin failure, nor
+    attribute it to the hop that produced it. The page's own title and server
+    signature answer both, so they are kept while the markup is discarded.
+    """
+    head = text[:_HTML_ERROR_SCAN_CHARS]
+    if not _HTML_ERROR_MARKUP.search(head):
+        return None
+    parts: list[str] = []
+    for pattern in (_HTML_ERROR_TITLE, _HTML_ERROR_HEADING):
+        match = pattern.search(head)
+        if match is not None:
+            parts.append(match.group(1))
+            break
+    server = _HTML_ERROR_SERVER.search(head)
+    if server is not None:
+        parts.append(server.group(1))
+    cleaned = [
+        " ".join(_HTML_ERROR_TAG.sub(" ", part).split()) for part in parts
+    ]
+    return " / ".join(part for part in cleaned if part) or None
+
+
 def upstream_error_evidence(body: object) -> tuple[str | None, str | None]:
     """Extract sanitized (code, message) evidence from an upstream error body.
 
@@ -3959,7 +4004,9 @@ def upstream_error_evidence(body: object) -> tuple[str | None, str | None]:
     is not a short identifier becomes None rather than being forwarded.
     Besides the canonical ``{"error": {...}}`` envelope, common relay shapes
     (top-level ``message``/``detail``/``msg``, string ``error``) are accepted
-    so gateways that skip the envelope still surface their real reason.
+    so gateways that skip the envelope still surface their real reason. A body
+    that is an HTML error page instead of JSON is reduced to its title and
+    server signature rather than discarded.
     """
     if isinstance(body, str):
         try:
@@ -3968,6 +4015,10 @@ def upstream_error_evidence(body: object) -> tuple[str | None, str | None]:
             decoded_body = None
         if isinstance(decoded_body, dict):
             body = decoded_body
+        else:
+            html_summary = _html_error_summary(body)
+            if html_summary is not None:
+                return None, sanitize_error_text(html_summary)
     error = body.get("error") if isinstance(body, dict) else None
     source_code = error.get("code") if isinstance(error, dict) else None
     source_message = error.get("message") if isinstance(error, dict) else None

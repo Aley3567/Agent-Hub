@@ -44,4 +44,5 @@
 - `work-queue.md` — 跨战线主队列;唯一的"下一件事"来源,从顶部拿活
 - `p0-tasks.md` — 观测出口战线的细化队列(work-queue 的 S5)
 - `review-findings-2026-08-17.md` — 审查发现清单;R1–R6 是 T0.6 前置
+- `error-attribution-diagnosis-2026-08-20.md` — 502/504 归因诊断与观测出口修复
 - `publishing.md` — npm 发布 runbook
