@@ -898,11 +898,33 @@ class StreamStateMachineContractTests(unittest.TestCase):
         self.assertIsNone(opaque.terminal_error_code)
         self.assertIsNone(opaque.terminal_error_message)
 
+        # 失败快照带 failed_at 一类的未知元数据时仍要进错误终态:拒绝它只会
+        # 把上游的真实失败原因换成一条无关的协议错误。
+        tolerated = protocol.AnthropicStreamBridge("openai_responses")
+        tolerated.feed(
+            "response.failed",
+            json.dumps(
+                {
+                    "type": "response.failed",
+                    "response": {
+                        "status": "failed",
+                        "error": {"message": "boom"},
+                        "future_response_field": True,
+                    },
+                }
+            ),
+        )
+        self.assertTrue(tolerated.error_terminal)
+        self.assertEqual(tolerated.terminal_error_message, "boom")
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            tolerated.warning_codes,
+        )
+
         for response in (
             "malformed",
             {"status": "completed", "error": {"message": "wrong status"}},
             {"status": "failed", "error": "malformed"},
-            {"status": "failed", "future_response_field": True},
             {
                 "status": "failed",
                 "error": {"message": "boom"},
@@ -1506,13 +1528,6 @@ class StreamStateMachineContractTests(unittest.TestCase):
                 "name": "lookup",
                 "arguments": 123,
             },
-            {
-                "type": "function_call",
-                "id": "fc_1",
-                "call_id": "call_1",
-                "name": "lookup",
-                "future_field": True,
-            },
         )
         for item in invalid_items:
             with self.subTest(item=item):
@@ -1525,6 +1540,36 @@ class StreamStateMachineContractTests(unittest.TestCase):
                         ),
                     )
                 self.assertEqual(raised.exception.code, "HUB_SSE_TOOL_CALL_INVALID")
+
+    def test_responses_stream_function_call_metadata_degrades(self) -> None:
+        item = {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "lookup",
+            "future_field": True,
+        }
+        bridge = protocol.AnthropicStreamBridge("openai_responses")
+        chunks = bridge.feed(
+            "response.output_item.added",
+            json.dumps({"type": "response.output_item.added", "item": item}),
+        )
+        self.assertTrue(chunks)
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_TOOL_CALL_METADATA_DROPPED",
+            bridge.warning_codes,
+        )
+
+        strict = protocol.AnthropicStreamBridge(
+            "openai_responses",
+            compatibility_mode="strict",
+        )
+        with self.assertRaises(protocol.ProtocolTransformError) as raised:
+            strict.feed(
+                "response.output_item.added",
+                json.dumps({"type": "response.output_item.added", "item": item}),
+            )
+        self.assertEqual(raised.exception.code, "HUB_SSE_TOOL_CALL_INVALID")
 
     def test_responses_tool_event_identities_require_typed_consistent_aliases(self) -> None:
         for payload, expected_code in (
@@ -1793,7 +1838,7 @@ class StreamStateMachineContractTests(unittest.TestCase):
         )
         self.assertEqual(terminal["delta"]["stop_reason"], "max_tokens")
 
-    def test_responses_terminal_snapshot_cannot_hide_output_or_unknown_fields(self) -> None:
+    def test_responses_terminal_snapshot_streams_output_and_degrades_unknown_fields(self) -> None:
         bridge = protocol.AnthropicStreamBridge("openai_responses")
         chunks = bridge.feed(
             "response.completed",
@@ -1831,20 +1876,23 @@ class StreamStateMachineContractTests(unittest.TestCase):
         )
 
         unknown = protocol.AnthropicStreamBridge("openai_responses")
-        with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            unknown.feed(
-                "response.completed",
-                json.dumps(
-                    {
-                        "type": "response.completed",
-                        "response": {
-                            "status": "completed",
-                            "future_response_field": True,
-                        },
-                    }
-                ),
-            )
-        self.assertEqual(raised.exception.code, "HUB_UPSTREAM_RESPONSE_INVALID")
+        unknown.feed(
+            "response.completed",
+            json.dumps(
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "output": [],
+                        "future_response_field": True,
+                    },
+                }
+            ),
+        )
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            unknown.warning_codes,
+        )
 
     def test_streamed_refusal_uses_refusal_stop_reason_for_both_adapters(self) -> None:
         chat = protocol.AnthropicStreamBridge("openai_chat")

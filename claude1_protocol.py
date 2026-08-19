@@ -470,6 +470,70 @@ def _record_lossy(
         plan.add(SupportDisposition.DEGRADED, code, path, feature)
 
 
+def _validate_tool_result_content(
+    content: object,
+    *,
+    plan: ConversionPlan | None,
+    compatibility_mode: str,
+    path: str,
+) -> None:
+    """Validate the safe carrier boundary for a client tool result.
+
+    The target protocols have only a text output field. A structured result is
+    carried as canonical JSON rather than interpreted block-by-block. That makes
+    newly introduced result parts forward compatible while keeping malformed,
+    non-JSON input outside the carrier.
+    """
+    if isinstance(content, str):
+        return
+    if not isinstance(content, list):
+        raise ProtocolRequestError(
+            "tool_result.content must be text or an array of content blocks",
+            code="HUB_INVALID_TOOL_RESULT_CONTENT",
+            path=path,
+        )
+    try:
+        json.dumps(content, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ProtocolRequestError(
+            "tool_result content must be JSON serializable",
+            code="HUB_INVALID_TOOL_RESULT_CONTENT",
+            path=path,
+        ) from exc
+    known_parts = {"text", "image", "document", "search_result"}
+    for index, part in enumerate(content):
+        part_path = f"{path}[{index}]"
+        if (
+            not isinstance(part, dict)
+            or not isinstance(part.get("type"), str)
+            or not part["type"]
+        ):
+            raise ProtocolRequestError(
+                "tool_result contains an unsupported nested content block",
+                code="HUB_UNSUPPORTED_TOOL_RESULT_PART",
+                path=part_path,
+            )
+        if part["type"] not in known_parts:
+            _record_lossy(
+                plan,
+                compatibility_mode=compatibility_mode,
+                code="HUB_DEGRADE_TOOL_RESULT_UNKNOWN_PART_ENVELOPED",
+                reject_code="HUB_UNSUPPORTED_TOOL_RESULT_PART",
+                path=part_path,
+                feature="unknown_tool_result_part",
+                message="tool_result contains a nested content part without a target-protocol mapping",
+            )
+            continue
+        _reject_unknown_fields(
+            part,
+            _CONTENT_BLOCK_FIELDS[part["type"]],
+            path=part_path,
+            code="HUB_UNSUPPORTED_CONTENT_FIELD",
+            label="nested content block",
+        )
+        _validate_content_block_details(part, path=part_path)
+
+
 def _tool_result_output(
     block: dict,
     *,
@@ -485,23 +549,15 @@ def _tool_result_output(
             code="HUB_INVALID_TOOL_RESULT_CONTENT",
             path=f"{path}.is_error",
         )
-    if isinstance(content, list):
-        allowed = {"text", "image", "document", "search_result"}
-        for index, part in enumerate(content):
-            part_path = f"{path}.content[{index}]"
-            if (
-                not isinstance(part, dict)
-                or not isinstance(part.get("type"), str)
-                or part["type"] not in allowed
-            ):
-                raise ProtocolRequestError(
-                    "tool_result contains an unsupported nested content block",
-                    code="HUB_UNSUPPORTED_TOOL_RESULT_PART",
-                    path=part_path,
-                )
+    _validate_tool_result_content(
+        content,
+        plan=plan,
+        compatibility_mode=compatibility_mode,
+        path=f"{path}.content",
+    )
     if isinstance(content, str) and not is_error:
         return content
-    if not isinstance(content, str):
+    if isinstance(content, list):
         _record_lossy(
             plan,
             compatibility_mode=compatibility_mode,
@@ -1929,7 +1985,13 @@ def _validate_source_fields(
         )
 
 
-def _validate_content_block_details(block: dict, *, path: str) -> None:
+def _validate_content_block_details(
+    block: dict,
+    *,
+    path: str,
+    plan: ConversionPlan | None = None,
+    compatibility_mode: str = "visible_lossy",
+) -> None:
     kind = block["type"]
     if kind == "text":
         if not isinstance(block.get("text"), str):
@@ -2041,35 +2103,12 @@ def _validate_content_block_details(block: dict, *, path: str) -> None:
                 code="HUB_INVALID_TOOL_RESULT_CONTENT",
                 path=f"{path}.is_error",
             )
-        content = block.get("content", "")
-        if isinstance(content, list):
-            allowed_nested = {"text", "image", "document", "search_result"}
-            for index, part in enumerate(content):
-                part_path = f"{path}.content[{index}]"
-                if (
-                    not isinstance(part, dict)
-                    or not isinstance(part.get("type"), str)
-                    or part["type"] not in allowed_nested
-                ):
-                    raise ProtocolRequestError(
-                        "tool_result contains an unsupported nested content block",
-                        code="HUB_UNSUPPORTED_TOOL_RESULT_PART",
-                        path=part_path,
-                    )
-                _reject_unknown_fields(
-                    part,
-                    _CONTENT_BLOCK_FIELDS[part["type"]],
-                    path=part_path,
-                    code="HUB_UNSUPPORTED_CONTENT_FIELD",
-                    label="nested content block",
-                )
-                _validate_content_block_details(part, path=part_path)
-        elif not isinstance(content, str):
-            raise ProtocolRequestError(
-                "tool_result.content must be text or an array of content blocks",
-                code="HUB_INVALID_TOOL_RESULT_CONTENT",
-                path=f"{path}.content",
-            )
+        _validate_tool_result_content(
+            block.get("content", ""),
+            plan=plan,
+            compatibility_mode=compatibility_mode,
+            path=f"{path}.content",
+        )
 
 _SERVER_BLOCK_CODES = {
     "bash_code_execution_tool_result": "HUB_UNSUPPORTED_SERVER_TOOL_RESULT",
@@ -2360,7 +2399,12 @@ def _parse_request_ir(
                     code="HUB_UNSUPPORTED_CONTENT_FIELD",
                     path=f"{block_path}.{field_name}",
                 )
-            _validate_content_block_details(raw_block, path=block_path)
+            _validate_content_block_details(
+                raw_block,
+                path=block_path,
+                plan=plan,
+                compatibility_mode=compatibility_mode,
+            )
             if role == "system" and kind != "text":
                 raise ProtocolRequestError(
                     "embedded system context can contain only text blocks",
@@ -2910,23 +2954,6 @@ def _validate_response_item_id(
         _record_response_metadata_degradation(plan, f"{path}.id")
 
 
-def _require_upstream_response_allowlist(
-    value: dict,
-    allowed_fields: set[str],
-    *,
-    path: str,
-    label: str,
-) -> None:
-    unknown_fields = set(value) - allowed_fields
-    if unknown_fields:
-        field_name = sorted(unknown_fields)[0]
-        raise ProtocolTransformError(
-            f"{label} field {field_name!r} is unsupported",
-            code="HUB_UPSTREAM_RESPONSE_INVALID",
-            path=f"{path}.{field_name}",
-        )
-
-
 def _require_upstream_field_allowlist(
     value: dict,
     allowed_fields: set[str],
@@ -3388,12 +3415,9 @@ def responses_to_anthropic(
     *,
     plan: ConversionPlan | None = None,
 ) -> tuple[dict, UsageReceipt]:
-    _require_upstream_response_allowlist(
-        body,
-        _RESPONSES_STREAM_RESPONSE_FIELDS,
-        path="$",
-        label="OpenAI Responses response",
-    )
+    # 顶层字段不做白名单拒绝:上游网关常带 completed_at 之类的生命周期
+    # 元数据,拒绝会把整个可用响应变成 502。未消费的字段一律记
+    # HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED 后放行。
     for field_name in ("id", "model"):
         if field_name in body and (
             not isinstance(body[field_name], str) or not body[field_name]
@@ -4213,40 +4237,6 @@ _RESPONSES_SSE_EVENT_FIELDS = {
     "response.queued": {"type", "sequence_number", "response"},
     "response.failed": {"type", "sequence_number", "response", "error"},
     "error": {"type", "sequence_number", "error"},
-}
-
-_RESPONSES_STREAM_RESPONSE_FIELDS = {
-    "id",
-    "object",
-    "created_at",
-    "status",
-    "background",
-    "error",
-    "incomplete_details",
-    "instructions",
-    "max_output_tokens",
-    "max_tool_calls",
-    "metadata",
-    "model",
-    "output",
-    "parallel_tool_calls",
-    "previous_response_id",
-    "prompt",
-    "prompt_cache_key",
-    "prompt_cache_retention",
-    "reasoning",
-    "safety_identifier",
-    "service_tier",
-    "store",
-    "temperature",
-    "text",
-    "tool_choice",
-    "tools",
-    "top_logprobs",
-    "top_p",
-    "truncation",
-    "usage",
-    "user",
 }
 
 
@@ -5899,14 +5889,7 @@ class AnthropicStreamBridge:
             )
 
     def _validate_response_snapshot_fields(self, response: dict) -> None:
-        unknown_fields = set(response) - _RESPONSES_STREAM_RESPONSE_FIELDS
-        if unknown_fields:
-            field_name = sorted(unknown_fields)[0]
-            raise ProtocolTransformError(
-                f"Responses response snapshot field {field_name!r} is unsupported",
-                code="HUB_UPSTREAM_RESPONSE_INVALID",
-                path=f"$.response.{field_name}",
-            )
+        # 与 responses_to_anthropic 同一档位:未知顶层字段只记降级,不拒绝。
         for field_name in ("id", "model"):
             if field_name in response and (
                 not isinstance(response[field_name], str) or not response[field_name]
@@ -6084,11 +6067,16 @@ class AnthropicStreamBridge:
             "input",
             "status",
         }
-        if set(item) - allowed_fields:
-            raise ProtocolTransformError(
-                "Responses function call item has unsupported fields",
-                code="HUB_SSE_TOOL_CALL_INVALID",
-            )
+        unknown_fields = set(item) - allowed_fields
+        if unknown_fields:
+            field_name = sorted(unknown_fields)[0]
+            if self.compatibility_mode == "strict":
+                raise ProtocolTransformError(
+                    "Responses function call item has unsupported fields",
+                    code="HUB_SSE_TOOL_CALL_INVALID",
+                    path=f"$.item.{field_name}",
+                )
+            self._observe("HUB_DEGRADE_UPSTREAM_TOOL_CALL_METADATA_DROPPED")
         if item.get("type") != "function_call":
             raise ProtocolTransformError(
                 "Responses streamed tool call type must be function_call",

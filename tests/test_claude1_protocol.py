@@ -691,6 +691,66 @@ class ResponseTransformTests(unittest.TestCase):
         self.assertEqual(body["usage"]["input_tokens"], 4)
         self.assertEqual(body["usage"]["output_tokens"], 2)
 
+    def test_responses_unknown_top_level_metadata_degrades_instead_of_failing(
+        self,
+    ) -> None:
+        # 上游网关会带 completed_at 一类的生命周期时间戳。拒绝它等于把一个
+        # 完全可用的响应变成 502,所以未消费的顶层字段只记降级。
+        prepared = protocol.prepare_response(
+            {
+                "id": "resp_1",
+                "model": "responses-model",
+                "status": "completed",
+                "created_at": 1787152548,
+                "completed_at": 1787152560,
+                "conversation": {"id": "conv_1"},
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "answer"}],
+                    }
+                ],
+                "usage": {"input_tokens": 4, "output_tokens": 2},
+            },
+            "openai_responses",
+        )
+        self.assertEqual(
+            prepared.payload["content"],
+            [{"type": "text", "text": "answer"}],
+        )
+        self.assertEqual(prepared.payload["stop_reason"], "end_turn")
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            prepared.plan.warning_codes,
+        )
+
+    def test_responses_error_and_identity_still_fail_closed(self) -> None:
+        # 放行只针对未知元数据。错误体和 id/model 形状仍然是拒绝档。
+        with self.assertRaises(protocol.ProtocolTransformError) as raised:
+            protocol.transform_response(
+                {
+                    "status": "completed",
+                    "completed_at": 1787152560,
+                    "output": [],
+                    "error": {"code": "upstream_failed"},
+                },
+                "openai_responses",
+            )
+        self.assertEqual(raised.exception.code, "HUB_UPSTREAM_RESPONSE_INVALID")
+        self.assertEqual(raised.exception.path, "$.error")
+
+        with self.assertRaises(protocol.ProtocolTransformError) as raised:
+            protocol.transform_response(
+                {
+                    "id": "",
+                    "status": "completed",
+                    "completed_at": 1787152560,
+                    "output": [],
+                },
+                "openai_responses",
+            )
+        self.assertEqual(raised.exception.path, "$.id")
+
 
 class StreamingTransformTests(unittest.TestCase):
     def test_responses_non_tool_output_item_added_requires_an_output_index(self) -> None:
@@ -727,6 +787,54 @@ class StreamingTransformTests(unittest.TestCase):
 
     def _feed_responses_item(self, bridge, event: str, payload: dict) -> None:
         bridge.feed(event, json.dumps({"type": event, **payload}))
+
+    def test_responses_snapshot_unknown_metadata_degrades_instead_of_failing(
+        self,
+    ) -> None:
+        # response.completed 的快照带 completed_at 时,曾把整条已完成的流拒成
+        # 502。未知元数据只记降级,终态仍然来自上游的真实终态。
+        for kind, status in (
+            ("response.created", "in_progress"),
+            ("response.completed", "completed"),
+        ):
+            with self.subTest(event=kind):
+                bridge = protocol.AnthropicStreamBridge("openai_responses")
+                self._feed_responses_item(
+                    bridge,
+                    kind,
+                    {
+                        "response": {
+                            "id": "resp_1",
+                            "model": "responses-model",
+                            "status": status,
+                            "created_at": 1787152548,
+                            "completed_at": 1787152560,
+                            "output": [],
+                        }
+                    },
+                )
+                self.assertIn(
+                    "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+                    bridge.warning_codes,
+                )
+
+    def test_responses_snapshot_still_rejects_conflicting_terminal_state(self) -> None:
+        # 放行只针对未知元数据:终态冲突和错误体仍然是拒绝档。
+        bridge = protocol.AnthropicStreamBridge("openai_responses")
+        with self.assertRaises(protocol.ProtocolTransformError) as raised:
+            self._feed_responses_item(
+                bridge,
+                "response.completed",
+                {
+                    "response": {
+                        "status": "completed",
+                        "completed_at": 1787152560,
+                        "output": [],
+                        "error": {"code": "upstream_failed"},
+                    }
+                },
+            )
+        self.assertEqual(raised.exception.path, "$.response.error")
 
     def test_response_output_item_registries_are_bounded(self) -> None:
         item = {

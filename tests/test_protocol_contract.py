@@ -479,6 +479,74 @@ class RequestCapabilityContractTests(unittest.TestCase):
                         "$.messages[1].content[0].content",
                     )
 
+    def test_unknown_tool_result_part_uses_a_lossless_json_envelope(self) -> None:
+        parts = [
+            {"type": "tool_reference", "tool_name": "WebFetch"},
+            {"type": "tool_reference", "tool_name": "WebSearch"},
+        ]
+        payload = {
+            "model": "fixture-model",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "call_1",
+                            "name": "ToolSearch",
+                            "input": {},
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "call_1",
+                            "content": parts,
+                        }
+                    ],
+                },
+            ],
+        }
+        expected = {
+            "type": "anthropic_tool_result",
+            "is_error": False,
+            "content": parts,
+        }
+        for api_format in ("openai_chat", "openai_responses"):
+            with self.subTest(api_format=api_format):
+                prepared = protocol.prepare_request(payload, api_format)
+                if api_format == "openai_chat":
+                    output = next(
+                        message["content"]
+                        for message in prepared.payload["messages"]
+                        if message["role"] == "tool"
+                    )
+                else:
+                    output = next(
+                        item["output"]
+                        for item in prepared.payload["input"]
+                        if item.get("type") == "function_call_output"
+                    )
+                self.assertEqual(json.loads(output), expected)
+                self.assertIn(
+                    "HUB_DEGRADE_TOOL_RESULT_UNKNOWN_PART_ENVELOPED",
+                    prepared.plan.warning_codes,
+                )
+
+                with self.assertRaises(protocol.ProtocolRequestError) as raised:
+                    protocol.prepare_request(
+                        payload,
+                        api_format,
+                        compatibility_mode="strict",
+                    )
+                self.assertEqual(
+                    raised.exception.code,
+                    "HUB_UNSUPPORTED_TOOL_RESULT_PART",
+                )
+
     def test_document_search_result_and_citations_degrade_to_provenance_text(self) -> None:
         payload = {
             "model": "fixture-model",
@@ -1353,7 +1421,6 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
 
         for body in (
-            {"status": "completed", "output": [], "future_response_field": True},
             {"id": {"hidden": True}, "status": "completed", "output": []},
             {"model": ["hidden"], "status": "completed", "output": []},
         ):
@@ -1384,6 +1451,16 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         self.assertIn(
             "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
             degraded.plan.warning_codes,
+        )
+
+        # 两种格式的顶层元数据必须同档:身份字段畸形才拒,未知字段只降级。
+        degraded_responses = protocol.prepare_response(
+            {"status": "completed", "output": [], "future_response_field": True},
+            "openai_responses",
+        )
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            degraded_responses.plan.warning_codes,
         )
 
     def test_chat_message_role_and_signatures_fail_closed(self) -> None:
