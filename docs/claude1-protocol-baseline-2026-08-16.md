@@ -1,5 +1,14 @@
 # claude1 协议实现只读基线调查报告
 
+> **2026-08-21 状态**：§6 的十个薄弱点是**未对账的隐形待办**——已知 #4 由 `p0-tasks.md` T0.0b、
+> #6 由 T0.0a 修掉，#5 对应 T0.0c 仍未完成，其余七项状态未核。**不要直接照 §6 判断现状**，
+> 对账工作已登记为 `work-queue.md` S10。原 §5（TODO/FIXME 扫描）已删除：其结论已上升为
+> `CLAUDE.md` 硬约束「仓库不留 TODO/FIXME 注释」，用 `rg "TODO|FIXME|HACK|XXX" --glob '*.py'`
+> 一条命令即可重验，不需要保留 2026-08-16 的快照。
+>
+> **失效条件**：§6 十项全部对账清零后，本文只余 §1 数据流描述；该描述被更新的架构文档
+> 取代之日即可归档。
+
 > 仓库：`/Users/admin/Desktop/claude-hub`
 > 调查日期：2026-08-16
 > 基线冻结：`docs/anthropic-protocol-implementation-status.md` 记载的 2026-08-10
@@ -167,21 +176,6 @@ _post_with_account_failover → UpstreamExecutor
 
 - `record_error()` 只写入：ts、phase、channel、model、format、status、code、message、route、exc_type；不写请求/响应 payload。见 `claude-hub.py:444-487`。
 - `record_usage()` 写入：in/out、cache、server_tool_use、source、method、exact、channel、model、account、instance。见 `claude-hub.py:388-443`。
-
----
-
-## 5. TODO / FIXME / HACK / XXX 与 xfail
-
-**结论：仓库中不存在 `TODO`、`FIXME`、`HACK`、`XXX` 注释，也不存在 `xfail`。**
-
-- 已用 `Grep` 扫描所有 `.py` 文件：无匹配。
-- 存在的跳过只有平台相关的 `@unittest.skipUnless`：
-  - `tests/test_account_pool.py:450` — POSIX 文件权限
-  - `tests/test_claude_hub.py:293, 436` — `O_NOFOLLOW`
-  - `tests/test_claude_hub.py:529, 574` — POSIX 权限
-  - `tests/test_launcher.py:1363, 1729, 4267, 4285` — POSIX 文件/锁安全
-
-这些不是功能 xfail，是跨平台能力守卫。
 
 ---
 

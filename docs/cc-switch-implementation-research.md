@@ -1,5 +1,9 @@
 # cc-switch 代理/格式转换实现调研 — 对照 claude1 的 id/response 兼容问题
 
+> **失效条件**：`CLAUDE.md` 硬约束「继承优先于发明」直接以本文为依据，该约束在位则本文在位。
+> 撤销那条约束、或本机克隆 `~/Documents/Codex/2026-06-07/cc-switch` 不再可达之日，才考虑归档。
+> 注意本文对照的是 HEAD `27c41f7`（约 v3.16.2），上游已到 v3.19.2——**结论按版本读，不按现状读**。
+
 > 调研日期：2026-08-16
 > 动机：claude1 的协议桥频繁出现 id/response 及各类不兼容问题；cc-switch(farion1231/cc-switch) 对 OpenAI 及各供应商格式兼容良好、且能完整暴露上游错误。本文记录 cc-switch 的实现构造原理，并对照本仓库 `claude1_protocol.py` 找出差距与可落地改进点。
 > 配套文档：本仓库实现基线见 [claude1-protocol-baseline-2026-08-16.md](claude1-protocol-baseline-2026-08-16.md)。

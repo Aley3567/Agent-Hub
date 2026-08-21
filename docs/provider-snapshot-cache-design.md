@@ -1,6 +1,7 @@
 # provider 快照 deep module 设计
 
-对应 `docs/tracer-bullet-audit.md`「阶段 2：CC Switch provider 快照热路径」的实施设计。
+对应「阶段 2：CC Switch provider 快照热路径」的实施设计（原出处 `docs/tracer-bullet-audit.md`
+已于 2026-08-21 删除；其端到端路径图与账号池边界契约已并入 `维护与兼容指南.md`）。
 本文只覆盖 Hub 侧 `get_providers()` 的深化，不改 launcher 的 `db_claude_rows()`。
 
 ## 1. 现状与成本

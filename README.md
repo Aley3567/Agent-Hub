@@ -9,7 +9,7 @@
 为本次 Claude Code 会话选择渠道 —— 不改全局配置，不接管 `claude`，不存储任何凭证
 
 <p>
-  <a href="https://github.com/Aley3567/claude-hub/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Aley3567/claude-hub/tests.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=TESTS&labelColor=3A3A3A"></a>
+  <a href="https://github.com/Aley3567/Agent-Hub/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Aley3567/Agent-Hub/tests.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=TESTS&labelColor=3A3A3A"></a>
   <img alt="Test cases" src="https://img.shields.io/badge/CASES-718-2563FF?style=for-the-badge&logo=pytest&logoColor=white&labelColor=3A3A3A">
   <img alt="Python" src="https://img.shields.io/badge/PYTHON-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=3A3A3A">
 </p>
@@ -68,7 +68,7 @@
 | **Codex CLI 同样支持** | `codex1` 用影子 `CODEX_HOME` + profile 层叠为本次 Codex 会话选渠道 | 不写用户任何文件；真实 `~/.codex/*` 与 CC Switch DB 全程只读 |
 
 设计上只有一条总规则：**协议数据默认放行，reject 只留给安全与因果**；失败绝不伪装成成功。
-详见 [AGENTS.md](AGENTS.md)。
+详见 [CLAUDE.md](CLAUDE.md)。
 
 <a id="architecture"></a>
 
@@ -135,8 +135,8 @@ graph TB
 ### 2 · 安装
 
 ```bash
-git clone https://github.com/Aley3567/claude-hub.git
-cd claude-hub
+git clone https://github.com/Aley3567/Agent-Hub.git
+cd Agent-Hub
 ./install.sh
 source ~/.zshrc
 ```
@@ -247,7 +247,7 @@ claude1
 
 模型覆盖写入 `ANTHROPIC_MODEL`（其余 `DEFAULT_*` 槽位不动）及临时 settings 的展示模型；effort
 覆盖写入临时 settings 的 `effortLevel`，与 Hub 槽位走同一字段。未设 effort 的普通 provider 默认
-`medium`，不会继承 CC Switch 当前 provider 的全局模型、`[1M]` 标记或 effort。
+`high`，不会继承 CC Switch 当前 provider 的全局模型、`[1M]` 标记或 effort。
 
 <a id="security"></a>
 
@@ -466,7 +466,7 @@ cc-switch 切 codex 渠道是**整体重建** `~/.codex/config.toml` 和 `auth.j
 | :--- | :--- |
 | **影子 `CODEX_HOME`** | `mkdtemp(mode 0700)`，把真实 `~/.codex` 下所有条目 symlink 进去；sessions / history / 日志照常写真实目录，退出时整个 `rmtree` |
 | **profile 层叠** | `config.toml` 仍 symlink 到真实文件，你的 mcp_servers / agents / tui / features 原样继承；渠道差异只写进影子里的 `codex1.config.toml`，靠 codex 原生的 `codex -p codex1` 层叠。**不自己 merge TOML** |
-| **段重命名 + `env_key`** | 把渠道 config 里 `model_provider` 指向的段重命名为 `[model_providers.codex1]`，profile 顶层写 `model_provider = "codex1"`；API key 类在段内写 `env_key = "CODEX1_API_KEY"`，key 只活在子进程环境变量里 |
+| **段重命名 + 影子认证** | 把渠道 config 里 `model_provider` 指向的段重命名为 `[model_providers.codex1]`，profile 顶层写 `model_provider = "codex1"`；API key 类写入一次性影子 `auth.json`，避免 Ghostty/不同 Codex 构建因不识别 `env_key` 跳到登录页 |
 
 两个刻意的 fail-fast：codex 对**不存在的 profile 名不报错**，会静默回落到基础 config —— 你以为切了
 渠道，其实账单和数据都去了别处，所以启动前断言影子里的 `codex1.config.toml` 存在且可读；同理，
@@ -653,20 +653,19 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 CI 在 `ubuntu-latest` 与 `macos-latest` 上跑 Python 3.11 / 3.12，并额外执行语法检查、
 凭证扫描与 shell 集成测试。
 
-改协议层必须同步补测试 —— 这条是硬约束，见 [AGENTS.md](AGENTS.md)。
+改协议层必须同步补测试 —— 这条是硬约束，见 [CLAUDE.md](CLAUDE.md)。
 
 ## 文档 · Docs
 
 | 文档 | 内容 |
 | :--- | :--- |
-| [AGENTS.md](AGENTS.md) | 协议宽容度总规则、fail-closed 边界与硬约束 |
+| [CLAUDE.md](CLAUDE.md) | 协议宽容度总规则、fail-closed 边界与硬约束 |
 | [docs/product-definition.md](docs/product-definition.md) | 产品边界、现状 / 待建清单与验收合同 |
 | [docs/维护与兼容指南.md](docs/维护与兼容指南.md) | 架构、常改文件、兼容层入口与安全发布流程 |
 | [docs/codex1-design.md](docs/codex1-design.md) | codex1 渠道启动器设计与已知取舍 |
 | [docs/anthropic-protocol-implementation-status.md](docs/anthropic-protocol-implementation-status.md) | 协议能力矩阵与 disposition registry |
 | [docs/transport-routing-design.md](docs/transport-routing-design.md) | transport 路由设计（已落地） |
 | [docs/claude1-protocol-baseline-2026-08-16.md](docs/claude1-protocol-baseline-2026-08-16.md) | 协议层基线与薄弱点 |
-| [docs/tracer-bullet-audit.md](docs/tracer-bullet-audit.md) | 端到端审计证据与分阶段性能优化合同 |
 | [docs/publishing.md](docs/publishing.md) | npm 发布 runbook 与发布前验证 |
 
 ## 路线图 · Roadmap

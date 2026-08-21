@@ -1,6 +1,16 @@
 # 审查发现清单：T0.1–T0.5 与已提交地基
 
-> 2026-08-17。四路并行代码审查（degrade 落盘主实现 · inventory 对账 · 已提交地基 4 commit · 测试有效性）的收敛结果，按 AGENTS.md 第 30 行"缺陷要么修要么记 `docs/`"落账。
+> **2026-08-21 待办出口**：本文剩余的 **R7（测试欠账）/ R8（文档与清理 8 项）**已登记为 `work-queue.md` 的 **S10**，由那里拆卡。
+> 本文自此只作**证据与历史**读，**不再是待办来源**——不要直接从本文拿活。
+>
+> **失效条件**：R7 / R8 拆卡完成后即可归档；R1–R6 的修复记录届时已由 git 历史与
+> 各自的测试承接，不必留在 docs/。
+>
+> **2026-08-21**：文中多处引用的 `degrade-inventory.md` 已删除（手工对账表必然脱节，
+> 判断改写进测试断言，见 `p0-tasks.md` T0.5）。那些引用只作历史读；
+> 要翻原表：`git log --diff-filter=D -- docs/degrade-inventory.md` 定位删除提交，取其父版本。
+
+> 2026-08-17。四路并行代码审查（degrade 落盘主实现 · inventory 对账 · 已提交地基 4 commit · 测试有效性）的收敛结果，按 `CLAUDE.md` 硬约束"缺陷要么修要么记 `docs/`"落账。
 >
 > **审查范围**：未提交工作树（`claude-hub.py` +414 / `tests/` +1885，即 T0.1–T0.5）+ 已进历史但未经独立 review 的 4 个 commit（`0270718` `90ad994` `5174724` `a3b3244`）。
 >
@@ -42,7 +52,7 @@ usage 一行不落（token 全丢），errors 落 `HUB_SSE_LATE_EVENT`。
 
 **根因**：`AnthropicStreamBridge.feed`（`claude1_protocol.py`，约 `:6075`）第一件事是 `if self.stopped: raise ... HUB_SSE_LATE_EVENT`，而 `[DONE]` 的处理分支在这个检查**之后**（约 `:6081`）。第一个 `[DONE]` 调 `finish()` 置 `stopped`，第二个即抛。随后 hub 的流式异常处理（`claude-hub.py` 约 `:3042-3074`）`record_error` 之后**无条件**写 `sse_event("error", …)`，没有"下游是否已收到终态"的守卫。
 
-**三重违宪**（AGENTS.md）：
+**三重违宪**（CLAUDE.md）：
 
 1. 第 12 行——尾随 `[DONE]` 既非安全事故也非因果事故，属"未知事件跳过 / 有损放行"档，却被 reject。
 2. 第 19 行——"终态只能来自上游的真实终态"，这里 hub 在真实终态之后**自造了第二个终态**。同样形状在 native 路径被 hub 自己判为 `protocol_error`（见 `_SSETerminalTracker._consume_line`）。
@@ -147,7 +157,7 @@ ok    'see [redacted-url] for detail'                                 ← URL �
 
 `Basic` 的根因是 `\S+` 只吃掉了 `Basic` 这个词本身，base64 载荷留在原地。
 
-**为什么是阻塞级**：踩的是 AGENTS.md 第 23 行的凭证 fail-closed 边界，且**"sanitizer 覆盖够了"正是 `90ad994` 敢转发上游 error detail 的前提**——前提不成立，整个放宽的安全论证就不成立。传播面三处：下游 error body、流式终态 error 事件、`*-errors.jsonl`（0600 但明文落盘）。
+**为什么是阻塞级**：踩的是 `CLAUDE.md`「仍然 fail-closed 的边界」里的凭证条款，且**"sanitizer 覆盖够了"正是 `90ad994` 敢转发上游 error detail 的前提**——前提不成立，整个放宽的安全论证就不成立。传播面三处：下游 error body、流式终态 error 事件、`*-errors.jsonl`（0600 但明文落盘）。
 
 **修法**：alternation 补 `cookie|set-cookie|session`；加 `Basic\s+\S+` 特判（同 `Bearer`）；`[=:]` 放宽到 `[=:\s]`，或另加 JWT 形状 `eyJ[A-Za-z0-9_-]{10,}\.`。
 
@@ -159,7 +169,7 @@ ok    'see [redacted-url] for detail'                                 ← URL �
 
 **修复记录（2026-08-17，未提交）**：四类全部堵住，实测输出见下。
 
-**一处修法偏离**：卡里建议的「`[=:]` 放宽到 `[=:\s]`」没有采用——它解决不了第 4 类（`x-api-key header abc123…` 里关键词后跟的是 `header`，放宽只会把 `header` 这个词脱敏、真凭证照样留下），却会把 `invalid token format`、`api key for model claude-opus-4-20250514` 这类正常措辞一并吃掉，踩 AGENTS.md 第 17 行「不裁剪语义」。改为：
+**一处修法偏离**：卡里建议的「`[=:]` 放宽到 `[=:\s]`」没有采用——它解决不了第 4 类（`x-api-key header abc123…` 里关键词后跟的是 `header`，放宽只会把 `header` 这个词脱敏、真凭证照样留下），却会把 `invalid token format`、`api key for model claude-opus-4-20250514` 这类正常措辞一并吃掉，踩 `CLAUDE.md`「三条覆盖大多数场景的判断」的「不裁剪语义」。改为：
 
 - `Bearer` 特判扩成 `(Bearer|Basic)`，保留原词、只换掉后面的载荷；
 - alternation 补 `set-cookie|cookie|session`；
@@ -221,7 +231,7 @@ OK  'session expired, please retry'                        → 原样
 
 | 坏字节落点 | 结果 | 依据 |
 |---|---|---|
-| 字符串值内（如中文被撕裂） | 变 U+FFFD 后**仍是合法 JSON**，整行照常读出，`skipped=0` | AGENTS.md 第 12 行"有损但能用 → 放行" |
+| 字符串值内（如中文被撕裂） | 变 U+FFFD 后**仍是合法 JSON**，整行照常读出，`skipped=0` | `CLAUDE.md` 总规则第 2 档"有损但能用 → 放行" |
 | 撕裂了 JSON 结构（写入被截断） | 替换后仍语法错误 → 计入 `skipped`，CLI 显示 | 合同原意 |
 
 两种落点下，**坏行前后的合法行都全部读出**——这才是 R6 的核心危害所在。
@@ -272,7 +282,7 @@ OK  'session expired, please retry'                        → 原样
 - README 的"只存脱敏后的 code / message 与渠道、模型"不成立——`model` 既未脱敏也未截长（见"存疑待决"）。【报告】
 - `claude-hub.py` 约 `:3335` 续行 f-string 缩进比兄弟行少 4 空格，语法合法（隐式拼接）但是手改残留。【已复现】
 - `_format_protocol_warnings` docstring 说原始 `CODE@path` 列表"grows quadratically"不准确——`warning_details` 已按 `(code, path)` 去重，增长是"不同 path 数"的线性；`x{count}` 数的也是不同 path 数而非 occurrence 数。【报告】
-- `0270718` 的两个已知 gap（`cli_check` 原样探测、`_transformed_headers` 不发 beta 头）只写在 commit message 里，`docs/` 零命中。AGENTS.md 第 30 行要求记 `docs/`——commit message 不是可检索的缺陷记录。【报告】
+- `0270718` 的两个已知 gap（`cli_check` 原样探测、`_transformed_headers` 不发 beta 头）只写在 commit message 里，`docs/` 零命中。`CLAUDE.md` 硬约束要求记 `docs/`——commit message 不是可检索的缺陷记录。【报告】
 - `HUB_USAGE_PROVENANCE_UNAVAILABLE` 经 `bridge.warning_codes` 混进 `deg`，被打印在"协议降级"段下，但它不是 `HUB_DEGRADE_*` 前缀，且 inventory 明确把它排除在 47 行之外。口径需对齐。【报告】
 - `~/.cc-switch/logs/claude-hub-usage.jsonl` 有一行 `"model":"fixture-model"`（ts ≈ 2026-08-11），说明隔离在过去泄漏过一次；当前套件复现不出。这行会污染真实 usage 统计，建议手工删。【报告】
 

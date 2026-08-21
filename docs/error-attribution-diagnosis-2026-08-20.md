@@ -1,5 +1,9 @@
 # claude-hub 502/504 归因诊断
 
+> **失效条件：无——本文永不归档。** 同 `cache-diagnosis-2026-08-19.md`：`504` 归因的五条证据
+> 与反面证据是唯一记录，结论落地不影响其价值。渠道化名（中转 A/B、渠道 C）的对应关系属
+> CC Switch 私密数据，按硬约束不入库，因此本文也是化名口径的唯一出处。
+
 诊断日期:2026-08-19 至 2026-08-20。数据源 `~/.cc-switch/logs/claude-hub-errors.jsonl`(269 条,
 08-16 至 08-19)、`claude-hub-usage.jsonl`(7905 条)与遗留桥日志 `$TMPDIR/claude1-bridge-*/hub.log`
 (12 份共 1607 条请求行)。起因是"明明开了梯子还是 502 直连错误"这一报告。
@@ -44,7 +48,7 @@ Responses 完成态响应体会带它。两条路径共用同一常量,一个字
 `Responses response snapshot field 'completed_at' is unsupported`);修复后两条路径都正常
 转换并记 `HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED`。
 
-这违反 AGENTS.md 的总规则:`completed_at` 是无害的生命周期元数据,属"有损但能用→放行并记
+这违反 CLAUDE.md 的总规则:`completed_at` 是无害的生命周期元数据,属"有损但能用→放行并记
 degrade"那一档。同一个 hub 里 `openai_chat` 的顶层未知元数据**早就是降级放行**,只有
 `openai_responses` 侧 fail-closed,两种格式的契约本就不对称。
 
@@ -96,12 +100,12 @@ degrade"那一档。同一个 hub 里 `openai_chat` 的顶层未知元数据**�
   08-19 峰值 2,2–4 个各烧 120s 的请求同时在飞,完成时刻自然每 20–40s 落一个。
 - **timeout 配置合理**。`ClientTimeout(total=None, connect=15, sock_read=600)`,600s 是闸门的
   5 倍,所以本地永不先超时——四天 280 条错误里 `asyncio.TimeoutError` / `ServerTimeoutError`
-  出现 **0 次**,每次超时都以上游真实状态码呈现,正是 AGENTS.md 要的行为。下调到 150s 会砍掉
+  出现 **0 次**,每次超时都以上游真实状态码呈现,正是 CLAUDE.md 要的行为。下调到 150s 会砍掉
   真实成功的长流(实测最长成功流 517.5s,最大流内空隙 117.8s)。
 
 ## 四、暴露出的观测缺陷(已修)
 
-排查过程本身撞上三处失明,均违反 AGENTS.md"保证事后能在 errors/usage 里查到":
+排查过程本身撞上三处失明,均违反 CLAUDE.md"保证事后能在 errors/usage 里查到":
 
 1. **协议转换类 502 不记 status**。`ProtocolTransformError` 与传输失败两个分支实际返回 502,
    `record_error` 却只记 `code`,导致 9 条 502 在 journal 里显示 `status: null`——"最近几日

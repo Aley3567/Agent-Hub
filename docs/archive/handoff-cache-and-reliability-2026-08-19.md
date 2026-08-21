@@ -1,8 +1,13 @@
 # 交接：缓存漏损与可靠性 —— 待讨论的决策点
 
+> **已归档 2026-08-21**。这次交接已闭环：§4 问题 1、2 由 `work-queue.md` S1 落地
+> （渠道默认 `passthrough`，仅 `native_system_role_mode: promote` 保留提升），问题 3 由 S3 承接。
+> §4 问题 4（`bytes_received` / `request_bytes` 仍缺）与问题 5（`TransportUnavailable` 37 条）
+> 已打捞进 S10。**§1.5 的 8 项排除以 `cache-diagnosis-2026-08-19.md` 为准**，本文不再维护。
+
 > 2026-08-19 生成。给接手讨论的 agent 用。**本文只陈述已验证事实与待决策问题，不含实现。**
 > 项目根：`/Users/admin/Desktop/claude-hub`　测试：`python3 -m unittest discover -s tests -p 'test_*.py'`
-> 项目原则见 `AGENTS.md`：协议代码**默认放行**，reject 只留给安全与因果；错误原样暴露、绝不伪装；能无损转就转。
+> 项目原则见 `CLAUDE.md`：协议代码**默认放行**，reject 只留给安全与因果；错误原样暴露、绝不伪装；能无损转就转。
 > 行号是 2026-08-19 快照，会漂移，以符号名为准。
 
 ## 0. 一句话背景
@@ -105,7 +110,7 @@ in=35263 cr=0     cw=46349
 **硬约束（无论选哪条）：逐轮增长的内容绝不能进 `system`。**
 
 - **方案 A（首选）**：对能接受 system-role 扩展的上游**原样透传，不提升**。
-  符合 AGENTS.md "能无损转 → 转"；提升反而是有损重排。
+  符合 CLAUDE.md "能无损转 → 转"；提升反而是有损重排。
   改动点是 `prepare_request`（`:2600-2608`）那个无条件分支。
   提升原本是为 SGLang 一类严格实现准备的（见 `docs/anthropic-protocol-implementation-status.md:29`）；
   Claude Code 直连官方 API 时本来就直接发 `messages[].role == "system"`，官方接受。
@@ -123,7 +128,7 @@ in=35263 cr=0     cw=46349
 1. 同一会话连续两轮请求，顶层 `system` **逐字不变**（回归点）
 2. 真实会话跑若干轮后 `cr` 从 0 变正，`cw` 趋近 0
 3. 提升路径（若保留）仍幂等、断点数量守恒、`cache_control` 不丢
-4. native 非流与流式路径各有回归；改协议层同步补测试（AGENTS.md 硬约束）
+4. native 非流与流式路径各有回归；改协议层同步补测试（CLAUDE.md 硬约束）
 5. 全量 `python3 -m unittest discover -s tests -p 'test_*.py'` 绿
 
 ---
@@ -214,7 +219,7 @@ in=35263 cr=0     cw=46349
 
 1. **方案 A 的"上游能力判定"该怎么设计？**
    候选：provider 白名单硬编码 / 运行时探测 + 结果缓存 / 读渠道配置里的 compatibility 字段 / 默认不提升 + 失败回退重试。
-   各自的代价是什么？考虑到 AGENTS.md 的"默认放行"，哪个最贴合？
+   各自的代价是什么？考虑到 CLAUDE.md 的"默认放行"，哪个最贴合？
 
 2. **如果探针返回 200，是否该干脆全局关掉提升？**
    提升是为 SGLang 一类严格实现准备的，但目前**没有任何证据表明现役上游需要它**。

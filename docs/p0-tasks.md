@@ -3,7 +3,12 @@
 > 2026-08-16。本文是 `claude1-refactor-design.md` P0 期的可执行队列。
 > **2026-08-19 起本文不再是"当前该干什么"的唯一来源**——跨战线主队列是 `work-queue.md`，
 > 本文是其中 S5（观测出口）战线的细化队列。开卡条件见 `work-queue.md` 的 S5 卡。
-> 方法论沿用 `tracer-bullet-audit.md`：**先让一个 degrade code 打穿全链路（曳光弹），再沿链路逐段加宽**；每卡带编号验收合同；已验证事实与待办分写，不凭想象排任务。
+> 方法论（原出处 `tracer-bullet-audit.md` 已于 2026-08-21 删除，在此内联）：**先让一个 degrade code 打穿全链路（曳光弹），再沿链路逐段加宽**；每卡带编号验收合同；已验证事实与待办分写，不凭想象排任务。
+>
+> **2026-08-21 清理**：T0.0a ✅ / T0.0b ✅ / T0.0d ⚠️ / T0.0e ✅ 四张已完成卡已删除（git 归档）。
+> T0.0d 的两条不可再生结论（DeepSeek 类模型不能靠加专属字段映射修复、长 system prompt 是
+> 模型语义失败而非协议问题）已提炼进 `work-queue.md` 的「已验证事实」。要翻原卡用
+> `git log -- docs/p0-tasks.md`。
 >
 > **队列规则**
 > - 从顶部未完成的卡拿活，一张卡 = 一次专注工作能闭环的单位。
@@ -12,11 +17,11 @@
 > - 队列为空 = P0 完成，此时才允许回宪法展开 P1，新建 `p1-tasks.md`。
 > - 行号是 2026-08-16 快照，会漂移；以符号名为准。
 >
-> **设计继承原则**（AGENTS.md 硬约束）：实现选择先对照 cc-switch 已验证做法（本机克隆 `~/Documents/Codex/2026-06-07/cc-switch`），偏离写理由；原创只投在它做不到的事：降级可观测、槽位路由、成本护栏。P0 本身就是第一个超越点——cc-switch 宽容但静默，降级不可查。
+> **设计继承原则**（CLAUDE.md 硬约束）：实现选择先对照 cc-switch 已验证做法（本机克隆 `~/Documents/Codex/2026-06-07/cc-switch`），偏离写理由；原创只投在它做不到的事：降级可观测、槽位路由、成本护栏。P0 本身就是第一个超越点——cc-switch 宽容但静默，降级不可查。
 >
 > **P0 期 DoD（宪法原文）**：任意一次降级发生后，用户能在 errors/usage 命令里查到，不靠响应头和截图。
 >
-> **全局约束**（AGENTS.md）：协议层零第三方依赖；改协议层同步补测试；journal 绝不写 payload；落盘绝不能搞挂转发主路径（异常静默）。
+> **全局约束**（CLAUDE.md）：协议层零第三方依赖；改协议层同步补测试；journal 绝不写 payload；落盘绝不能搞挂转发主路径（异常静默）。
 
 ## 全链路（降级的生命周期）
 
@@ -40,58 +45,6 @@
 
 ---
 
-## T0.0a ✅ 2026-08-17 · OpenAI Chat SSE 未知上游字段宽容
-
-**目的**：修复 `openai_chat` 流式响应因上游附加 metadata（例如
-`prompt_token_ids`、`token_ids`）或通用 reasoning 别名而返回 502 的问题。当前
-Nebius DeepSeek V4 Flash 已用真实帧复现；处理必须对所有 OpenAI-compatible  <!-- secret-guard: allow private-provider-name bf32772a16 -->
-provider 通用，不能出现 provider 名或专用字段白名单。
-
-**实现边界**：顶层、choice、delta 的未知非结构字段，以及未知 SSE event，默认跳过并
-记录 `HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED`；`reasoning` 作为
-`reasoning_content` 的兼容别名。仍严格校验已识别载体的类型、choice 索引、真实终态、
-tool call 结构及参数因果。`strict` 模式对上述降级继续拒绝。
-
-**依据**：`AGENTS.md` 的“默认放行”规则，以及 cc-switch
-`src-tauri/src/proxy/providers/streaming.rs` 只消费转换必需字段的做法；本仓库额外记录
-degrade code，避免 cc-switch 式静默丢弃。
-
-**验收合同**：
-1. Nebius 捕获的 Chat SSE 帧（`prompt_token_ids`、`prompt_text`、`token_ids`、
-   `reasoning`/`reasoning_content`、`finish_reason=length`）完整转换为 Anthropic SSE，
-   不产生 502。
-2. 任意未知顶层、choice、delta 字段和未知 event 在默认模式不截流，并带 metadata
-   degrade code；严格模式拒绝。
-3. 非法已识别 identity、非零 choice、错误 tool call 与错误终态的既有拒绝测试保持绿。
-4. `python3 -m unittest discover -s tests -p 'test_*.py'` 绿。
-
-**验证**：真实帧回归覆盖 bridge 与 Hub 流式转译；默认模式完成 `message_stop` 并落
-`HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED`，`strict` 模式拒绝。全量
-`python3 -m unittest discover -s tests -p 'test_*.py'`：677 tests OK。
-
----
-
-## T0.0b ✅ 2026-08-17 · OpenAI Chat 非流响应未知 wrapper 字段宽容
-
-**目的**：使同一类 metadata 出现在 JSON Chat completion 时不会变成 Hub 502。
-
-**实现边界**：顶层、choice、message、content-part 的未知字段记录
-`HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED` 后跳过；`reasoning` 是
-`reasoning_content` 的通用别名。已识别 identity、finish reason、内容类型、tool call
-结构和工具参数继续严格校验。
-
-**验收合同**：
-1. 带任意未知 wrapper 字段的正常 Chat completion 返回 Anthropic 成功响应且 plan 有
-   metadata degrade code。
-2. `reasoning` 单独出现时转为 thinking；与 `reasoning_content` 同时出现时优先标准
-   字段，不重复输出。
-3. 畸形 identity、工具调用与语义内容载体继续返回原有转换错误；全量 unittest 绿。
-
-**验证**：协议契约与 Hub JSON 回归覆盖未知 wrapper、content-part metadata 和 reasoning
-别名优先级；全量 `python3 -m unittest discover -s tests -p 'test_*.py'`：678 tests OK。
-
----
-
 ## T0.0c · OpenAI Responses 上游方言宽容
 
 **目的**：将同一三档策略覆盖 Responses 的非流 wrapper、SSE event envelope 和
@@ -99,66 +52,6 @@ output-item metadata；工具调用因果、终态和内容类型仍严格。
 
 **验收合同**：未知 metadata/event 默认降级记录并不中断；工具因果冲突仍拒绝；Chat 与
 Responses 的降级出口一致；全量 unittest 绿。
-
----
-
-## T0.0d ⚠️ 2026-08-17 · 真实 provider 验收：协议通过，模型语义不兼容
-
-**目的**：在用户申请的正式 key 下用 `claude1` 做 Nebius smoke，分别验收协议桥和
-Claude Code 语义行为。该卡需要用户提供可用凭证，不能由测试 key 替代。
-
-**已验证（真实 Nebius 请求）**：
-
-- 最小 `system + user`、简单 tool schema、`reasoning_effort=high` 和普通流式请求均
-  能返回；协议桥对 `reasoning`、`prompt_token_ids` 等未知 metadata 已宽容，不再因字段
-  形状直接返回 502。
-- 接近 Claude Code 的长 system prompt（约 14K 字符）会触发乱码、重复 token、
-  reasoning/content 异常，且出现 `finish_reason=length`。历史 `claude1` 会话中的
-  中英文/代码/system prompt 碎片混杂与此一致。
-
-**结论**：`Nebius DeepSeek V4 Flash` 当前不能作为 Claude Code 的兼容后端。它是模型  <!-- secret-guard: allow private-provider-name bf32772a16 -->
-语义/上下文承载失败，不是 SSE 或 OpenAI Chat wrapper 的兼容问题；不能把“无 502”写成
-“Claude Code 兼容通过”，也不能用继续增加 DeepSeek 专属字段映射来修复。
-
-**未完成**：`claude1 usage` / `errors` 的降级落盘仍按 T0.1–T0.4 接线计划推进；本卡的
-Claude Code 语义验收明确失败，后续应由独立的 provider capability gate issue 处理。
-
----
-
-## T0.0e ✅ 2026-08-18 · Provider 语义兼容性门槛（独立 issue）
-
-**问题**：`api_format=openai_chat` 只描述线协议，不代表 provider/model 能承载 Claude
-Code 的长 system prompt、工具调用和多轮 agent 状态。当前 `claude1` 会让这类 provider
-正常启动，失败后用户只能看到模型乱码或不相关的重试。
-
-**目标**：给 provider 增加显式、可审计的 Claude Code 语义兼容状态；不凭 provider 名、URL
-或一次短回复猜测。状态未知时可启动但必须在选择器和启动输出中明确“未验收”，状态明确为
-不兼容时默认不进入普通 `claude1` 选择器（仍允许显式 `id:` 强制诊断）。
-
-**验收合同**：
-
-1. 兼容性状态存于 `claude1-config.json` 的 provider 私有 metadata，不写凭证或完整
-   prompt；CC Switch DB 不被改写。
-2. 选择器、`claude1 list` 和启动 banner 显示 `verified / unknown / incompatible`，
-   并给出不泄露上游细节的原因码。
-3. `incompatible` provider 默认不可选；显式 `id:` 只用于诊断并打印警告，不伪装成功。
-4. 提供离线 fixture 覆盖长 system、tool schema、tool_use/tool_result 多轮和正常终态；
-   真实 provider 结果只能由用户手动写入状态，测试不携带凭证。
-5. 全量 `python3 -m unittest discover -s tests -p 'test_*.py'` 绿。
-
-**实现**：`claude-provider-once.py` 从 `claude1-config.json` 的 provider 私有
-metadata 读取 `verified / unknown / incompatible`，普通选择器过滤明确不兼容项，
-启动 banner 和 `claude1 list` 展示状态；仅显式完整 `id:...` 允许诊断性强制启动。
-状态展示按"默认态不出声"收敛：`unknown:not_assessed` 是所有未评估 provider 的默认
-值，逐行重复只会淹没同一行的别名和"最近"标记，因此选择器与 `claude1 list` 只为真实
-评估结论标注（`已验收:` / `不兼容:` / 非默认 reason 的 `未验收:`），未验收总数由
-`claude1 list` 尾部汇总一次；启动 banner 同理只在有真实结论时打印，`incompatible`
-的诊断警告保留。
-缺省状态为 `unknown:not_assessed`，不根据 provider 名称、URL 或短请求推断。离线
-回归覆盖状态读取、TUI 过滤、默认拒绝和显式诊断放行；既有 launcher → Hub
-端到端 fixture 扩展为约 16KB system prompt，并覆盖 tool schema、`tool_use/tool_result`
-多轮和正常 `end_turn`。全量 `python3 -m unittest discover -s tests -p 'test_*.py'`：
-690 tests OK。
 
 ---
 
@@ -217,14 +110,16 @@ metadata 读取 `verified / unknown / incompatible`，普通选择器过滤明�
 
 ---
 
-## T0.5 收尾对账：53 处全盘点
+## T0.5 收尾对账：全量 code 盘点
 
-**曳光弹已通、链路已宽之后**，盘点从"设计输入"变成"实证审计"：逐处核对 53 个 code 是否真的会落盘，产出 `docs/degrade-inventory.md`。
+**曳光弹已通、链路已宽之后**，盘点从"设计输入"变成"实证审计"：逐处核对每个 code 是否真的会落盘。
 
-**做法**：列：code | 位置 | 触发条件 | 冒泡载体 | 落盘状态（已落盘 / 到不了 hub 层+原因）。到不了的逐个补接通，或写明"不到 hub 层"的正当理由（如 strict 模式专属路径）。
+**做法**：先用 `rg -o 'HUB_DEGRADE_[A-Z0-9_]+' claude1_protocol.py | sort -u` 生成 distinct code 全集（2026-08-21 实测 37 个 distinct / 59 处 occurrence），再逐个核对：code | 位置符号 | 触发条件 | 冒泡载体 | 落盘状态（已落盘 / 到不了 hub 层+原因）。到不了的逐个补接通，或写明"不到 hub 层"的正当理由（如 strict 模式专属路径）。
+
+**产出形式**：结论写进测试断言，**不再产出独立的 inventory 文档**——原 `docs/degrade-inventory.md` 已于 2026-08-21 删除，理由是行号会漂、occurrence 数会变，手工表必然脱节（它最终落后代码 6 处，行号重算过三次）。可再生的部分交给命令，不可再生的判断交给测试。
 
 **验收合同**：
-1. 表行数与 `grep -c "HUB_DEGRADE_" claude1_protocol.py` 对账一致（2026-08-18 复核为 53）。
+1. distinct code 全集与 `rg -o 'HUB_DEGRADE_[A-Z0-9_]+' claude1_protocol.py | sort -u | wc -l` 实时对账一致。
 2. 每行落盘状态有测试或代码路径佐证；"已落盘"行数统计写出来。
 3. 全量绿。
 
@@ -241,7 +136,7 @@ metadata 读取 `verified / unknown / incompatible`，普通选择器过滤明�
 - count_tokens 预检**不再写 usage 行**，所以 `claude1 usage` 的请求数与降级计数就是真实回合数，不再翻倍。
 - errors 行的 `deg` 是单次失败的归因、不进任何计数器；usage 行的 `deg` 才被按回合计数。挑代表 code 时两侧分别验。
 
-**做法**：从 `degrade-inventory.md` 挑覆盖全部冒泡通道（请求/非流响应/流式运行时/native）和成功/失败两分支的代表 code 各至少 1 个，本地真实触发，逐一用 `usage` / `errors` 命令查到——全程不看响应头、不看 hub.log。
+**做法**：从 T0.5 盘点出的 code 全集里挑覆盖全部冒泡通道（请求/非流响应/流式运行时/native）和成功/失败两分支的代表 code 各至少 1 个，本地真实触发，逐一用 `usage` / `errors` 命令查到——全程不看响应头、不看 hub.log。
 
 **验收合同**：
 1. 端到端验收记录附在本文末尾（日期 + code 列表 + 查询命令输出摘要）。
