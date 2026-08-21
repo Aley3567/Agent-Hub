@@ -36,7 +36,7 @@ BASELINE = {
 # would be invisible and could silently be given back.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 549,
+    "claude-hub.py": 494,
     "claude-provider-once.py": 313,
     "claude1_account_pool.py": 124,
 }

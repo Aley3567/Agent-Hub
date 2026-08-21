@@ -3421,6 +3421,91 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
         )
 
 
+class _TurnJournal(NamedTuple):
+    """Identity fields every journal row of one forwarded turn shares.
+
+    ``record_error`` takes twelve keyword arguments and six of them are constant
+    across a turn.  Spelling them out at every call site is what made the native
+    path's accounting arms long, and it is how ``account_id`` came to be missing
+    from a hundred rows before ``0c84d64``.  Bind them once here instead.
+    """
+
+    alias: str
+    model_out: str
+    api_format: str
+    route_name: str | None
+    instance_id: str | None
+    started: float
+    degrade_codes: tuple[str, ...]
+
+    def error(self, *, phase: str, account_id: str | None, **fields) -> None:
+        """Append one error row, filling in this turn's identity."""
+        record_error(
+            phase=phase,
+            channel=self.alias,
+            model=self.model_out,
+            api_format=self.api_format,
+            route=self.route_name,
+            instance_id=self.instance_id,
+            account_id=account_id,
+            elapsed_ms=int((time.monotonic() - self.started) * 1000),
+            degrade_codes=self.degrade_codes,
+            **fields,
+        )
+
+    def usage(self, usage: dict | None, *, account_id: str, source: str) -> None:
+        """Append one usage row for a turn that reached a real terminal."""
+        record_usage(
+            self.alias,
+            self.model_out,
+            self.api_format,
+            usage,
+            instance_id=self.instance_id,
+            account_id=account_id,
+            source=source,
+            degrade_codes=self.degrade_codes,
+        )
+
+
+def _token_estimate_response(
+    *,
+    alias: str,
+    model_out: str,
+    route_headers: dict,
+    estimate: int,
+) -> web.Response:
+    """The body and headers shared by both local token-estimate exits.
+
+    Neither exit records usage: ``/count_tokens`` is a pre-flight probe, not a
+    message turn.
+    """
+    return web.json_response(
+        {"input_tokens": estimate},
+        headers={
+            "x-hub-channel": alias,
+            "x-hub-model": model_out,
+            **route_headers,
+            **_token_count_estimate_headers(),
+        },
+    )
+
+
+def _decode_upstream_error(raw: bytes) -> tuple[object, str | None, str | None]:
+    """Decode an upstream error body and pull its evidence pair out of it.
+
+    JSON when the bytes parse, replacement-char text otherwise -- the shape both
+    ``upstream_error_evidence`` and ``transform_error`` accept.  A 504 from a
+    gateway is commonly an HTML page, so the text arm is the normal case, not a
+    fallback.
+    """
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        decoded = raw.decode("utf-8", "replace")
+    code, message = upstream_error_evidence(decoded)
+    return decoded, code, message
+
+
 async def _forward_to_channel(
     request: web.Request,
     *,
@@ -3504,14 +3589,11 @@ async def _forward_to_channel(
             f"{request.path} '{model_in}' -> {alias}/{model_out} "
             f"{api_format} locally estimated {estimate} tokens"
         )
-        return web.json_response(
-            {"input_tokens": estimate},
-            headers={
-                "x-hub-channel": alias,
-                "x-hub-model": model_out,
-                **route_headers,
-                **_token_count_estimate_headers(),
-            },
+        return _token_estimate_response(
+            alias=alias,
+            model_out=model_out,
+            route_headers=route_headers,
+            estimate=estimate,
         )
     if api_format != "anthropic":
         return await _handle_transformed_messages(
@@ -3528,6 +3610,17 @@ async def _forward_to_channel(
             route_name=route_name,
             target=target,
         )
+    # Past this point the path is native Anthropic, so every journal row shares
+    # one identity; bind it once instead of respelling six fields per call.
+    journal = _TurnJournal(
+        alias=alias,
+        model_out=model_out,
+        api_format=api_format,
+        route_name=route_name,
+        instance_id=cfg.get("instance_id"),
+        started=started,
+        degrade_codes=protocol_warning_codes,
+    )
     try:
         data = json.dumps(
             payload,
@@ -3581,14 +3674,11 @@ async def _forward_to_channel(
                     f"{request.path} '{model_in}' -> {alias}/{model_out} "
                     f"upstream {upstream.status}, estimated {estimate} tokens"
                 )
-                return web.json_response(
-                    {"input_tokens": estimate},
-                    headers={
-                        "x-hub-channel": alias,
-                        "x-hub-model": model_out,
-                        **route_headers,
-                        **_token_count_estimate_headers(),
-                    },
+                return _token_estimate_response(
+                    alias=alias,
+                    model_out=model_out,
+                    route_headers=route_headers,
+                    estimate=estimate,
                 )
 
             if upstream.status == 405:
@@ -3600,12 +3690,8 @@ async def _forward_to_channel(
                 # adapters.  Status and useful response metadata remain the
                 # upstream's; credentials and arbitrary headers do not.
                 raw = await _read_decoded_upstream_body(upstream)
-                try:
-                    decoded = json.loads(raw.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    decoded = raw.decode("utf-8", "replace")
-                evidence_code, evidence_message = upstream_error_evidence(
-                    decoded
+                decoded, evidence_code, evidence_message = _decode_upstream_error(
+                    raw
                 )
                 body = transform_error(decoded, upstream.status)
                 detail = ""
@@ -3617,19 +3703,12 @@ async def _forward_to_channel(
                     f"{request.path} '{model_in}' -> {alias}/{model_out} "
                     f"anthropic upstream {upstream.status}{detail}"
                 )
-                record_error(
+                journal.error(
                     phase="response",
-                    channel=alias,
-                    model=model_out,
-                    api_format="anthropic",
+                    account_id=journal_account,
                     status=upstream.status,
                     code=evidence_code,
                     message=evidence_message,
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
-                    account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=protocol_warning_codes,
                 )
                 error_headers = {
                     "x-hub-channel": alias,
@@ -3767,22 +3846,15 @@ async def _forward_to_channel(
                         downstream_bytes=byte_count,
                     )
                 )
-                record_error(
+                journal.error(
                     phase="stream",
-                    channel=alias,
-                    model=model_out,
-                    api_format="anthropic",
+                    account_id=journal_account,
                     code=(
                         exc.code
                         if isinstance(exc, ProtocolTransformError)
                         else None
                     ),
                     exc_type=type(exc).__name__,
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
-                    account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=protocol_warning_codes,
                 )
                 transport = request.transport
                 if transport is not None:
@@ -3802,17 +3874,10 @@ async def _forward_to_channel(
                         downstream_bytes=byte_count,
                     )
                 )
-                record_error(
+                journal.error(
                     phase="stream",
-                    channel=alias,
-                    model=model_out,
-                    api_format="anthropic",
-                    exc_type="IncompleteSSE",
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
                     account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=protocol_warning_codes,
+                    exc_type="IncompleteSSE",
                 )
                 transport = request.transport
                 if transport is not None:
@@ -3823,36 +3888,24 @@ async def _forward_to_channel(
 
             await response.write_eof()
             if usage_tracker is not None and sse_tracker.terminal_kind == "error":
-                record_error(
+                journal.error(
                     phase="stream",
-                    channel=alias,
-                    model=model_out,
-                    api_format="anthropic",
-                    exc_type="UpstreamSSEError",
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
                     account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=protocol_warning_codes,
+                    exc_type="UpstreamSSEError",
                 )
             elif usage_tracker is not None and not is_count:
                 # count_tokens is a pre-flight probe even when an upstream
                 # dialect returns it as SSE; do not turn its usage frame into
                 # a real message-turn journal row.
                 native_stream_usage = usage_tracker.usage
-                record_usage(
-                    alias,
-                    model_out,
-                    "anthropic",
+                journal.usage(
                     native_stream_usage,
-                    instance_id=cfg.get("instance_id"),
                     account_id=account_attempt.lease.member,
                     source=(
                         "upstream"
                         if native_stream_usage
                         else "unavailable"
                     ),
-                    degrade_codes=protocol_warning_codes,
                 )
             elif not streamed and upstream.status == 200 and not is_count:
                 # count_tokens is a pre-flight probe, not a message turn: its
@@ -3865,12 +3918,8 @@ async def _forward_to_channel(
                     if json_buf is not None
                     else None
                 )
-                record_usage(
-                    alias,
-                    model_out,
-                    "anthropic",
+                journal.usage(
                     native_usage,
-                    instance_id=cfg.get("instance_id"),
                     account_id=account_attempt.lease.member,
                     # An empty usage object carries no observed counter, so
                     # it is not upstream evidence — same rule as the other
@@ -3880,32 +3929,20 @@ async def _forward_to_channel(
                         if native_usage
                         else "unavailable"
                     ),
-                    degrade_codes=protocol_warning_codes,
                 )
             elif not streamed and upstream.status >= 400:
                 evidence_code = None
                 evidence_message = None
                 if json_buf is not None:
-                    try:
-                        decoded = json.loads(bytes(json_buf).decode("utf-8"))
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        decoded = bytes(json_buf).decode("utf-8", "replace")
-                    evidence_code, evidence_message = upstream_error_evidence(
-                        decoded
+                    _, evidence_code, evidence_message = _decode_upstream_error(
+                        bytes(json_buf)
                     )
-                record_error(
+                journal.error(
                     phase="response",
-                    channel=alias,
-                    model=model_out,
-                    api_format="anthropic",
+                    account_id=journal_account,
                     status=upstream.status,
                     code=evidence_code,
                     message=evidence_message,
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
-                    account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=protocol_warning_codes,
                 )
             log(
                 f"{request.path} '{model_in}' -> {alias}/{model_out} "
@@ -3952,18 +3989,11 @@ async def _forward_to_channel(
             f"{request.path} '{model_in}' -> {alias}/{model_out} "
             f"CONNECT FAIL: {type(exc).__name__}"
         )
-        record_error(
+        journal.error(
             phase="response",
-            channel=alias,
-            model=model_out,
-            api_format=api_format,
-            exc_type=type(exc).__name__,
-            route=route_name,
-            status=502,
-            instance_id=cfg.get("instance_id"),
             account_id=journal_account,
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-            degrade_codes=protocol_warning_codes,
+            exc_type=type(exc).__name__,
+            status=502,
         )
         return anthropic_error(
             502,
