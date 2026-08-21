@@ -3980,12 +3980,18 @@ async def handle_models(request: web.Request) -> web.Response:
         )
     data = []
     for alias, channel in cfg["channels"].items():
+        # The alias is a Hub-internal slot name and means nothing to whoever
+        # reads /model -- and aliases like "fable" actively collide with
+        # Anthropic's own tier words. Label each entry with the provider that
+        # really serves it; a base_url channel that names no provider has only
+        # its alias to offer.
+        source = channel.get("provider") or alias
         for model in channel.get("models", []):
             data.append(
                 {
                     "id": f"anthropic/{alias},{model}",
                     "type": "model",
-                    "display_name": f"[{alias}] {model}",
+                    "display_name": f"{model} · {source}",
                     "created_at": "2026-01-01T00:00:00Z",
                 }
             )
