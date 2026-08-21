@@ -34,9 +34,12 @@ BASELINE = {
 # Longest single function per file.  Splitting a 549-line function into 300 + two
 # helpers leaves BASELINE unchanged, so without this second dimension the win
 # would be invisible and could silently be given back.
+#
+# claude-hub.py's number no longer belongs to _forward_to_channel: two cuts took
+# it 549 -> 437 and _handle_transformed_messages now holds the ceiling at 467.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 494,
+    "claude-hub.py": 467,
     "claude-provider-once.py": 313,
     "claude1_account_pool.py": 124,
 }

@@ -3506,6 +3506,63 @@ def _decode_upstream_error(raw: bytes) -> tuple[object, str | None, str | None]:
     return decoded, code, message
 
 
+async def _native_upstream_error_response(
+    upstream: aiohttp.ClientResponse,
+    *,
+    journal: _TurnJournal,
+    account_id: str,
+    alias: str,
+    model_out: str,
+    route_headers: dict,
+    degrade_codes: tuple[str, ...],
+    log_prefix: str,
+) -> web.Response:
+    """Re-dress a native 405 as an Anthropic error envelope.
+
+    Native providers do not consistently return an Anthropic error envelope: a
+    405 is commonly empty or HTML, which leaves Claude Code with only
+    ``API Error: 405``.  Nothing has been prepared downstream when this runs, so
+    the bounded body is consumed here and rendered in the same safe error shell
+    the protocol adapters use.  Status and useful response metadata stay the
+    upstream's; credentials and arbitrary headers do not.
+    """
+    raw = await _read_decoded_upstream_body(upstream)
+    decoded, evidence_code, evidence_message = _decode_upstream_error(raw)
+    detail = f" ({evidence_code})" if evidence_code else ""
+    if evidence_message:
+        detail += f": {evidence_message}"
+    log(f"{log_prefix} anthropic upstream {upstream.status}{detail}")
+    journal.error(
+        phase="response",
+        account_id=account_id,
+        status=upstream.status,
+        code=evidence_code,
+        message=evidence_message,
+    )
+    headers = {
+        "x-hub-channel": alias,
+        "x-hub-model": model_out,
+        "x-hub-upstream-format": "anthropic",
+        "x-hub-account": account_id,
+        **route_headers,
+    }
+    if evidence_code:
+        headers["x-hub-upstream-code"] = evidence_code
+    if degrade_codes:
+        headers["x-hub-protocol-warnings"] = ",".join(degrade_codes)
+    # ``Allow`` is the one header that actually explains a 405, so it is
+    # forwarded verbatim while everything else stays filtered.  No retry-after
+    # branch here: this arm only ever sees 405.
+    allow = upstream.headers.get("allow")
+    if allow:
+        headers["allow"] = allow
+    return web.json_response(
+        transform_error(decoded, upstream.status),
+        status=upstream.status,
+        headers=headers,
+    )
+
+
 async def _forward_to_channel(
     request: web.Request,
     *,
@@ -3531,6 +3588,9 @@ async def _forward_to_channel(
     provider = target.provider
     account_pool = _RequestAccountPool(provider, providers)
     route_headers = {"x-hub-route": route_name} if route_name else {}
+    # Every log line below carries the same routing identity; bind it once
+    # so each call site stays a single readable line.
+    log_prefix = f"{request.path} '{model_in}' -> {alias}/{model_out}"
 
     api_format = target.api_format
 
@@ -3553,18 +3613,14 @@ async def _forward_to_channel(
                 native_system_role_mode=target.native_system_role_mode,
             )
         except ProtocolRequestError as exc:
-            log(
-                f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                f"REQUEST REJECT {exc.code} {exc.path or '$'}"
-            )
+            log(f"{log_prefix} REQUEST REJECT {exc.code} {exc.path or '$'}")
             return protocol_request_error(exc)
         payload = prepared.payload
         protocol_warning_codes = prepared.plan.warning_codes
         if protocol_warning_codes:
             log(
-                f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                f"protocol warnings "
-            f"{_format_protocol_warnings(prepared.plan.warning_details)}"
+                f"{log_prefix} protocol warnings "
+                f"{_format_protocol_warnings(prepared.plan.warning_details)}"
             )
     if is_count and (
         api_format != "anthropic" or target.is_full_url
@@ -3579,16 +3635,10 @@ async def _forward_to_channel(
                     provider_type=target.provider_type,
                 )
             except ProtocolRequestError as exc:
-                log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    f"REQUEST REJECT {exc.code} {exc.path or '$'}"
-                )
+                log(f"{log_prefix} REQUEST REJECT {exc.code} {exc.path or '$'}")
                 return protocol_request_error(exc)
         estimate = _estimated_input_tokens(payload)
-        log(
-            f"{request.path} '{model_in}' -> {alias}/{model_out} "
-            f"{api_format} locally estimated {estimate} tokens"
-        )
+        log(f"{log_prefix} {api_format} locally estimated {estimate} tokens")
         return _token_estimate_response(
             alias=alias,
             model_out=model_out,
@@ -3652,7 +3702,7 @@ async def _forward_to_channel(
             headers_for_token=headers_for_token,
             timeout=timeout,
             transport_policy=target.transport_policy(cfg, url),
-            log_context=f"{request.path} '{model_in}' -> {alias}/{model_out}",
+            log_context=log_prefix,
         ) as (upstream, account_attempt):
             journal_account = account_attempt.lease.member
             if route_failover and upstream.status in ROUTE_FAILOVER_STATUSES:
@@ -3671,8 +3721,8 @@ async def _forward_to_channel(
             if is_count and upstream.status in (404, 405, 501):
                 estimate = _estimated_input_tokens(payload)
                 log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    f"upstream {upstream.status}, estimated {estimate} tokens"
+                    f"{log_prefix} upstream {upstream.status}, "
+                    f"estimated {estimate} tokens"
                 )
                 return _token_estimate_response(
                     alias=alias,
@@ -3682,58 +3732,15 @@ async def _forward_to_channel(
                 )
 
             if upstream.status == 405:
-                # Native providers do not consistently return an Anthropic
-                # error envelope: a 405 is commonly empty or HTML, which
-                # leaves Claude Code with only ``API Error: 405``.  The
-                # response is still pre-commit here, so consume its bounded
-                # body and render the same safe error shell used by protocol
-                # adapters.  Status and useful response metadata remain the
-                # upstream's; credentials and arbitrary headers do not.
-                raw = await _read_decoded_upstream_body(upstream)
-                decoded, evidence_code, evidence_message = _decode_upstream_error(
-                    raw
-                )
-                body = transform_error(decoded, upstream.status)
-                detail = ""
-                if evidence_code:
-                    detail = f" ({evidence_code})"
-                if evidence_message:
-                    detail += f": {evidence_message}"
-                log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    f"anthropic upstream {upstream.status}{detail}"
-                )
-                journal.error(
-                    phase="response",
-                    account_id=journal_account,
-                    status=upstream.status,
-                    code=evidence_code,
-                    message=evidence_message,
-                )
-                error_headers = {
-                    "x-hub-channel": alias,
-                    "x-hub-model": model_out,
-                    "x-hub-upstream-format": "anthropic",
-                    "x-hub-account": account_attempt.lease.member,
-                    **route_headers,
-                }
-                if evidence_code:
-                    error_headers["x-hub-upstream-code"] = evidence_code
-                if protocol_warning_codes:
-                    error_headers["x-hub-protocol-warnings"] = ",".join(
-                        protocol_warning_codes
-                    )
-                # ``Allow`` is the one header that actually explains a 405,
-                # so it is forwarded verbatim while everything else stays
-                # filtered.  No retry-after branch here: this arm only ever
-                # sees 405.
-                allow = upstream.headers.get("allow")
-                if allow:
-                    error_headers["allow"] = allow
-                return web.json_response(
-                    body,
-                    status=upstream.status,
-                    headers=error_headers,
+                return await _native_upstream_error_response(
+                    upstream,
+                    journal=journal,
+                    account_id=account_attempt.lease.member,
+                    alias=alias,
+                    model_out=model_out,
+                    route_headers=route_headers,
+                    degrade_codes=protocol_warning_codes,
+                    log_prefix=log_prefix,
                 )
 
             response_connection_tokens = _connection_header_tokens(
@@ -3746,8 +3753,8 @@ async def _forward_to_channel(
                 or response_connection_tokens & REPRESENTATION_HEADERS
             ):
                 log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    "upstream returned ambiguous representation headers"
+                    f"{log_prefix} upstream returned ambiguous "
+                    "representation headers"
                 )
                 return anthropic_error(
                     502,
@@ -3768,8 +3775,8 @@ async def _forward_to_channel(
                 )
             except ValueError:
                 log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    "upstream SSE used an unsupported content encoding"
+                    f"{log_prefix} upstream SSE used an unsupported "
+                    "content encoding"
                 )
                 return anthropic_error(
                     502,
@@ -3836,8 +3843,8 @@ async def _forward_to_channel(
                 ProtocolTransformError,
             ) as exc:
                 log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    f"upstream broke or was invalid after {byte_count}B: "
+                    f"{log_prefix} upstream broke or was invalid "
+                    f"after {byte_count}B: "
                     f"{type(exc).__name__} "
                     + stream_telemetry_fields(
                         stream_telemetry,
@@ -3865,9 +3872,8 @@ async def _forward_to_channel(
 
             if sse_tracker is not None and not sse_tracker.complete:
                 log(
-                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                    f"upstream SSE ended without a valid terminal event after "
-                    f"{byte_count}B "
+                    f"{log_prefix} upstream SSE ended without a valid "
+                    f"terminal event after {byte_count}B "
                     + stream_telemetry_fields(
                         stream_telemetry,
                         terminal="missing",
@@ -3945,7 +3951,7 @@ async def _forward_to_channel(
                     message=evidence_message,
                 )
             log(
-                f"{request.path} '{model_in}' -> {alias}/{model_out} "
+                f"{log_prefix} "
                 f"{upstream.status} {'stream' if streamed else 'json'} "
                 f"{time.monotonic() - started:.1f}s {byte_count}B"
                 + (
@@ -3979,16 +3985,10 @@ async def _forward_to_channel(
                 evidence_message=sanitize_error_text(str(exc)),
                 degrade_codes=protocol_warning_codes,
             ) from exc
-        log(
-            f"{request.path} '{model_in}' -> {alias}/{model_out} "
-            f"ACCOUNT POOL FAIL: {type(exc).__name__}: {exc}"
-        )
+        log(f"{log_prefix} ACCOUNT POOL FAIL: {type(exc).__name__}: {exc}")
         return _account_pool_error(exc)
     except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
-        log(
-            f"{request.path} '{model_in}' -> {alias}/{model_out} "
-            f"CONNECT FAIL: {type(exc).__name__}"
-        )
+        log(f"{log_prefix} CONNECT FAIL: {type(exc).__name__}")
         journal.error(
             phase="response",
             account_id=journal_account,
