@@ -420,6 +420,46 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertNotIn("in", row)
         self.assertNotIn("out", row)
 
+    def test_error_journal_carries_stream_timing_for_break_attribution(self):
+        # 断流归因唯一缺的那次测量：max_gap_ms 只在新 chunk 到达时推进，所以
+        # 「流一路健康、最后静默 120 秒被掐」在旧字段里看起来像 max_gap=500ms
+        # 的正常流。tail_gap_ms 把这段静默暴露出来，两者必须一起落盘。
+        timestamps = iter((0.2, 0.5, 1.0, 121.6))
+        telemetry = hub.StreamTelemetry(
+            started_at=0.0,
+            clock=lambda: next(timestamps),
+        )
+        telemetry.observe(b"event: message_start\n\n")
+        telemetry.observe(b"event: content_block_delta\n\n")
+        telemetry.seal()
+
+        hub.record_error(
+            phase="stream",
+            channel="fast",
+            exc_type="IncompleteSSE",
+            telemetry=telemetry.snapshot(),
+        )
+
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["max_gap_ms"], 500)
+        self.assertEqual(row["tail_gap_ms"], 120600)
+        self.assertEqual(row["stream_ms"], 121600)
+        self.assertEqual(row["chunks"], 2)
+        self.assertEqual(row["first_chunk_ms"], 500)
+
+    def test_error_journal_omits_stream_timing_when_none_was_measured(self):
+        # 没量过就不能落盘一个 0——0ms 的尾部静默和「没测」是两回事，后者按
+        # 「错误原样暴露」应当缺字段而不是编一个值。
+        hub.record_error(
+            phase="response",
+            channel="fast",
+            exc_type="ClientConnectorError",
+        )
+
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        for key in ("headers_ms", "max_gap_ms", "tail_gap_ms", "stream_ms", "chunks"):
+            self.assertNotIn(key, row)
+
     def test_error_journal_keeps_only_sanitized_fields_and_stays_private(self):
         hub.record_error(
             phase="response",
@@ -1043,6 +1083,46 @@ class ClaudeHubTests(unittest.TestCase):
                 return body
 
         return FakeRequest()
+
+    def test_models_list_labels_entries_with_the_serving_provider(self):
+        self._write_config()
+
+        response = asyncio.run(hub.handle_models(self._request(b"", path="/v1/models")))
+        body = json.loads(response.body)
+
+        by_id = {entry["id"]: entry["display_name"] for entry in body["data"]}
+        # The provider is what a reader can act on; the alias is a Hub-internal
+        # slot name that says nothing about where the model comes from.
+        self.assertEqual(
+            by_id["anthropic/fast,claude-sonnet-4"],
+            "claude-sonnet-4 · Fixture HTTPS",
+        )
+        self.assertEqual(
+            by_id["anthropic/blocked,remote-model"],
+            "remote-model · Fixture HTTP",
+        )
+        # The id still carries the alias: it is the routing key.
+        self.assertIn("anthropic/fast,claude-opus-4", by_id)
+
+    def test_models_list_falls_back_to_alias_without_a_provider(self):
+        self._write_config(
+            channels={
+                "direct": {
+                    "base_url": "https://upstream.invalid/v1/messages",
+                    "models": ["bare-model"],
+                }
+            },
+            default_channel="direct",
+            model_slots={},
+        )
+
+        response = asyncio.run(hub.handle_models(self._request(b"", path="/v1/models")))
+        body = json.loads(response.body)
+
+        self.assertEqual(
+            body["data"][0]["display_name"],
+            "bare-model · direct",
+        )
 
     def test_network_guards_block_external_socket_and_aiohttp(self):
         sock = socket.socket()
@@ -2058,10 +2138,65 @@ class ClaudeHubTests(unittest.TestCase):
                 "headers_ms": 200,
                 "first_chunk_ms": 500,
                 "max_gap_ms": 1250,
+                # 没有 seal 就没量过流的终点，两个终点派生量必须是 None 而不是
+                # 拿"现在"凑出来的近似值。
+                "tail_gap_ms": None,
+                "stream_ms": None,
                 "chunks": 3,
                 "upstream_bytes": 6,
             },
         )
+
+    def test_stream_telemetry_seal_measures_the_silence_before_the_break(self):
+        # tail_gap_ms 是区分"上游空闲超时掐断"与"上游主动关连接"的唯一判据：
+        # max_gap_ms 只在新 chunk 到达时推进，永远看不见最后一个 chunk 之后
+        # 的静默。
+        timestamps = iter((10.2, 10.5, 11.0, 131.5))
+        telemetry = hub.StreamTelemetry(
+            started_at=10.0,
+            clock=lambda: next(timestamps),
+        )
+
+        telemetry.observe(b"a")
+        telemetry.observe(b"bc")
+        telemetry.seal()
+
+        metrics = telemetry.snapshot()
+        self.assertEqual(metrics["max_gap_ms"], 500)
+        self.assertEqual(metrics["tail_gap_ms"], 120500)
+        self.assertEqual(metrics["stream_ms"], 121500)
+
+    def test_stream_telemetry_seal_is_idempotent(self):
+        # 生产里 stream_telemetry_fields 会先 seal，之后 record_error 再取一次
+        # snapshot；第二次 seal 绝不能把间隔改大，否则慢路径会虚报静默。
+        timestamps = iter((10.2, 10.5, 20.5, 99.9))
+        telemetry = hub.StreamTelemetry(
+            started_at=10.0,
+            clock=lambda: next(timestamps),
+        )
+
+        telemetry.observe(b"a")
+        telemetry.seal()
+        telemetry.seal()
+
+        self.assertEqual(telemetry.snapshot()["tail_gap_ms"], 10000)
+
+    def test_stream_telemetry_seal_without_any_chunk_still_reports_duration(self):
+        # 首字节都没等到就断：tail_gap 无从谈起（没有"最后一个 chunk"），
+        # 但整条流的耗时仍要落盘，否则 504 一类的首字节前超时无法归因。
+        timestamps = iter((10.2, 133.7))
+        telemetry = hub.StreamTelemetry(
+            started_at=10.0,
+            clock=lambda: next(timestamps),
+        )
+
+        telemetry.seal()
+
+        metrics = telemetry.snapshot()
+        self.assertIsNone(metrics["first_chunk_ms"])
+        self.assertIsNone(metrics["tail_gap_ms"])
+        self.assertEqual(metrics["stream_ms"], 123700)
+        self.assertEqual(metrics["chunks"], 0)
 
     def test_usage_json_buffer_has_the_same_64_mib_cap_as_transform_bodies(self):
         buffer = bytearray(b"a" * (hub.MAX_UPSTREAM_BODY_BYTES - 1))
@@ -3190,6 +3325,156 @@ class ClaudeHubTests(unittest.TestCase):
             row["deg"],
             ["HUB_DEGRADE_SYSTEM_ROLE_PROMOTED"],
         )
+
+    def test_native_stall_before_first_content_retries_without_downstream_bytes(self):
+        # The upstream 120s idle gate fires while the model is still queued, so
+        # the stream dies right after ``message_start`` and before any content
+        # block. Nothing reached the client yet, which makes the request safely
+        # replayable: the truncated first attempt must stay invisible.
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        message_start = (
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"id":"msg_fixture","type":"message",'
+            b'"role":"assistant","content":[],"model":"fixture-model",'
+            b'"usage":{"input_tokens":7,"output_tokens":0}}}\n\n'
+        )
+        completed_chunks = [
+            message_start,
+            (
+                b'event: content_block_delta\ndata: {"type":'
+                b'"content_block_delta","index":0,"delta":'
+                b'{"type":"text_delta","text":"hi"}}\n\n'
+            ),
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+        ]
+        stalled = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [message_start],
+            fail_after=True,
+        )
+        completed = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            completed_chunks,
+        )
+        session = _SequencedFakeSession([stalled, completed])
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "max_tokens": 16,
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+        downstream = _FakeDownstream(200)
+
+        with mock.patch.object(
+            hub.web, "StreamResponse", return_value=downstream
+        ):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        # The stalled attempt is replayed against a fresh upstream connection.
+        self.assertEqual(len(session.calls), 2)
+        # Exactly one response reaches the client: the retry's, in full.
+        self.assertEqual(response.writes, completed_chunks)
+        self.assertTrue(response.eof)
+
+    def test_repeated_stalls_stop_after_the_replay_budget(self):
+        # Each replay costs another full wait against the upstream idle gate, so
+        # the budget is bounded. Running out does not make the failure any less
+        # pre-commit, though: nothing ever reached the client, so the answer is
+        # a readable 504 rather than the transport reset a committed stall owes.
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        message_start = (
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"id":"msg_fixture","type":"message",'
+            b'"role":"assistant","content":[],"model":"fixture-model",'
+            b'"usage":{"input_tokens":7,"output_tokens":0}}}\n\n'
+        )
+        attempts = hub.STREAM_REPLAY_ATTEMPTS + 1
+        session = _SequencedFakeSession(
+            [
+                _FakeUpstream(
+                    200,
+                    {"Content-Type": "text/event-stream"},
+                    [message_start],
+                    fail_after=True,
+                )
+                for _ in range(attempts)
+            ]
+        )
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "max_tokens": 16,
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+        downstream = _FakeDownstream(200)
+
+        with mock.patch.object(
+            hub.web, "StreamResponse", return_value=downstream
+        ):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertEqual(len(session.calls), attempts)
+        # Nothing was ever committed, so the transport survives to carry a body
+        # the client can read and decide to retry on.
+        self.assertEqual(downstream.writes, [])
+        self.assertFalse(request.transport.aborted)
+        self.assertEqual(response.status, 504)
+        self.assertEqual(
+            json.loads(response.body)["error"]["type"], "api_error"
+        )
+
+    def test_metadata_prelude_past_the_buffer_cap_commits_instead_of_holding(self):
+        # An attempt stays replayable only while its output is still held in
+        # memory, so the hold must be bounded. A metadata-only prelude that
+        # outgrows the cap commits the response instead: every byte the upstream
+        # sent is preserved, and only the replay option is given up.
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        padding = b"x" * (64 * 1024)
+        ping = b'event: ping\ndata: {"type":"ping","pad":"' + padding + b'"}\n\n'
+        chunk_count = hub.STREAM_REPLAY_BUFFER_BYTES // len(ping) + 1
+        prelude = [ping] * chunk_count
+        stalled = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            prelude,
+            fail_after=True,
+        )
+        session = _SequencedFakeSession([stalled])
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "max_tokens": 16,
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+        downstream = _FakeDownstream(200)
+
+        with mock.patch.object(
+            hub.web, "StreamResponse", return_value=downstream
+        ):
+            with self.assertRaises(hub.UpstreamStreamAborted):
+                asyncio.run(hub.handle_messages(request))
+
+        # Committed, so the stall is final: no second upstream connection.
+        self.assertEqual(len(session.calls), 1)
+        self.assertEqual(downstream.writes, prelude)
 
     def test_transformed_stream_clean_eof_without_terminal_returns_sse_error(self):
         self._set_provider_endpoint(
@@ -5348,8 +5633,9 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertNotIn("code", row)
 
     def test_stream_abort_is_journaled_so_mid_response_stays_findable(self):
-        # 用户看到的 "mid-response" 就是这条路径:下游已提交,只能 abort。
-        # 至少要在 journal 里留下是哪个渠道、哪种异常。
+        # 用户看到的 "mid-response" 就是这条路径。首字节前的断流现在会被重放
+        # 吃掉,预算耗尽后答复 504;但每一次断流仍要在 journal 里留下是哪个渠道、
+        # 哪种异常,否则被吃掉了几次就无从计数。
         self._set_provider_endpoint(
             "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
         )
@@ -5372,9 +5658,9 @@ class ClaudeHubTests(unittest.TestCase):
         )
 
         with mock.patch.object(hub.web, "StreamResponse", _FakeDownstream):
-            with self.assertRaises(hub.UpstreamStreamAborted):
-                asyncio.run(hub.handle_messages(request))
+            response = asyncio.run(hub.handle_messages(request))
 
+        self.assertEqual(response.status, 504)
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(row["phase"], "stream")
         self.assertEqual(row["channel"], "fast")
@@ -5392,7 +5678,11 @@ class ClaudeHubTests(unittest.TestCase):
         upstream = _FakeUpstream(
             200,
             {"Content-Type": "text/event-stream"},
-            [b'event: message_start\ndata: {"type":"message_start"}\n\n'],
+            [
+                b'event: content_block_delta\ndata: {"type":'
+                b'"content_block_delta","index":0,"delta":'
+                b'{"type":"text_delta","text":"x"}}\n\n'
+            ],
             fail_after=True,
         )
         session = _FakeSession(upstream)
@@ -6576,7 +6866,10 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(session.calls, [])
 
     def test_sse_chunks_are_forwarded_immediately_and_never_replayed(self):
-        chunks = [b"event: message_start\n", b"data: one\n\n"]
+        # A content event commits the response downstream; from that point on
+        # bytes go out as they arrive and a stall can no longer be replayed,
+        # because the client has already seen part of this answer.
+        chunks = [b"event: content_block_delta\n", b"data: one\n\n"]
         upstream = _FakeUpstream(
             200,
             {"Content-Type": "text/event-stream"},
@@ -6629,8 +6922,9 @@ class ClaudeHubTests(unittest.TestCase):
             "StreamResponse",
             return_value=_FakeDownstream(200),
         ), mock.patch.object(hub, "log") as write_log:
-            with self.assertRaises(hub.UpstreamStreamAborted):
-                asyncio.run(hub.handle_messages(request))
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertEqual(response.status, 504)
 
         rendered_log = "\n".join(
             call.args[0] for call in write_log.call_args_list
@@ -6703,7 +6997,6 @@ class ClaudeHubTests(unittest.TestCase):
         ), mock.patch.object(hub, "log") as write_log:
             with self.assertRaises(hub.UpstreamStreamAborted):
                 asyncio.run(hub.handle_messages(request))
-
         rendered_log = "\n".join(
             call.args[0] for call in write_log.call_args_list
         )
@@ -7209,7 +7502,7 @@ class ClaudeHubTests(unittest.TestCase):
                     headers={"content-type": "text/event-stream"},
                 )
                 await response.prepare(request)
-                await response.write(b"event: message_start\n")
+                await response.write(b"event: content_block_delta\n")
                 await asyncio.sleep(0.01)
                 await response.write(b"data: fixture-before-break\n\n")
                 await asyncio.sleep(0.03)
@@ -7306,6 +7599,131 @@ class ClaudeHubTests(unittest.TestCase):
                     await upstream_runner.cleanup()
                 if hub_session is not None:
                     self.assertTrue(hub_session.closed)
+
+        asyncio.run(scenario())
+
+    def test_real_loopback_stall_before_content_is_invisible_to_the_client(self):
+        # End-to-end over real sockets: the upstream idle gate kills the first
+        # connection while the model is still queued, and the client must see a
+        # single complete stream rather than a truncated one.
+        async def scenario():
+            upstream_calls = 0
+            upstream_runner = None
+            hub_runner = None
+            client = None
+
+            async def stalling_upstream(request):
+                nonlocal upstream_calls
+                upstream_calls += 1
+                await request.read()
+                response = hub.web.StreamResponse(
+                    status=200,
+                    headers={"content-type": "text/event-stream"},
+                )
+                await response.prepare(request)
+                await response.write(
+                    b'event: message_start\ndata: {"type":"message_start"}\n\n'
+                )
+                if upstream_calls == 1:
+                    # Nothing but metadata, then the gate closes the connection.
+                    await asyncio.sleep(0.01)
+                    request.transport.abort()
+                    return response
+                await response.write(
+                    b'event: content_block_delta\ndata: {"type":'
+                    b'"content_block_delta","index":0,"delta":'
+                    b'{"type":"text_delta","text":"fixture-after-replay"}}\n\n'
+                )
+                await response.write(
+                    b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+                )
+                await response.write_eof()
+                return response
+
+            try:
+                upstream_app = hub.web.Application()
+                upstream_app.router.add_post("/v1/messages", stalling_upstream)
+                upstream_runner = hub.web.AppRunner(upstream_app, access_log=None)
+                await upstream_runner.setup()
+                upstream_site = hub.web.TCPSite(upstream_runner, "127.0.0.1", 0)
+                await upstream_site.start()
+                upstream_port = upstream_site._server.sockets[0].getsockname()[1]
+
+                connection = sqlite3.connect(self.db_file)
+                try:
+                    connection.execute(
+                        "UPDATE providers SET settings_config=? WHERE name=?",
+                        (
+                            json.dumps(
+                                {
+                                    "env": {
+                                        "ANTHROPIC_BASE_URL": (
+                                            f"http://127.0.0.1:{upstream_port}/v1"
+                                        ),
+                                        "ANTHROPIC_AUTH_TOKEN": (
+                                            "fixture-upstream-token"
+                                        ),
+                                    }
+                                }
+                            ),
+                            "Fixture HTTPS",
+                        ),
+                    )
+                    connection.commit()
+                finally:
+                    connection.close()
+                self.db_file.chmod(0o600)
+
+                hub_app = hub.create_app()
+                hub_runner = hub.web.AppRunner(hub_app, access_log=None)
+                await hub_runner.setup()
+                hub_site = hub.web.TCPSite(hub_runner, "127.0.0.1", 0)
+                await hub_site.start()
+                hub_port = hub_site._server.sockets[0].getsockname()[1]
+
+                client = aiohttp.ClientSession(auto_decompress=False)
+                response = await client.post(
+                    f"http://127.0.0.1:{hub_port}/v1/messages",
+                    headers={
+                        "authorization": "Bearer fixture-local-token",
+                        "anthropic-version": "2023-06-01",
+                    },
+                    json={
+                        "model": "fast,custom-model",
+                        "max_tokens": 16,
+                        "stream": True,
+                        "messages": [{"role": "user", "content": "fixture"}],
+                    },
+                )
+                self.assertEqual(response.status, 200)
+                received = bytearray()
+                transfer_error = None
+
+                async def consume():
+                    nonlocal transfer_error
+                    try:
+                        async for chunk in response.content.iter_any():
+                            received.extend(chunk)
+                    except aiohttp.ClientError as exc:
+                        transfer_error = exc
+
+                await asyncio.wait_for(consume(), timeout=5)
+                response.close()
+
+                body = bytes(received)
+                self.assertEqual(upstream_calls, 2)
+                self.assertIsNone(transfer_error)
+                self.assertIn(b"fixture-after-replay", body)
+                self.assertTrue(body.endswith(b"message_stop\"}\n\n"))
+                # The stalled attempt left no duplicate prelude behind.
+                self.assertEqual(body.count(b"message_start"), 2)
+            finally:
+                if client is not None:
+                    await client.close()
+                if hub_runner is not None:
+                    await hub_runner.cleanup()
+                if upstream_runner is not None:
+                    await upstream_runner.cleanup()
 
         asyncio.run(scenario())
 

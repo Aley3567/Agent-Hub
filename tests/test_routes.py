@@ -547,6 +547,95 @@ class RouteGroupTests(unittest.TestCase):
         self.assertEqual(response.headers["x-hub-model"], "fixture-model-b")
         self.assertEqual(response.headers["x-hub-route"], "fixture-route")
 
+    def _stalling_target(self, message_start):
+        return _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [message_start],
+            fail_after=True,
+        )
+
+    @property
+    def _fixture_message_start(self):
+        return (
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"id":"msg_fixture","type":"message",'
+            b'"role":"assistant","content":[],"model":"fixture-model-a",'
+            b'"usage":{"input_tokens":7,"output_tokens":0}}}\n\n'
+        )
+
+    def test_stall_before_first_content_moves_to_the_next_target(self):
+        # A stall leaves the downstream response uncommitted, which is the very
+        # condition route failover is defined on. Spending the whole replay
+        # budget on the target that is demonstrably queueing and then ending the
+        # request -- while a fresh target sits untried -- would pick the weaker
+        # of the two answers the still-buffered body allows.
+        self._route_config(self._fixture_route())
+        message_start = self._fixture_message_start
+        completed = [
+            message_start,
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+        ]
+        attempts = hub.STREAM_REPLAY_ATTEMPTS + 1
+        session = _SequencedFakeSession(
+            [self._stalling_target(message_start) for _ in range(attempts)]
+            + [
+                _FakeUpstream(
+                    200, {"Content-Type": "text/event-stream"}, completed
+                )
+            ]
+        )
+        request = self._request(
+            {
+                "model": "route:fixture-route",
+                "stream": True,
+                "messages": [{"role": "user", "content": "fixture"}],
+            },
+            session=session,
+        )
+
+        with mock.patch.object(hub.web, "StreamResponse", _FakeDownstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        # The first target burns its replay budget, then the second answers.
+        self.assertEqual(
+            [call[0] for call in session.calls],
+            ["https://fixture-a.invalid/v1/messages"] * attempts
+            + ["https://fixture-b.invalid/v1/messages"],
+        )
+        self.assertEqual(response.headers["x-hub-channel"], "beta")
+        # Exactly one response reaches the client: the surviving target's.
+        self.assertEqual(response.writes, completed)
+        self.assertTrue(response.eof)
+        self.assertFalse(request.transport.aborted)
+
+    def test_every_target_stalling_answers_with_a_readable_status(self):
+        # Exhausting a route by stalling still never committed a byte, so it
+        # owes the client the same readable status every other exhausted route
+        # gives, not a reset the client can only report as a network fault.
+        self._route_config(self._fixture_route())
+        attempts = hub.STREAM_REPLAY_ATTEMPTS + 1
+        message_start = self._fixture_message_start
+        session = _SequencedFakeSession(
+            [self._stalling_target(message_start) for _ in range(attempts * 2)]
+        )
+        request = self._request(
+            {
+                "model": "route:fixture-route",
+                "stream": True,
+                "messages": [{"role": "user", "content": "fixture"}],
+            },
+            session=session,
+        )
+
+        with mock.patch.object(hub.web, "StreamResponse", _FakeDownstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        # Both targets get the whole budget before the route gives up.
+        self.assertEqual(len(session.calls), attempts * 2)
+        self.assertEqual(response.status, 504)
+        self.assertFalse(request.transport.aborted)
+
     def _write_pool_db(self, meta=None):
         """Two pool members on one endpoint plus a fallback provider.
 
@@ -808,7 +897,13 @@ class RouteGroupTests(unittest.TestCase):
                 _FakeUpstream(
                     200,
                     {"Content-Type": "text/event-stream"},
-                    [b'event: message_start\ndata: {"type":"message_start"}\n\n'],
+                    # A real content event, not message_start: only content
+                    # commits the downstream response and makes the outcome final.
+                    [
+                        b'event: content_block_delta\ndata: '
+                        b'{"type":"content_block_delta","index":0,'
+                        b'"delta":{"type":"text_delta","text":"hi"}}\n\n'
+                    ],
                     fail_after=True,
                 )
             ]

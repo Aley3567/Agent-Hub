@@ -140,6 +140,13 @@ REPRESENTATION_HEADERS = {"content-type", "content-encoding"}
 # inside a route group (design doc section 4); every other failure is final.
 ROUTE_GROUP_PREFIX = "route:"
 ROUTE_FAILOVER_STATUSES = (401, 403, 429)
+# Replays of a stall that never reached the client; each costs one more wait
+# against the upstream idle gate, so the budget stays small.
+STREAM_REPLAY_ATTEMPTS = 2
+# A replay stays possible only while the attempt's output is still held in
+# memory. A real prelude is a few hundred bytes of message_start plus pings,
+# so this ceiling only ever trips on an upstream that streams metadata forever.
+STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
 
 HOP_BY_HOP = {
     "host",
@@ -460,6 +467,7 @@ def record_error(
     instance_id: str | None = None,
     account_id: str | None = None,
     elapsed_ms: int | None = None,
+    telemetry: dict | None = None,
     degrade_codes: tuple[str, ...] = (),
 ) -> None:
     """把一条已脱敏的错误事件追加到 JSONL。绝不能搞挂转发主路径，全部异常静默。
@@ -470,6 +478,11 @@ def record_error(
     ``instance_id``/``account_id``/``elapsed_ms`` 与 ``record_usage`` 同名同义；
     少了它们，一次上游故障事后无法归因到具体上游账号，也看不出是快速拒绝还是
     网关超时——上游侧的超时闸门只能靠耗时分布认出来。
+
+    ``telemetry`` 收 ``StreamTelemetry.snapshot()``，只含时长与字节计数，不含
+    任何内容。它此前只写进每会话 bridge 的临时目录，会话一退就没了，所以断流
+    事后只能靠孤儿目录碰运气归因；其中 ``tail_gap_ms``（最后一个 chunk 到断开
+    的静默）是区分「上游空闲超时掐断」与「上游主动关连接」的唯一判据。
     """
     try:
         row: dict = {"ts": int(time.time()), "phase": phase}
@@ -488,6 +501,19 @@ def record_error(
         ):
             if value is not None:
                 row[key] = value
+        if telemetry:
+            for key in (
+                "headers_ms",
+                "first_chunk_ms",
+                "max_gap_ms",
+                "tail_gap_ms",
+                "stream_ms",
+                "chunks",
+                "upstream_bytes",
+            ):
+                value = telemetry.get(key)
+                if value is not None:
+                    row[key] = value
         if degrade_codes:
             row["deg"] = list(dict.fromkeys(degrade_codes))
         global _errors_fp
@@ -544,6 +570,16 @@ class ConfigError(ValueError):
 
 class ProviderDatabaseError(RuntimeError):
     """The CC Switch provider database is missing, unreadable or malformed."""
+
+
+class UpstreamStreamReplayable(RuntimeError):
+    """The upstream stalled before any byte reached the client.
+
+    The gateway in front of some upstreams closes a connection that stays
+    silent too long, which usually happens while the model is still queued.
+    Holding the downstream response back until real content arrives keeps that
+    failure invisible, so the request can be replayed on a fresh connection.
+    """
 
 
 class UpstreamStreamAborted(RuntimeError):
@@ -2151,6 +2187,7 @@ class StreamTelemetry:
         "_max_gap",
         "_chunks",
         "_upstream_bytes",
+        "_sealed_at",
     )
 
     def __init__(self, *, started_at: float, clock=time.monotonic) -> None:
@@ -2162,6 +2199,7 @@ class StreamTelemetry:
         self._max_gap = 0.0
         self._chunks = 0
         self._upstream_bytes = 0
+        self._sealed_at = None
 
     def observe(self, chunk: bytes) -> None:
         if not chunk:
@@ -2175,6 +2213,18 @@ class StreamTelemetry:
         self._chunks += 1
         self._upstream_bytes += len(chunk)
 
+    def seal(self) -> None:
+        """Record when the stream ended, so the trailing silence is measurable.
+
+        ``observe`` only advances ``_max_gap`` when a *new* chunk arrives, so
+        the interval between the last chunk and the break never enters that
+        statistic — which is exactly the interval an upstream idle timeout
+        would show up in. Idempotent: the first call wins, so a later
+        ``snapshot`` on a slower code path cannot inflate the number.
+        """
+        if self._sealed_at is None:
+            self._sealed_at = self._clock()
+
     @staticmethod
     def _milliseconds(seconds: float) -> int:
         return int(round(seconds * 1000))
@@ -2185,12 +2235,24 @@ class StreamTelemetry:
             first_chunk_ms = self._milliseconds(
                 self._first_chunk_at - self._started_at
             )
+        # snapshot stays side-effect free: it never reads the clock. Without a
+        # seal the trailing interval is genuinely unknown, and reporting "now
+        # minus the last chunk" would invent a number the caller never measured.
+        ended_at = self._sealed_at
+        tail_gap_ms = None
+        stream_ms = None
+        if ended_at is not None:
+            stream_ms = self._milliseconds(ended_at - self._started_at)
+            if self._last_chunk_at is not None:
+                tail_gap_ms = self._milliseconds(ended_at - self._last_chunk_at)
         return {
             "headers_ms": self._milliseconds(
                 self._headers_at - self._started_at
             ),
             "first_chunk_ms": first_chunk_ms,
             "max_gap_ms": self._milliseconds(self._max_gap),
+            "tail_gap_ms": tail_gap_ms,
+            "stream_ms": stream_ms,
             "chunks": self._chunks,
             "upstream_bytes": self._upstream_bytes,
         }
@@ -2203,12 +2265,18 @@ def stream_telemetry_fields(
     error: str | None = None,
     downstream_bytes: int | None = None,
 ) -> str:
+    # Every terminal path builds its log line here, so this is the one place
+    # that reliably marks "the stream is over" for tail_gap_ms.
+    telemetry.seal()
     metrics = telemetry.snapshot()
     first_chunk_ms = metrics["first_chunk_ms"]
+    tail_gap_ms = metrics["tail_gap_ms"]
     fields = [
         f"headers_ms={metrics['headers_ms']}",
         f"first_chunk_ms={first_chunk_ms if first_chunk_ms is not None else 'none'}",
         f"max_gap_ms={metrics['max_gap_ms']}",
+        f"tail_gap_ms={tail_gap_ms if tail_gap_ms is not None else 'none'}",
+        f"stream_ms={metrics['stream_ms']}",
         f"chunks={metrics['chunks']}",
         f"upstream_bytes={metrics['upstream_bytes']}",
     ]
@@ -2226,6 +2294,7 @@ class _SSETerminalTracker:
     def __init__(self) -> None:
         self.terminal = False
         self.protocol_error = False
+        self.content_started = False
         self._line = bytearray()
         self._discarding_line = False
         self._event_type: bytes | None = None
@@ -2332,6 +2401,14 @@ class _SSETerminalTracker:
         if not line:
             if (
                 self._event_has_data
+                and self._event_type is not None
+                and self._event_type not in (b"message_start", b"ping")
+            ):
+                # message_start carries only metadata and ping carries nothing;
+                # any other event proves the upstream is really producing.
+                self.content_started = True
+            if (
+                self._event_has_data
                 and self._event_type in (b"message_stop", b"error")
             ):
                 self.terminal = True
@@ -2348,6 +2425,49 @@ class _SSETerminalTracker:
         if separator and value.startswith(b" "):
             value = value[1:]
         self._event_type = value if separator else b""
+
+
+class _DeferredDownstream:
+    """Hold a streamed response back until the upstream really produces.
+
+    Preparing the response is the point of no return: once the client has seen
+    one byte, a stalled upstream can no longer be replayed on a fresh
+    connection. Buffering until then keeps the replay open, and the metadata
+    frames that arrive before real content are small enough to hold.
+    """
+
+    def __init__(self, response: web.StreamResponse, request: web.Request) -> None:
+        self._response = response
+        self._request = request
+        self._pending: list[bytes] = []
+        self._pending_bytes = 0
+        self.started = False
+
+    async def open(self) -> int:
+        """Commit the response, flushing whatever was buffered so far."""
+        if self.started:
+            return 0
+        await self._response.prepare(self._request)
+        self.started = True
+        flushed = 0
+        for buffered in self._pending:
+            await self._response.write(buffered)
+            flushed += len(buffered)
+        self._pending.clear()
+        return flushed
+
+    async def write(self, chunk: bytes) -> int:
+        """Write through once committed, otherwise buffer; return bytes sent."""
+        if not self.started:
+            self._pending.append(chunk)
+            self._pending_bytes += len(chunk)
+            if self._pending_bytes <= STREAM_REPLAY_BUFFER_BYTES:
+                return 0
+            # Holding more than this is worse than losing the replay, so commit
+            # rather than either dropping bytes or growing without a bound.
+            return await self.open()
+        await self._response.write(chunk)
+        return len(chunk)
 
 
 class _SSEUsageTracker:
@@ -2880,6 +3000,16 @@ async def _handle_transformed_messages(
     # arrives never binds ``account_attempt``, so referencing it from the
     # except clause would take down the forwarding path with a NameError.
     journal_account: str | None = None
+    # 与 native 路径同一个抽象：turn identity 绑一次，别在每个记账臂里重抄七遍。
+    journal = _TurnJournal(
+        alias=alias,
+        model_out=model_out,
+        api_format=api_format,
+        route_name=route_name,
+        instance_id=cfg.get("instance_id"),
+        started=started,
+        degrade_codes=request_warning_codes,
+    )
 
     try:
         async with _post_with_account_failover(
@@ -3087,19 +3217,13 @@ async def _handle_transformed_messages(
                     )
                 await response.write_eof()
                 if bridge.error_terminal:
-                    record_error(
+                    journal._replace(degrade_codes=warning_codes).error(
                         phase="stream",
-                        channel=alias,
-                        model=model_out,
-                        api_format=api_format,
+                        account_id=journal_account,
                         code=bridge.terminal_error_code,
                         message=bridge.terminal_error_message,
                         exc_type="UpstreamSSEError",
-                        route=route_name,
-                        instance_id=cfg.get("instance_id"),
-                        account_id=journal_account,
-                        elapsed_ms=int((time.monotonic() - started) * 1000),
-                        degrade_codes=warning_codes,
+                        telemetry=stream_telemetry.snapshot(),
                     )
                 else:
                     # Same receipt the downstream stream was built from, so
@@ -3154,19 +3278,13 @@ async def _handle_transformed_messages(
                         downstream_bytes=byte_count,
                     )
                 )
-                record_error(
+                journal._replace(degrade_codes=warning_codes).error(
                     phase="stream",
-                    channel=alias,
-                    model=model_out,
-                    api_format=api_format,
+                    account_id=journal_account,
                     code=error_code,
                     message=message,
                     exc_type=type(exc).__name__,
-                    route=route_name,
-                    instance_id=cfg.get("instance_id"),
-                    account_id=journal_account,
-                    elapsed_ms=int((time.monotonic() - started) * 1000),
-                    degrade_codes=warning_codes,
+                    telemetry=stream_telemetry.snapshot(),
                 )
                 if getattr(bridge, "stopped", False):
                     # The client already received the upstream's real terminal,
@@ -3577,6 +3695,81 @@ async def _forward_to_channel(
     route_failover: bool = False,
     route_name: str | None = None,
 ) -> web.StreamResponse:
+    """Forward one request, replaying stalls the client never saw."""
+
+    for attempt in range(STREAM_REPLAY_ATTEMPTS + 1):
+        try:
+            return await _forward_to_channel_attempt(
+                request,
+                cfg=cfg,
+                providers=providers,
+                alias=alias,
+                model_in=model_in,
+                model_out=model_out,
+                # Only the top-level dict needs isolating: the model rewrite
+                # below is the sole in-place edit an attempt makes, while the
+                # signature sanitiser and the protocol preparer both return
+                # new objects. Deep-copying here would instead walk a body
+                # that reaches tens of megabytes on a 1M-context turn, and it
+                # would do so on the first attempt too, blocking the event
+                # loop for every request to insure a replay most never need.
+                payload=dict(payload),
+                started=started,
+                is_count=is_count,
+                route_failover=route_failover,
+                route_name=route_name,
+            )
+        except UpstreamStreamReplayable as exc:
+            if attempt >= STREAM_REPLAY_ATTEMPTS:
+                # Out of replays, but nothing ever reached the client, so this
+                # stays a pre-commit failure. Aborting the transport is what
+                # the committed path has to do; here it would forfeit both
+                # remaining answers. A route group can still replay the
+                # buffered body against its next target -- worth more than
+                # another wait on this one, since a stall means this upstream
+                # is queueing -- and a lone channel can still say why it gave
+                # up in a body the client is able to read and retry on.
+                if route_failover:
+                    raise RouteTargetExhausted(
+                        504,
+                        alias=alias,
+                        evidence_message=(
+                            "upstream stalled before sending any content"
+                        ),
+                    ) from exc
+                log(
+                    f"{request.path} '{model_in}' -> {alias}/{model_out} "
+                    f"upstream stalled before first content "
+                    f"{STREAM_REPLAY_ATTEMPTS + 1}x, giving up"
+                )
+                return anthropic_error(
+                    504,
+                    f"hub: channel '{alias}' stalled before sending any "
+                    f"content after {STREAM_REPLAY_ATTEMPTS + 1} attempts",
+                    "api_error",
+                )
+            log(
+                f"{request.path} '{model_in}' -> {alias}/{model_out} "
+                f"upstream stalled before first content, replaying "
+                f"({attempt + 1}/{STREAM_REPLAY_ATTEMPTS})"
+            )
+    raise AssertionError("replay loop must return or raise")
+
+
+async def _forward_to_channel_attempt(
+    request: web.Request,
+    *,
+    cfg: dict,
+    providers: dict,
+    alias: str,
+    model_in: str,
+    model_out: str,
+    payload: dict,
+    started: float,
+    is_count: bool,
+    route_failover: bool = False,
+    route_name: str | None = None,
+) -> web.StreamResponse:
     """Forward one validated request to a single channel target.
 
     With ``route_failover`` armed, safe pre-commit rejections raise
@@ -3804,8 +3997,11 @@ async def _forward_to_channel(
                 response.headers["x-hub-protocol-warnings"] = ",".join(
                     protocol_warning_codes
                 )
-            await response.prepare(request)
-
+            # Committing the response forfeits any chance of a silent replay,
+            # so hold it back until the upstream proves it is really producing.
+            downstream = _DeferredDownstream(response, request)
+            if not streamed:
+                await downstream.open()
             byte_count = 0
             stream_telemetry = StreamTelemetry(started_at=started)
             sse_tracker = _SSETerminalTracker() if streamed else None
@@ -3829,8 +4025,9 @@ async def _forward_to_channel(
                             # monopolizing the local gateway event loop.
                             await asyncio.sleep(0)
                     json_buf = _append_bounded_json_buffer(json_buf, chunk)
-                    await response.write(chunk)
-                    byte_count += len(chunk)
+                    if sse_tracker is not None and sse_tracker.content_started:
+                        byte_count += await downstream.open()
+                    byte_count += await downstream.write(chunk)
                 if sse_tracker is not None:
                     sse_decoder.finish()
                     sse_tracker.finish()
@@ -3844,7 +4041,7 @@ async def _forward_to_channel(
             ) as exc:
                 log(
                     f"{log_prefix} upstream broke or was invalid "
-                    f"after {byte_count}B: "
+                    f"after {byte_count}B downstream: "
                     f"{type(exc).__name__} "
                     + stream_telemetry_fields(
                         stream_telemetry,
@@ -3862,7 +4059,22 @@ async def _forward_to_channel(
                         else None
                     ),
                     exc_type=type(exc).__name__,
+                    telemetry=stream_telemetry.snapshot(),
                 )
+                if not downstream.started and isinstance(
+                    exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
+                ):
+                    # The client never saw this attempt and the upstream broke
+                    # at the transport rather than inside its own output, so a
+                    # fresh connection can still answer differently and the
+                    # transport must survive for it. Malformed output -- an SSE
+                    # ordering violation, a corrupt compression member -- is the
+                    # upstream's deterministic answer by the same reasoning the
+                    # clean-EOF branch below applies, so it keeps falling
+                    # through to the abort instead of buying three of them.
+                    raise UpstreamStreamReplayable(
+                        "upstream stalled before the downstream response started"
+                    ) from exc
                 transport = request.transport
                 if transport is not None:
                     transport.abort()
@@ -3871,6 +4083,10 @@ async def _forward_to_channel(
                 ) from exc
 
             if sse_tracker is not None and not sse_tracker.complete:
+                # A clean EOF without a terminal event is the upstream's own
+                # malformed answer rather than a stall, so replaying it would
+                # just repeat a deterministic failure. Hand over what arrived.
+                byte_count += await downstream.open()
                 log(
                     f"{log_prefix} upstream SSE ended without a valid "
                     f"terminal event after {byte_count}B "
@@ -3884,6 +4100,7 @@ async def _forward_to_channel(
                     phase="stream",
                     account_id=journal_account,
                     exc_type="IncompleteSSE",
+                    telemetry=stream_telemetry.snapshot(),
                 )
                 transport = request.transport
                 if transport is not None:
@@ -3898,6 +4115,7 @@ async def _forward_to_channel(
                     phase="stream",
                     account_id=journal_account,
                     exc_type="UpstreamSSEError",
+                    telemetry=stream_telemetry.snapshot(),
                 )
             elif usage_tracker is not None and not is_count:
                 # count_tokens is a pre-flight probe even when an upstream
