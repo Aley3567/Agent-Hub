@@ -113,6 +113,9 @@
   --sp-8: 32px;
   --sp-10: 40px;
 
+  /* 对话视图会话列表固定宽 · DESIGN.md 2.4 / 4.5：视图级尺寸，不进通用间距阶梯 */
+  --chat-list-w: 240px;
+
   /* --- 圆角 · DESIGN.md 5 节 macOS 列（Windows 侧更方，故各存一份）--- */
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -144,11 +147,13 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* 以下两个不是过渡时长，不受 320ms 上限约束（DESIGN.md 2.5「上限与例外」）。
-     顶部加载进度线与 Spinner 都是 indeterminate 指示器——表达「还在进行」而不是
-     「A 变成了 B」，所以循环周期可以长过上限；单列 token 而非写死魔法值。 */
+  /* 以下三个不是过渡时长，不受 320ms 上限约束（DESIGN.md 2.5「上限与例外」）。
+     顶部加载进度线、Spinner 与对话视图流式光标都是 indeterminate 指示器——表达
+     「还在进行」而不是「A 变成了 B」，所以循环周期可以长过上限；单列 token 而非写死魔法值。 */
   --dur-progress-loop: 1100ms;
   --dur-spin-loop: 720ms;
+  /* 对话视图流式/思考态光标 caret-pulse 的呼吸周期 · DESIGN.md 2.5 / 4.5 */
+  --dur-caret-loop: 1100ms;
 
   /* ======================================================================
      布局与控件尺寸 token。

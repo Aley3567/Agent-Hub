@@ -10,9 +10,10 @@ import styles from './Icon.module.css';
 export type IconName =
   // 导航
   | 'channels' | 'slots' | 'usage' | 'diagnostics' | 'accounts' | 'doctor' | 'settings'
+  | 'chat' | 'plugins' | 'tasks'
   // 动作
   | 'search' | 'plus' | 'close' | 'check' | 'refresh' | 'play' | 'copy' | 'edit'
-  | 'trash' | 'external' | 'filter' | 'download' | 'reveal'
+  | 'trash' | 'external' | 'filter' | 'download' | 'reveal' | 'send' | 'puzzle' | 'calendar'
   // 状态与语义
   | 'warning' | 'error' | 'info' | 'success' | 'dot' | 'clock' | 'zap' | 'lock'
   | 'star' | 'eye' | 'eye-off' | 'pin'
@@ -108,6 +109,29 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="12" r="3.1" />
     </>
   ),
+  chat: (
+    <>
+      <path d="M5.6 4.6h12.8a1.8 1.8 0 0 1 1.8 1.8v8.6a1.8 1.8 0 0 1-1.8 1.8h-7.6l-4.4 3.2v-3.2h-.8a1.8 1.8 0 0 1-1.8-1.8V6.4a1.8 1.8 0 0 1 1.8-1.8z" />
+    </>
+  ),
+  plugins: (
+    <>
+      <path d="M8.8 3.6v4.2" />
+      <path d="M15.2 3.6v4.2" />
+      <path d="M6.4 7.8h11.2v3.6a5.6 5.6 0 0 1-11.2 0z" />
+      <path d="M12 17v3.4" />
+    </>
+  ),
+  tasks: (
+    <>
+      <path d="M10.4 6.6h9.2" />
+      <path d="M10.4 12h9.2" />
+      <path d="M10.4 17.4h9.2" />
+      <path d="M3.2 6.2l1.5 1.5 2.6-3.1" />
+      <path d="M3.2 11.6l1.5 1.5 2.6-3.1" />
+      <path d="M3.2 17l1.5 1.5 2.6-3.1" />
+    </>
+  ),
 
   // —— 动作 ——
   search: (
@@ -189,6 +213,25 @@ const GLYPHS: Record<IconName, ReactNode> = {
       <path d="M20.4 18a1.6 1.6 0 0 1-1.6 1.6H5.2A1.6 1.6 0 0 1 3.6 18V6.2a1.6 1.6 0 0 1 1.6-1.6h3.9l2.1 2.6h7.6a1.6 1.6 0 0 1 1.6 1.6z" />
       <path d="M9.6 15.4l4.8-4.8" />
       <path d="M11 10.6h3.4V14" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="M20.2 3.8L10.6 13.4" />
+      <path d="M20.2 3.8l-6.2 16-3.4-6.4-6.4-3.4z" />
+    </>
+  ),
+  puzzle: (
+    <>
+      <path d="M5.2 8.4V5.2h4.3a2.3 2.3 0 1 1 4.6 0h4.3v4.3a2.3 2.3 0 1 0 0 4.6v4.3h-4.3a2.3 2.3 0 1 0-4.6 0H5.2v-4.3a2.3 2.3 0 1 0 0-4.6z" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="3.6" y="5" width="16.8" height="15.4" rx="1.8" />
+      <path d="M3.6 9.6h16.8" />
+      <path d="M8.2 2.8v3.6" />
+      <path d="M15.8 2.8v3.6" />
     </>
   ),
 

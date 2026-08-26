@@ -101,6 +101,9 @@
   --sp-8: 32px;
   --sp-10: 40px;
 
+  /* 对话视图会话列表固定宽 · DESIGN.md 2.4 / 4.5：视图级尺寸，不进通用间距阶梯，两侧同值 */
+  --chat-list-w: 240px;
+
   /* --- 圆角 · DESIGN.md 5 节 Windows 列：Fluent 更方，故两侧各存一份 --- */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -132,6 +135,9 @@
      不定时长的 indeterminate 指示器不是过渡，故单列一个 token 而非写死魔法值。
      同理，平台差异表的 × 0.85 只作用于过渡类 token，循环指示器两侧同值。 */
   --dur-progress-loop: 1100ms;
+  /* 对话视图流式/思考态光标 caret-pulse 的呼吸周期 · DESIGN.md 2.5 / 4.5。
+     与 --dur-progress-loop 同例：indeterminate 循环周期两侧同值，× 0.85 只作用于过渡四档 */
+  --dur-caret-loop: 1100ms;
 
   /* ======================================================================
      布局与控件尺寸 token。

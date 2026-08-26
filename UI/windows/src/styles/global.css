@@ -198,6 +198,29 @@ table {
 }
 
 /* ==========================================================================
+   对话视图流式/思考态光标（DESIGN.md 2.5 清单 caret-pulse 行、4.5「流式呈现」）
+   纯 opacity 呼吸，无位移；循环周期走 --dur-caret-loop——它是 indeterminate
+   指示器不是过渡，不受过渡上限约束，两侧同值（5 节平台差异表「动效时长」行）。
+   用法：<span className="caret-pulse" />（或 caretPulse），形状由视图自己定。
+   reduced-motion 下被通配 animation: none 关掉后，元素本身仍以全不透明度静止
+   呈现——这就是 DESIGN.md 2.5 第 3 条要求的「静态可见的插入符」回落。
+   ========================================================================== */
+@keyframes caret-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.caret-pulse,
+.caretPulse {
+  animation: caret-pulse var(--dur-caret-loop) var(--ease-in-out) infinite;
+}
+
+/* ==========================================================================
    尊重减少动效（DESIGN.md 2.5）
    ========================================================================== */
 @media (prefers-reduced-motion: reduce) {

@@ -210,12 +210,12 @@ table {
    让调用方用类名而不是各自写 @keyframes；已有的三处组件模块
    （CommandPalette / Dialog / Spinner）归各自 owner，保留原位；
    「src/views/** 下不许出现 @keyframes」。
-   白名单全工程 8 个：本文件 5 个（上面的 app-progress-slide + 下面 4 个）
+   白名单全工程 9 个：本文件 6 个（上面的 app-progress-slide + 下面 5 个）
    加那三处组件模块各 1 个。要新动效先改 DESIGN.md 的清单，不要就地造。
 
    本文件不是 CSS Module，类名字面生效，React 侧直接写 className="view-enter"。
    同一动效要落在 .module.css 的伪元素上时，引用这里的关键帧名即可，不要另写
-   @keyframes——白名单只有 8 个。
+   @keyframes——白名单只有 9 个。
 
    每个工具类给了 kebab 与 camel 两种写法（同一条规则的两个选择器，不是两份实现）：
    调用方从 CSS Modules 过来习惯 camelCase，而类名写错在 CSS 里是静默失效，不报错。
@@ -328,6 +328,26 @@ table {
 .accentBarIn {
   transform-origin: center;
   animation: accent-bar-in var(--dur-fast) var(--ease-out) both;
+}
+
+/* 对话视图流式/思考态光标：纯 opacity 呼吸，无位移（DESIGN.md 2.5 清单 caret-pulse 行、
+   4.5「流式呈现」）。循环周期走 --dur-caret-loop——它是 indeterminate 指示器不是过渡，
+   不受 320ms 上限约束。调用方把类挂在插入符元素上，形状（宽度/颜色/圆角）由视图自己定。
+   reduced-motion 下被通配 animation: none 关掉后，元素本身仍以全不透明度静止呈现——
+   这就是 DESIGN.md 2.5 第 3 条要求的「静态可见的插入符」回落，不需要显式恢复。 */
+@keyframes caret-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.caret-pulse,
+.caretPulse {
+  animation: caret-pulse var(--dur-caret-loop) var(--ease-in-out) infinite;
 }
 
 /* ==========================================================================
