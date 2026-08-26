@@ -1,0 +1,8 @@
+/* 新建 / 编辑对话框的表单布局。Dialog 本体的宽度与浮层样式由组件自带，这里只管表单间距。 */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}

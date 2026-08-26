@@ -1,0 +1,65 @@
+/* 插件视图。色值、间距、圆角、时长全部取 tokens.css，不写字面值。 */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/* 顶部一行：左边是只读边界声明（这一页的信任前提），右边是刷新 */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.scopeIcon {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+/* IPC 的中文原因原样显示（AGENTS.md：错误原样暴露） */
+.error {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  overflow-wrap: anywhere;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-8) 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 分组列表是独立容器：外框用 --border-default（DESIGN.md 2.2.1）；
+   容器内部的行间分隔线才是 --border-subtle，那一条在 PluginRow 里 */
+.list {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  overflow: hidden;
+}

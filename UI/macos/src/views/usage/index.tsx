@@ -272,6 +272,7 @@ export default function UsageView() {
       <p className={styles.windowNote}>{windowNote}</p>
 
       <Toolbar
+        sticky
         divider
         aria-label="时间范围"
         right={

@@ -6,6 +6,7 @@
  * 判定逻辑全在 failure.ts，这里只负责摆放。
  */
 import { Fragment } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Badge, Button, CodeBlock, Icon, StatusDot, Table, Td, Th } from '../../../components';
 import type { BadgeTone } from '../../../components';
 import { MISSING, formatTime } from '../../../lib';
@@ -22,6 +23,32 @@ export interface FailureTableProps {
 }
 
 const COLUMN_COUNT = 9;
+
+/**
+ * 表格内的 ↑↓ 行移动（键盘事件局部绑定）：焦点落在某条数据行里时，↓/↑ 把焦点移到
+ * 相邻数据行的展开开关上，跳过没有主操作的行；Enter 由按钮原生激活（展开/收起就是
+ * 这一行的主操作），不需要额外绑定。展开后的详情行不带 data-row，里面的复制按钮
+ * 不会被这个逻辑劫持。
+ */
+function onBodyKeyDown(event: KeyboardEvent<HTMLTableSectionElement>) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const row = target.closest('tr[data-row]');
+  if (row === null) return;
+  const rows = Array.from(event.currentTarget.querySelectorAll('tr[data-row]'));
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const step = event.key === 'ArrowDown' ? 1 : -1;
+  for (let i = index + step; i >= 0 && i < rows.length; i += step) {
+    const control = rows[i].querySelector('button');
+    if (control !== null) {
+      event.preventDefault();
+      control.focus();
+      return;
+    }
+  }
+}
 
 function formatTone(format: string | null): BadgeTone {
   if (format === 'anthropic') return 'accent';
@@ -45,12 +72,12 @@ export function FailureTable({ items, expanded, onToggle, onInspectDegrade }: Fa
           <Th>原因</Th>
         </tr>
       </thead>
-      <tbody>
+      <tbody onKeyDown={onBodyKeyDown}>
         {items.map(({ key, row, narrative }) => {
           const open = expanded.has(key);
           return (
             <Fragment key={key}>
-              <tr>
+              <tr data-row="">
                 <Td>
                   <button
                     type="button"

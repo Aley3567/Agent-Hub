@@ -6,9 +6,11 @@
  * 不因为「调用没抛异常」就说成成功。
  */
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Badge, Button, Card, CodeBlock, StatusDot } from '../../../components';
 import { errorText, useApp } from '../../../store';
 import { useNav } from '../../../store/nav';
+import { useToast } from '../../../store/toast';
 import { useAnnouncer } from '../../../shell/announce';
 import type { Channel, HubConfig, LaunchResult, SlotName, UsageRow } from '../../../types/contract';
 import {
@@ -36,7 +38,8 @@ export interface HubCardProps {
 
 interface HubWarning {
   key: string;
-  text: string;
+  /** 一句说明。槽位名与回合计数是标识符 / 数字，按 DESIGN.md 1.3 与 2.3 走 mono */
+  text: ReactNode;
 }
 
 /** 把同一 hub 内重复的降级提示合并成一条，避免每个槽位都撑一条满宽琥珀条。 */
@@ -59,7 +62,12 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
   for (const [label, slots] of formatSlots) {
     out.push({
       key: `protocol-${label}`,
-      text: `${slots.join('、')} 槽位绑定到 ${label} 渠道，会产生 HUB_DEGRADE_* 降级。`,
+      text: (
+        <>
+          <span className={styles.mono}>{slots.join('、')}</span> 槽位绑定到 {label} 渠道，会产生
+          HUB_DEGRADE_* 降级。
+        </>
+      ),
     });
   }
 
@@ -73,7 +81,12 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
   if (degraded > 0) {
     out.push({
       key: 'degraded',
-      text: `最近 24 小时本 hub 有 ${degraded} 个回合带 HUB_DEGRADE_* 降级码。`,
+      text: (
+        <>
+          最近 24 小时本 hub 有 <span className={styles.mono}>{degraded}</span> 个回合带
+          HUB_DEGRADE_* 降级码。
+        </>
+      ),
     });
   }
 
@@ -84,6 +97,10 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
   const launch = useApp((state) => state.launch);
   const announce = useAnnouncer((state) => state.announce);
   const setView = useNav((state) => state.setView);
+  // 启动反馈统一走 toast（REDESIGN-PROMPT 2.3.5）；卡内的命令回显与失败原文保留，
+  // toast 只是 3 秒的轻反馈，不替代留痕
+  const toastSuccess = useToast((state) => state.success);
+  const toastError = useToast((state) => state.error);
 
   const [launching, setLaunching] = useState(false);
   const [result, setResult] = useState<LaunchResult | null>(null);
@@ -118,10 +135,13 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
       const next = await launch({ kind: 'hub', hubName: hub.name });
       setResult(next);
       announce(next.ok ? `hub ${hub.name} 的会话已启动：${next.message}` : `hub ${hub.name} 启动失败：${next.message}`);
+      if (next.ok) toastSuccess(`hub ${hub.name} 的会话已启动`);
+      else toastError(next.message);
     } catch (cause) {
       const reason = errorText(cause);
       setFailure(reason);
       announce(`hub ${hub.name} 启动失败：${reason}`);
+      toastError(reason);
     } finally {
       setLaunching(false);
     }

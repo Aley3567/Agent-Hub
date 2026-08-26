@@ -1,0 +1,93 @@
+/* 消息流：独立滚动容器（DESIGN.md 4.5，「唯一滚动容器」的视图级例外之一） */
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6);
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.userRow {
+  align-items: flex-end;
+}
+
+.assistantRow {
+  align-items: stretch;
+}
+
+.systemRow {
+  align-items: center;
+}
+
+/* 用户消息：全站唯一的气泡，右对齐窄块，最大宽为消息流宽度的 70%（DESIGN.md 4.5） */
+.bubble {
+  max-width: 70%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 助手消息：无气泡正文流，左对齐全宽 */
+.assistantText {
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* system / 演示提示：--bg-inset 小条 */
+.systemBar {
+  max-width: 70%;
+  background: var(--bg-inset);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+  overflow-wrap: break-word;
+}
+
+/* 模型名与时间戳：mono + tabular-nums（DESIGN.md 1 节第 3 条、2.3 节） */
+.meta {
+  margin-top: var(--sp-1);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+}
+
+/* 流式/思考态插入符：形状由视图定（动画类 caret-pulse 在 styles/global.css，
+   纯 opacity 呼吸，无位移；reduced-motion 下动画被关后本元素仍以全不透明度静止呈现，
+   即 DESIGN.md 2.5 第 3 条要求的静态可见插入符回落）。宽取 2px 竖条 token。 */
+.caret {
+  display: inline-block;
+  width: var(--accent-bar-w);
+  height: 1em;
+  margin-left: var(--sp-1);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  vertical-align: text-bottom;
+}
+
+/* 思考态的光标独占一行，不需要左外边距 */
+.assistantRow > .caret {
+  margin-left: 0;
+}

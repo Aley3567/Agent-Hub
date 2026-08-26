@@ -7,10 +7,15 @@
  *
  * 每行自己管 busy 与错误：一行被拒不该让另外两行也变成错误态，所以状态留在行内，
  * 而不是提到视图根上用 path 当 key 记一张表。
+ *
+ * 成功反馈走 toast（保存/打开类操作的统一反馈通道，REDESIGN-PROMPT 2.3.5）；
+ * 失败不加 error toast——行内 role="alert" 已经原样播报了原因，再推一条 toast
+ * 会让读屏器把同一句错误念两遍。
  */
 import { useState } from 'react';
 import { Button } from '../../../components';
 import { errorText, useApp } from '../../../store';
+import { useToast } from '../../../store/toast';
 import styles from './PathRow.module.css';
 
 export interface PathRowProps {
@@ -26,6 +31,7 @@ type Busy = 'open' | 'reveal';
 export default function PathRow({ label, hint, path }: PathRowProps) {
   const openPath = useApp((state) => state.openPath);
   const revealInFolder = useApp((state) => state.revealInFolder);
+  const toastSuccess = useToast((state) => state.success);
   const [busy, setBusy] = useState<Busy | null>(null);
   const [reason, setReason] = useState<string | null>(null);
 
@@ -35,8 +41,10 @@ export default function PathRow({ label, hint, path }: PathRowProps) {
     try {
       if (kind === 'open') {
         await openPath(path);
+        toastSuccess(`${label}：已用系统默认程序打开`);
       } else {
         await revealInFolder(path);
+        toastSuccess(`${label}：已在 Finder 中显示`);
       }
     } catch (cause) {
       setReason(errorText(cause));

@@ -41,6 +41,16 @@ function nonEmpty(value: string | null): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/**
+ * 任务清单路径。app_env 的返回集被 CONTRACT.md 第 3 节钉死、没有 tasksPath 字段，
+ * 而默认位置就是配置路径旁边那个 agent-hub-tasks.json（Rust 侧 paths.rs 的 tasks_path()），
+ * 所以从 configPath 换最后一个路径段派生。设了 AGENT_HUB_TASKS_PATH 环境变量时
+ * 真实位置以该变量为准，界面上显示的是默认位置（行的 hint 里写明这一点）。
+ */
+function tasksPathFrom(configPath: string): string {
+  return configPath.replace(/[^/\\]+$/, 'agent-hub-tasks.json');
+}
+
 export default function SettingsView() {
   const theme = useNav((state) => state.theme);
   const setTheme = useNav((state) => state.setTheme);
@@ -151,6 +161,11 @@ export default function SettingsView() {
               path={env.logsDir}
               hint="用量与错误 journal 都在这个目录下，用量视图与诊断视图读的就是它们。"
             />
+            <PathRow
+              label="任务清单路径"
+              path={tasksPathFrom(env.configPath)}
+              hint="计划任务清单：任务视图的增删改都写在这里。设了 AGENT_HUB_TASKS_PATH 环境变量时真实位置以它为准，这里显示的是默认位置。"
+            />
           </div>
         )}
       </Card>
@@ -220,13 +235,16 @@ export default function SettingsView() {
           <li className={styles.aboutItem}>不做协议转换、不做转发——它不是第二个网关。</li>
           <li className={styles.aboutItem}>不发任何遥测、不连任何外部域名。</li>
           <li className={styles.aboutItem}>
-            CC Switch 数据库只读打开，写操作只落在 claude1-config.json 与 claude-hub.json。
+            CC Switch 数据库只读打开，写操作只落在 claude1-config.json、claude-hub.json 与 agent-hub-tasks.json。
           </li>
           <li className={styles.aboutItem}>
             凭证在 Rust 侧就被剥离，界面上只会看到「已配置 / 未配置」，也不提供复制凭证的入口。
           </li>
           <li className={styles.aboutItem}>
             账号池首版只读；用量只呈现已经记过账的数据，没有价格表就不估算金额。
+          </li>
+          <li className={styles.aboutItem}>
+            对话视图当前是演示实现：会话与回复都来自内置演示数据，不接任何真实后端。
           </li>
           <li className={styles.aboutItem}>没有自动更新、没有托盘常驻、没有 deep link。</li>
         </ul>

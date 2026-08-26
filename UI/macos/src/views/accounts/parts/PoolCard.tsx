@@ -7,9 +7,14 @@
  *   2. 「最近使用的成员」是从用量流水的 account 字段推出来的，不是 hub 运行期的当前绑定，
  *      所以标签就叫「最近使用」，不叫「当前活跃」——推不出来的事不能改个名字冒充。
  *   3. 池文件里没有的东西一律不显示（成员失败次数、冷却剩余），也不用 0 冒充。
+ *
+ * 仅有的两个动作是复制池选择器与成员标识：复制内容跟显示串一样先过 redactSecrets
+ * （fail-closed，CONTRACT.md 1.2），成败反馈统一走 toast（REDESIGN-PROMPT 2.3 第 5 条）。
  */
-import { Badge, Card, StatusDot, Table, Td, Th, type StatusToneInput } from '../../../components';
+import { Badge, Card, IconButton, StatusDot, Table, Td, Th, type StatusToneInput } from '../../../components';
 import { MISSING, cx, formatCount, formatRelative, formatTime, redactSecrets } from '../../../lib';
+import { errorText } from '../../../store';
+import { useToast } from '../../../store/toast';
 import type { AccountMember, AccountPool, Channel } from '../../../types/contract';
 import styles from './PoolCard.module.css';
 
@@ -82,12 +87,28 @@ function latestMember(members: AccountMember[]): AccountMember | null {
 }
 
 export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
+  const toastSuccess = useToast((state) => state.success);
+  const toastError = useToast((state) => state.error);
+
   const primary = pool.resolvedChannelId === null ? undefined : channelById.get(pool.resolvedChannelId);
   const poolRef = redactSecrets(pool.providerRef);
   const strategyLabel = STRATEGY_LABEL[pool.strategy];
   const enabledCount = pool.members.filter((member) => member.enabled).length;
   const latest = latestMember(pool.members);
   const latestRef = latest === null ? null : latest.providerRef;
+
+  /**
+   * 复制标识符：复制出去的串与界面上显示的串是同一份脱敏结果——宁可复制到打了码的串，
+   * 也不能让剪贴板绕过 fail-closed 边界。失败原因原文照贴，不包装成「复制失败」。
+   */
+  async function copyRef(raw: string, label: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(redactSecrets(raw));
+      toastSuccess(`已复制${label}`);
+    } catch (cause) {
+      toastError(`复制${label}未成功：${errorText(cause)}`);
+    }
+  }
 
   return (
     <Card
@@ -116,7 +137,17 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
           ) : null}
         </span>
       }
-      subtitle={<code className={styles.ref}>{poolRef}</code>}
+      subtitle={
+        <span className={styles.refRow}>
+          <code className={styles.ref}>{poolRef}</code>
+          <IconButton
+            icon="copy"
+            aria-label={`复制池选择器 ${poolRef}`}
+            tooltip="复制池选择器"
+            onClick={() => void copyRef(pool.providerRef, '池选择器')}
+          />
+        </span>
+      }
       actions={
         <span className={styles.headerMeta}>
           成员 <span className={styles.num}>{formatCount(pool.members.length)}</span> 个，启用{' '}
@@ -224,8 +255,18 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
               const memberRef = redactSecrets(member.providerRef);
               return (
                 <tr key={member.providerRef}>
-                  <Td mono truncate title={memberRef}>
-                    {memberRef}
+                  <Td mono className={styles.refTd} title={memberRef}>
+                    {/* 截断交给内层 .refText：Td 自带 truncate 的 overflow 会把复制按钮的
+                        focus 环一起裁掉，所以只借它的 max-width:0 挤压（见 .refTd） */}
+                    <span className={styles.refCell}>
+                      <span className={styles.refText}>{memberRef}</span>
+                      <IconButton
+                        icon="copy"
+                        aria-label={`复制成员标识 ${memberRef}`}
+                        tooltip="复制成员标识"
+                        onClick={() => void copyRef(member.providerRef, '成员标识')}
+                      />
+                    </span>
                   </Td>
                   <Td
                     mono

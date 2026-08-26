@@ -9,6 +9,7 @@ import { useId, useState } from 'react';
 import { Badge, Button, IconButton, Icon, MidTruncate, StatusDot, Td } from '../../../components';
 import { MISSING, cx, formatTokens, redactSecrets } from '../../../lib';
 import { errorText } from '../../../store';
+import { useToast } from '../../../store/toast';
 import type { Channel, LaunchResult, UsageRow } from '../../../types/contract';
 import ChannelDetail from './ChannelDetail';
 import {
@@ -50,6 +51,10 @@ export default function ChannelRow({
   const [busy, setBusy] = useState<Busy>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [launchResult, setLaunchResult] = useState<LaunchResult | null>(null);
+  // 启动反馈统一走 toast（REDESIGN-PROMPT 2.3.5）：成功一条、失败把原文再推一条。
+  // 详情面板里的命令回显与错误原文保留——toast 3 秒就消失，命令与原因得留得住
+  const toastSuccess = useToast((state) => state.success);
+  const toastError = useToast((state) => state.error);
 
   const statuses = channelStatuses(channel);
   const model = channelModel(channel);
@@ -68,9 +73,16 @@ export default function ChannelRow({
       const result = await actions.launch(channel.id);
       setLaunchResult(result);
       // ok 为 false 也要留痕：失败绝不伪装成成功
-      if (!result.ok) setRowError(result.message);
+      if (result.ok) {
+        toastSuccess(`已启动 ${channel.name} 的会话`);
+      } else {
+        setRowError(result.message);
+        toastError(result.message);
+      }
     } catch (cause) {
-      setRowError(errorText(cause));
+      const reason = errorText(cause);
+      setRowError(reason);
+      toastError(reason);
     } finally {
       setBusy(null);
     }

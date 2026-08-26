@@ -1,0 +1,35 @@
+/* composer：底部固定在消息流之下（DESIGN.md 4.5「composer（底部固定）」） */
+
+.composer {
+  flex: none;
+  padding: var(--sp-3) var(--sp-6) var(--sp-4);
+  /* 与消息流之间的兄弟分隔线，同外壳条带口径用 --border-subtle（DESIGN.md 2.2.1） */
+  border-top: 1px solid var(--border-subtle);
+}
+
+.row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+/* 输入区占满剩余宽度；底 / 描边 / focus 转 accent 由 Textarea 原语自带（DESIGN.md 4.1） */
+.inputWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.input {
+  resize: none;
+  /* 随内容长高，上限约 6 行正文；超出后 textarea 内部自滚 */
+  max-height: calc(var(--lh-14) * 6 + var(--sp-3));
+}
+
+/* 键位说明：一行 hint，--fs-12 tertiary，不占正文说明额度 */
+.keys {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+  text-align: right;
+}

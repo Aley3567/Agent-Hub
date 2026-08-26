@@ -17,7 +17,7 @@ export const LEVEL_LABEL: Record<DoctorLevel, string> = {
   fail: '失败',
 };
 
-/** 状态点语义映射（DESIGN.md 4.1）：绿=正常、琥珀=需要注意、红=失败 */
+/** 状态点语义映射（DESIGN.md 4.1：绿=正常、琥珀=降级、红=失败），info 档在界面上按「警告」呈现 */
 export const LEVEL_TONE: Record<DoctorLevel, StatusToneInput> = {
   ok: 'ok',
   info: 'degraded',

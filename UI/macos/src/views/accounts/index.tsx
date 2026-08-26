@@ -38,9 +38,9 @@ export default function AccountsView() {
   return (
     <div className={styles.view}>
       <div className={styles.notes}>
+        {/* 正文说明 ≤1 行（DESIGN.md 3 节）：具体命令收进空态 hint 的「下一步」里，不在这里堆 */}
         <p className={styles.note}>
-          账号池当前为只读展示，编辑请用 CLI：<code className={styles.code}>{CLI_ADD}</code>
-          ；运行期状态（失败次数、冷却剩余）不在池文件里，本页不显示。
+          账号池当前为只读展示，编辑请用 CLI；运行期状态（失败次数、冷却剩余）不在池文件里，本页不显示。
         </p>
       </div>
 
