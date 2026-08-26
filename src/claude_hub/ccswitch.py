@@ -3,10 +3,18 @@
 Database paths and raw provider records remain inside this module. The
 presentation boundary receives only validated stable references and redacted
 inspection DTOs.
+
+Read-only connections are opened with ``mode=ro`` + ``PRAGMA query_only`` and
+closed explicitly after each probe, so they never run a write transaction. On a
+WAL-journal database SQLite may still create ``-shm``/``-wal`` sidecar files
+next to the real database (it cannot delete them from a read-only handle); the
+provider contents are never modified. CC Switch schema versions are read-only
+capable from 13 upward, and version 16 additionally permits a guarded write.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -134,7 +142,7 @@ class CCSwitchProviderStore:
             return StoreCapability.UNAVAILABLE
 
         try:
-            with _readonly_connection(path) as conn:
+            with contextlib.closing(_readonly_connection(path)) as conn:
                 cursor = conn.cursor()
                 cursor.execute("PRAGMA user_version")
                 row = cursor.fetchone()
@@ -197,7 +205,7 @@ class CCSwitchProviderStore:
 
         path = self.database_path
         try:
-            with _readonly_connection(path) as conn:
+            with contextlib.closing(_readonly_connection(path)) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -248,7 +256,7 @@ class CCSwitchProviderStore:
 
         path = self.database_path
         try:
-            with _readonly_connection(path) as conn:
+            with contextlib.closing(_readonly_connection(path)) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT id FROM providers WHERE app_type = 'claude'"

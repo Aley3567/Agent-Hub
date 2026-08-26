@@ -12,6 +12,7 @@ from unittest.mock import patch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from claude_hub import ccswitch
 from claude_hub.ccswitch import (
     CCSwitchProviderStore,
     resolve_ccswitch_database_path,
@@ -306,6 +307,33 @@ class CCSwitchStoreTests(unittest.TestCase):
         store = CCSwitchProviderStore(self.db_path)
         with self.assertRaises(ProviderConfigCorruptError):
             store.list()
+
+    def test_readonly_connection_is_closed_after_probe(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        closed: list[bool] = []
+
+        real_connect = ccswitch._readonly_connection
+
+        class _CloseTracking:
+            def __init__(self, conn: sqlite3.Connection) -> None:
+                self._conn = conn
+
+            def cursor(self) -> sqlite3.Cursor:
+                return self._conn.cursor()
+
+            def close(self) -> None:
+                closed.append(True)
+                self._conn.close()
+
+        def factory(path: Path) -> _CloseTracking:
+            return _CloseTracking(real_connect(path))
+
+        store = CCSwitchProviderStore(self.db_path)
+        with patch("claude_hub.ccswitch._readonly_connection", side_effect=factory):
+            store.detect()
+            store.list()
+        # Both detect and list must have closed their read-only connection.
+        self.assertTrue(closed)
 
     def test_list_raises_when_store_absent(self) -> None:
         store = CCSwitchProviderStore(Path(self.temp_dir.name) / "non-existent.db")
