@@ -125,7 +125,13 @@ class ClaudeModelAdapter:
         if not isinstance(models, ModelMapping):
             raise TypeError("models must be a ModelMapping")
 
-        patched = deepcopy(dict(document))
+        try:
+            patched = deepcopy(dict(document))
+        except RecursionError as exc:
+            raise ClaudeModelDocumentError(
+                "model document nesting exceeds maximum recursion depth"
+            ) from exc
+
         env = patched.get("env")
         if env is None:
             env = {}

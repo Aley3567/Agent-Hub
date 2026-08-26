@@ -140,9 +140,13 @@ class CCSwitchProviderStore:
                 if version in WRITE_SCHEMA_VERSIONS:
                     return StoreCapability.COMPATIBLE
                 return StoreCapability.READ_ONLY
+        except sqlite3.OperationalError:
+            # Operational errors (e.g. database locked, unable to open) mean unavailable, not corrupt
+            return StoreCapability.ABSENT
         except sqlite3.DatabaseError:
+            # Format/structural errors mean corrupt
             return StoreCapability.CORRUPT
-        except (OSError, sqlite3.OperationalError):
+        except OSError:
             return StoreCapability.ABSENT
 
     def list(self) -> tuple[ProviderRef, ...]:
@@ -151,7 +155,7 @@ class CCSwitchProviderStore:
         if not capability.can_read:
             if capability is StoreCapability.ABSENT:
                 raise ProviderStoreUnavailableError(
-                    f"CC Switch database not found at {self.database_path}"
+                    f"CC Switch database not found or unavailable at {self.database_path}"
                 )
             if capability is StoreCapability.CORRUPT:
                 raise ProviderConfigCorruptError(
@@ -186,6 +190,10 @@ class CCSwitchProviderStore:
                         )
                     )
                 return tuple(results)
+        except sqlite3.OperationalError as exc:
+            raise ProviderStoreUnavailableError(
+                f"Failed to access CC Switch database: {exc}"
+            ) from exc
         except sqlite3.DatabaseError as exc:
             raise ProviderConfigCorruptError(
                 f"Failed to query providers from CC Switch: {exc}"
@@ -204,7 +212,7 @@ class CCSwitchProviderStore:
         if not capability.can_read:
             if capability is StoreCapability.ABSENT:
                 raise ProviderStoreUnavailableError(
-                    f"CC Switch database not found at {self.database_path}"
+                    f"CC Switch database not found or unavailable at {self.database_path}"
                 )
             if capability is StoreCapability.CORRUPT:
                 raise ProviderConfigCorruptError(
@@ -237,6 +245,11 @@ class CCSwitchProviderStore:
                 if not isinstance(settings_raw, str):
                     raise ProviderConfigCorruptError(
                         f"Provider {reference.provider_id!r} settings_config is not text"
+                    )
+                # Fast length short-circuit before memory-intensive encoding
+                if len(settings_raw) > MAX_SETTINGS_CONFIG_BYTES:
+                    raise ProviderConfigCorruptError(
+                        f"Provider {reference.provider_id!r} settings_config exceeds size limit"
                     )
                 if len(settings_raw.encode("utf-8")) > MAX_SETTINGS_CONFIG_BYTES:
                     raise ProviderConfigCorruptError(
@@ -292,8 +305,12 @@ class CCSwitchProviderStore:
                     unknown_field_count=unknown_summary.count,
                     unknown_fingerprint=unknown_summary.fingerprint,
                 )
-        except (ProviderNotFoundError, ProviderConfigCorruptError):
+        except (ProviderNotFoundError, ProviderConfigCorruptError, ProviderStoreUnavailableError, ProviderStoreIncompatibleError):
             raise
+        except sqlite3.OperationalError as exc:
+            raise ProviderStoreUnavailableError(
+                f"Failed to query provider {reference.provider_id!r}: {exc}"
+            ) from exc
         except sqlite3.DatabaseError as exc:
             raise ProviderConfigCorruptError(
                 f"Failed to query provider {reference.provider_id!r}: {exc}"

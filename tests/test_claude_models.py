@@ -91,6 +91,18 @@ class ClaudeModelsTests(unittest.TestCase):
         self.assertEqual(patched["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "new-haiku")
         self.assertEqual(patched["env"]["CUSTOM_TOKEN"], "preserve-me")
 
+    def test_patch_deeply_nested_dict_handles_recursion_error(self) -> None:
+        deep: dict[str, object] = {"env": {}}
+        current = deep
+        for _ in range(sys.getrecursionlimit() + 50):
+            nested: dict[str, object] = {}
+            current["child"] = nested
+            current = nested
+
+        new_models = ModelMapping(default="new-sonnet")
+        with self.assertRaises(ClaudeModelDocumentError):
+            self.adapter.patch(deep, new_models)
+
 
 if __name__ == "__main__":
     unittest.main()

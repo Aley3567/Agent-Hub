@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -146,6 +147,21 @@ class CCSwitchStoreTests(unittest.TestCase):
         store = CCSwitchProviderStore(self.db_path)
         self.assertEqual(store.detect(), StoreCapability.INCOMPATIBLE)
 
+    def test_detect_operational_error_returns_absent_not_corrupt(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        store = CCSwitchProviderStore(self.db_path)
+        with patch("claude_hub.ccswitch._readonly_connection", side_effect=sqlite3.OperationalError("database is locked")):
+            # Lock contention must NOT report CORRUPT
+            self.assertEqual(store.detect(), StoreCapability.ABSENT)
+
+    def test_list_operational_error_raises_unavailable_not_corrupt(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        store = CCSwitchProviderStore(self.db_path)
+        with patch.object(CCSwitchProviderStore, "detect", return_value=StoreCapability.COMPATIBLE):
+            with patch("claude_hub.ccswitch._readonly_connection", side_effect=sqlite3.OperationalError("database is locked")):
+                with self.assertRaises(ProviderStoreUnavailableError):
+                    store.list()
+
     def test_list_and_inspect_providers(self) -> None:
         providers = [
             {
@@ -215,6 +231,21 @@ class CCSwitchStoreTests(unittest.TestCase):
         _init_test_db(self.db_path, version=16, providers=providers)
         store = CCSwitchProviderStore(self.db_path)
         ref = ProviderRef(store="cc-switch", provider_id="p-bad")
+        with self.assertRaises(ProviderConfigCorruptError):
+            store.inspect(ref)
+
+    def test_inspect_oversized_settings_config_raises(self) -> None:
+        providers = [
+            {
+                "id": "p-huge",
+                "name": "Huge JSON",
+                "settings_config": " " * (4 * 1024 * 1024 + 10),
+                "is_current": 0,
+            }
+        ]
+        _init_test_db(self.db_path, version=16, providers=providers)
+        store = CCSwitchProviderStore(self.db_path)
+        ref = ProviderRef(store="cc-switch", provider_id="p-huge")
         with self.assertRaises(ProviderConfigCorruptError):
             store.inspect(ref)
 
