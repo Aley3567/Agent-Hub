@@ -5,14 +5,13 @@
  *   Ctrl+,       打开设置
  *   Ctrl+R       刷新当前视图的数据（必须 preventDefault，否则 WebView 会整页重载）
  *   Ctrl+B       折叠 / 展开侧栏
- *   Ctrl+1..7    直达七个视图
+ *   Ctrl+1..Ctrl+9、Ctrl+0  直达十个视图（顺序同侧栏，第十个落在 Ctrl+0 上）
  *
  * 监听挂在 window 上，卸载时移除。回调内部一律走 getState()，不吃闭包里的旧值。
  */
 import { useEffect } from 'react';
-import { useApp } from '../store';
 import { useNav } from '../store/nav';
-import { VIEW_ORDER, VIEW_REFRESH_KEY } from './views';
+import { VIEW_ORDER, refreshView } from './views';
 
 export function useGlobalKeyboard(): void {
   useEffect(() => {
@@ -38,7 +37,7 @@ export function useGlobalKeyboard(): void {
       }
       if (key === 'r') {
         event.preventDefault();
-        void useApp.getState().refresh(VIEW_REFRESH_KEY[nav.view]);
+        void refreshView(nav.view);
         return;
       }
       if (key === 'b') {
@@ -46,8 +45,16 @@ export function useGlobalKeyboard(): void {
         nav.toggleSidebar();
         return;
       }
-      if (key >= '1' && key <= '7') {
+      if (key >= '1' && key <= '9') {
         const target = VIEW_ORDER[Number(key) - 1];
+        event.preventDefault();
+        nav.setPaletteOpen(false);
+        nav.setView(target);
+        return;
+      }
+      // 第十个视图没有数字键可用了，落在 Ctrl+0 上（与 viewShortcut 的展示口径一致）
+      if (key === '0') {
+        const target = VIEW_ORDER[9];
         event.preventDefault();
         nav.setPaletteOpen(false);
         nav.setView(target);

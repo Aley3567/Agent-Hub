@@ -8,8 +8,10 @@ import './styles/tokens.css';
 import './styles/global.css';
 import App from './App';
 import { applyTheme, readStoredTheme } from './store/nav';
+import { applyDensity, readStoredDensity } from './store/ui';
 
 applyTheme(readStoredTheme());
+applyDensity(readStoredDensity());
 
 const container = document.getElementById('root');
 if (!container) {

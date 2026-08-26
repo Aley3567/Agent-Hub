@@ -1,9 +1,10 @@
-import type { ReactNode, SVGProps } from 'react';
+import type { CSSProperties, ReactNode, SVGProps } from 'react';
 import { cx } from '../lib';
 import styles from './Icon.module.css';
 
 /**
- * 图标集：线性风格，stroke-width 1.5，viewBox 0 0 24 24，颜色取 currentColor。
+ * 图标集：线性风格，viewBox 0 0 24 24，颜色取 currentColor。
+ * 线宽与边长都不写在这里，由 Icon.module.css 读 tokens.css 的 --stroke-w / --icon-size。
  * 名字清单与 CONTRACT.md 第 6.4 节逐字一致，视图只能用这些名字。
  */
 export type IconName =
@@ -437,25 +438,34 @@ const GLYPHS: Record<IconName, ReactNode> = {
 export interface IconProps
   extends Omit<SVGProps<SVGSVGElement>, 'name' | 'width' | 'height' | 'viewBox' | 'children' | 'title'> {
   name: IconName;
-  /** 边长，默认 16 */
+  /**
+   * 边长（px）。**不传是默认路径**，走 tokens.css 的 --icon-size（20px）单一栅格；
+   * 只有确实需要偏离栅格的调用点才传具体值。
+   */
   size?: number;
+  /** 线宽，不传走 tokens.css 的 --stroke-w（1.5） */
   strokeWidth?: number;
   /** 传了 title 图标才进无障碍树；纯装饰图标保持 aria-hidden */
   title?: string;
 }
 
-export function Icon({ name, size = 16, strokeWidth = 1.5, title, className, ...rest }: IconProps) {
+export function Icon({ name, size, strokeWidth, title, className, style, ...rest }: IconProps) {
+  /* size / strokeWidth 不落成 SVG 属性，而是覆盖 Icon.module.css 里的局部变量：
+     属性会被 CSS 里的 width / height / stroke-width 压掉，写成变量才是唯一生效路径。 */
+  const overrides: Record<string, string> = {};
+  if (size !== undefined) overrides['--icon-box'] = `${size}px`;
+  if (strokeWidth !== undefined) overrides['--icon-stroke-w'] = String(strokeWidth);
+  const merged =
+    Object.keys(overrides).length === 0 ? style : ({ ...overrides, ...style } as CSSProperties);
   return (
     <svg
       className={cx(styles.icon, className)}
-      width={size}
-      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
+      style={merged}
       role={title ? 'img' : undefined}
       aria-hidden={title ? undefined : true}
       focusable="false"

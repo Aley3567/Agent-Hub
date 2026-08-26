@@ -1,6 +1,7 @@
 /**
- * 主导航侧栏。展开 220px，折叠 56px 只留图标（DESIGN.md 第 3 节）。
- * 分两组：会话（渠道、槽位）与观测（用量、诊断、账号池、体检）；底部固定「设置」入口与主题三态切换。
+ * 主导航侧栏。展开 --sidebar-w(232px)，折叠 --sidebar-w-collapsed(56px) 只留图标（DESIGN.md 第 3 节）。
+ * 分三组：会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、扩展（插件、任务）；
+ * 底部固定「设置」入口与主题三态切换。
  * 折叠态每一项都靠 Tooltip 说明自己是谁，否则只剩一排看不懂的图标。
  */
 import { BrandMark, Icon, IconButton, SegmentedControl, Tooltip } from '../components';
@@ -33,7 +34,14 @@ interface NavItemProps {
 function NavItem({ meta, active, collapsed, onSelect }: NavItemProps) {
   return (
     <li>
-      <Tooltip content={`${meta.navLabel} ${viewShortcut(meta.id)}`} side="right" disabled={!collapsed}>
+      {/* 折叠态用 Tooltip 补名称（展开态 disabled，连包裹层都不生成）；
+          className 只做一件事：把包裹层拉到 100% 宽，否则条目会塌成 16px，见 .itemTip 的注释 */}
+      <Tooltip
+        content={`${meta.navLabel} ${viewShortcut(meta.id)}`}
+        side="right"
+        disabled={!collapsed}
+        className={styles.itemTip}
+      >
         <button
           type="button"
           className={cx(styles.item, active && styles.itemActive)}

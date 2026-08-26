@@ -10,7 +10,7 @@ interface IconButtonBase extends Omit<ComponentPropsWithRef<'button'>, 'children
   /** 无障碍名，类型上必填：只有图标的按钮没有可见文字，这是唯一的名字来源 */
   'aria-label': string;
   variant?: IconButtonVariant;
-  /** sm 为 28×28（DESIGN.md 基准），md 为 32×32，与同排 md 按钮对齐时用 */
+  /** sm 为 30×30（DESIGN.md 基准），md 为 34×34，与同排 md 按钮对齐时用 */
   size?: 'sm' | 'md';
   /** 悬浮提示，默认复用 aria-label */
   tooltip?: string;
@@ -53,7 +53,9 @@ export function IconButton(props: IconButtonProps) {
         aria-pressed={active || undefined}
         {...rest}
       >
-        <Icon name={glyph} size={size === 'sm' ? 15 : 16} />
+        {/* 不传 size：统一走 tokens.css 的 --icon-size（20px）栅格，30×30 与 34×34 两档
+            外框都容得下，图标线宽因此也保持同一档（见 Icon.module.css） */}
+        <Icon name={glyph} />
       </button>
     </Tooltip>
   );

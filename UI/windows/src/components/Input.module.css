@@ -13,7 +13,7 @@
   box-sizing: border-box;
   min-width: 0;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 0 var(--sp-2);
   background: var(--bg-inset);
   transition: border-color var(--dur-instant) var(--ease-out);
@@ -32,8 +32,19 @@
   border-color: var(--accent);
 }
 
+/* hover 只变色（DESIGN.md 2.4.1 hover 行）：描边抬到 --border-strong，
+   即 tokens.css 里注明的「focus 前的强调描边」 */
+.field:hover:not(.disabled):not(:focus-within) {
+  border-color: var(--border-strong);
+}
+
 .field.invalid {
   border-color: var(--danger);
+}
+
+/* disabled：外壳描边退到 --border-subtle，不用整体 opacity（DESIGN.md 2.4.1 disabled 行） */
+.field.disabled {
+  border-color: var(--border-subtle);
 }
 
 .leading {
@@ -50,13 +61,13 @@
   background: transparent;
   color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: var(--fs-13);
-  line-height: var(--lh-13);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
 }
 
 .input:focus-visible {
-  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上；粗细与偏移取 5 节 Windows 行的
-     1px + 1px offset（token 里已经是这个值）。
+  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上；粗细与偏移按 5 节 Windows 行
+     取 tokens.css 的 --focus-ring-w / --focus-ring-offset（1px + 1px offset）。
      外层 .field 只改描边色，不再叠一层 box-shadow 环，避免双环 */
   outline: var(--focus-ring-w) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
@@ -70,9 +81,10 @@
   color: var(--text-tertiary);
 }
 
+/* cursor 按 DESIGN.md 2.4.1 disabled 行取 default */
 .input:disabled {
   color: var(--text-tertiary);
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .mono {

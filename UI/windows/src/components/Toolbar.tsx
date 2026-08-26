@@ -30,6 +30,7 @@ export function Toolbar({
   return (
     <div
       className={cx(styles.root, divider && styles.divider, sticky && styles.sticky, wrap && styles.wrap, className)}
+      role="toolbar"
       aria-label={ariaLabel}
     >
       <div className={cx(styles.group, wrap && styles.wrap)}>{children}</div>

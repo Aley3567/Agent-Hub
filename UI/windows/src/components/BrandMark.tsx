@@ -17,7 +17,7 @@ export interface BrandMarkProps {
  * <defs> 冲突（CONTRACT.md：同页面多个 SVG 必须能共存）。
  */
 export function BrandMark({ collapsed = false, size = 'sm', className }: BrandMarkProps): ReactNode {
-  const markSize = size === 'lg' ? 48 : size === 'md' ? 32 : 28;
+  const markSize = size === 'lg' ? 48 : size === 'md' ? 36 : 32;
   return (
     <div className={cx(styles.root, styles[size], collapsed && styles.collapsed, className)}>
       <svg

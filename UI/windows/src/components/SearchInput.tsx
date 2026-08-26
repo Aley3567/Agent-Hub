@@ -33,7 +33,8 @@ export function SearchInput({
 }: SearchInputProps) {
   return (
     <span className={cx(styles.field, disabled && styles.disabled, className)}>
-      <Icon name="search" size={14} className={styles.icon} />
+      {/* 图标不传 size：统一走 tokens.css 的 --icon-size 栅格 */}
+      <Icon name="search" className={styles.icon} />
       <input
         id={id}
         type="search"
@@ -56,7 +57,7 @@ export function SearchInput({
             onClear?.();
           }}
         >
-          <Icon name="close" size={13} />
+          <Icon name="close" />
         </button>
       )}
     </span>

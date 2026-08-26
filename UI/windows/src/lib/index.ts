@@ -8,6 +8,7 @@ export {
   formatCount,
   formatTime,
   formatRelative,
+  formatCountdown,
   formatPercent,
   type FormatTimeOptions,
 } from './format';

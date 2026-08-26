@@ -35,6 +35,22 @@
   border-radius: var(--radius-full);
 }
 
+/*
+ * 行的 hover 反馈（DESIGN.md 2.4.1 hover 行）。原先整张图只有 SVG <title>，
+ * 指针停在某一行上没有任何视觉回应，长列表里对不准自己在看第几行。
+ * 只换底槽的 fill——该行硬约束是「只变色，不位移、不放大、不加阴影」；
+ * 时长按 2.5 语义表的 hover 档走 --dur-instant，慢下来会变成拖影。
+ * fill 也在 global.css 的 reduced-motion 放行名单里，所以减少动效时这条仍然保留。
+ */
+.track {
+  fill: var(--bg-inset);
+  transition: fill var(--dur-instant) var(--ease-out);
+}
+
+.row:hover .track {
+  fill: var(--bg-active);
+}
+
 .label {
   fill: var(--text-secondary);
   font-family: var(--font-mono);

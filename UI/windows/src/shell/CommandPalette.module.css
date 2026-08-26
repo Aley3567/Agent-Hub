@@ -8,7 +8,17 @@
   align-items: flex-start;
   justify-content: center;
   padding: var(--palette-top) var(--sp-4) var(--sp-4);
-  background: var(--overlay-scrim);
+  /* 遮罩淡入：入场是「面板入场」那档 --dur-normal（DESIGN.md 第 2.5 节时长语义表），
+     比面板本体的 --dur-slow 快一档——先铺底、再浮面板，而不是黑底一帧砸下来。
+     初值透明、由 .overlayIn 翻上去（挂载后一帧，见 CommandPalette.tsx 的 scrimIn），
+     所以这里必须写 background-color 而不是 background 简写：
+     styles/global.css 的减少动效兜底只放行 background-color。 */
+  background-color: transparent;
+  transition: background-color var(--dur-normal) var(--ease-out);
+}
+
+.overlayIn {
+  background-color: var(--overlay-scrim);
 }
 
 .panel {
@@ -22,7 +32,10 @@
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  animation: palette-in var(--dur-normal) var(--ease-out);
+  /* 命令面板入场是 DESIGN.md 第 2.5 节里 --dur-slow 允许的两类之一，关键帧清单 palette-in
+     那行写死了「--dur-slow --ease-out」。关键帧本体不新建也不改形状，只把时长与曲线对到
+     新语义上：这是键盘用户的主入口，320ms 让它「浮」出来而不是弹出来。 */
+  animation: palette-in var(--dur-slow) var(--ease-out);
 }
 
 @keyframes palette-in {
@@ -67,15 +80,24 @@
   white-space: nowrap;
 }
 
+/* 五态：hover 只变背景色，走 --dur-instant（DESIGN.md 第 2.4.1 节 hover 行）；
+   按下走 --dur-fast（同表 active 行）；focus-visible 由 global.css 的 :focus-visible 统一给；
+   这个返回按钮只在二级面板里出现，不存在 disabled 态。 */
 .scopeBack {
   display: flex;
   align-items: center;
   color: inherit;
   border-radius: var(--radius-full);
+  transition: background-color var(--dur-instant) var(--ease-in-out);
 }
 
 .scopeBack:hover {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover);
+}
+
+.scopeBack:active {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
 }
 
 /* 顶部输入框无边框（DESIGN.md 第 4.3 节）。焦点环不取消，只把它收进框内，
@@ -121,6 +143,12 @@
   color: var(--text-tertiary);
 }
 
+/* 条目的五态（DESIGN.md 第 2.4.1 节把「命令面板条目」列进了必须五态齐全的清单）：
+   hover 与 selected 在这里是同一态——指针一移进来 onMouseMove 就把它设成当前项，
+   所以不再单写 .row:hover，否则 (0,2,0) 的 hover 规则会把 (0,1,0) 的选中底色顶掉；
+   focus-visible 不落在条目上：面板用 aria-activedescendant，焦点始终留在输入框里，
+   由输入框自己的焦点环表达（.input:focus-visible 在上面）；命中的条目一律可执行，
+   没有 disabled 态。 */
 .row {
   display: flex;
   align-items: center;
@@ -128,12 +156,24 @@
   min-height: var(--control-h-sm);
   padding: var(--sp-1) var(--sp-4);
   color: var(--text-secondary);
-  cursor: default;
+  /* 整行可点（onClick 直接执行），按第 2.4.1 节 hover 行的硬约束给 pointer */
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-in-out),
+    color var(--dur-instant) var(--ease-in-out);
+}
+
+/* 按下要与「当前项」可分，否则回车与点击的反馈不一致；时长按 2.4.1 active 行走 --dur-fast */
+.row:active {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
 }
 
 .rowActive {
-  background: var(--bg-selected);
+  background-color: var(--bg-selected);
   color: var(--text-primary);
+  /* 当前项是 ↑↓ 选出来的结果，时长按 2.4.1 selected 行走 --dur-fast */
+  transition-duration: var(--dur-fast);
 }
 
 .rowIcon {

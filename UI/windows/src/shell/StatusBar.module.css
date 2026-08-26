@@ -8,8 +8,8 @@
   padding: 0 var(--sp-4);
   background: var(--bg-surface);
   border-top: 1px solid var(--border-subtle);
-  font-size: var(--fs-11);
-  line-height: var(--lh-11);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;

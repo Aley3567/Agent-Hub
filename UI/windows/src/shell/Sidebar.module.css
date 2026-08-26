@@ -1,39 +1,53 @@
-/* 宽 220px，折叠 56px（DESIGN.md 第 3 节）。
+/* 宽 232px，折叠 56px（DESIGN.md 第 3 节）。
    背景是实色 --sidebar-bg（= --bg-surface）：DESIGN.md 第 5 节 Windows 列要求 Mica，
-   不可用时退回实色且明确不做 blur 兜底（性能差），所以这里没有 backdrop-filter，
-   只靠与 --bg-base 的层次差把侧栏分出来。 */
+   不可用时退回实色且明确不做 blur 兜底（性能差），所以这里没有 backdrop-filter。 */
 .sidebar {
   flex: none;
+  /* 折叠态的 Tooltip 会探出侧栏。macOS 侧靠 backdrop-filter 自成的层叠上下文 + 这条
+     z-index 保证气泡压在主内容区之上；Windows 没有 blur，但保留同一层级声明，
+     不赌 Tooltip 内部实现细节。取 --z-dropdown：高于内容与 sticky 表头，
+     仍低于 --z-dialog / --z-palette。 */
+  position: relative;
+  z-index: var(--z-dropdown);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
   width: var(--sidebar-w);
-  padding: var(--sp-2) 0 var(--sp-2);
+  padding: var(--sp-3) 0 var(--sp-3);
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border-subtle);
+  /* 展开态保留裁剪：折叠→展开时标签与主题分段控件会在宽度还没长够时就渲染出来，
+     裁掉比让它们探到内容区上更好看。折叠态另有说法，见 .collapsed。 */
   overflow: hidden;
-  transition: width var(--dur-fast) var(--ease-out);
+  /* 折叠/展开是「折叠展开的尺寸位移」，按 DESIGN.md 第 2.5 节时长语义表走
+     --dur-normal（Windows 侧经 §5 ×0.85 缩放），位移曲线用 --ease-out。 */
+  transition: width var(--dur-normal) var(--ease-out);
 }
 
 .collapsed {
   width: var(--sidebar-w-collapsed);
+  /* 折叠态只剩图标，名称全靠 Tooltip 补，而 Tooltip 不做 portal（气泡是贴在触发元素
+     旁边的绝对定位元素），所以这层必须放开裁剪，否则 side="right" 的气泡会被整块切掉。
+     此时标签与分段控件都已不在 DOM 里，放开也没有东西会探出去。 */
+  overflow: visible;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  padding: 0 var(--sp-3) var(--sp-2);
+  padding: var(--sp-1) var(--sp-4) var(--sp-4);
+  /* 折叠时左右 padding 归零、mark 滑到中线：与侧栏宽度同一档尺寸位移，同走 --dur-normal */
+  transition: padding var(--dur-normal) var(--ease-out);
 }
 
 .collapsed .brand {
   justify-content: center;
-  padding: 0 0 var(--sp-2);
+  padding: var(--sp-1) 0 var(--sp-4);
 }
 
 .groups {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: var(--sp-5);
 }
 
 .group {
@@ -42,8 +56,9 @@
   gap: var(--sp-1);
 }
 
+/* 分组标签与条目内缩后的图标左缘对齐：条目 margin sp-2 + padding sp-3 = sp-5 */
 .groupLabel {
-  padding: 0 var(--sp-3);
+  padding: 0 var(--sp-5);
   font-size: var(--fs-11);
   line-height: var(--lh-11);
   font-weight: var(--fw-medium);
@@ -62,48 +77,67 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
-/* 选中项：--bg-selected 底 + 左侧 2px accent 竖条 + 图标转 accent（DESIGN.md 第 3 节） */
+/* 折叠态才会真的渲染出 Tooltip 的包裹层（展开态 Tooltip 传了 disabled，直接返回 children，
+   连元素都不生成）。那层是 inline-flex，宽度按内容收缩——收缩计算里条目的百分比宽度按 auto
+   算，于是只剩一个 16px 图标；随后条目的 width: calc(100% - 2 * var(--sp-2)) 又以这 16px
+   为参照，被自动最小尺寸兜到 16px：图标贴在左缘、点击区只有 16px 宽，折叠态的「图标居中」
+   和 DESIGN.md 第 6 节的 28×28 最小点击区都落不了地。
+   把包裹层拉回 100%（参照 <li>，即侧栏宽度），条目才是 40px（56 − 2×sp-2）的居中块。
+   只加宽度，不碰 Tooltip 的 display / position / 层级——那是组件层的内部实现。 */
+.itemTip {
+  width: 100%;
+}
+
+/* 条目是内缩的圆角块（DESIGN.md 第 3 节）：左右各留 sp-2，选中态 --bg-selected
+   填满整个块，图标与文字转 accent。不再用贴边的细竖条——那是旧版语言，内缩块上显得廉价。 */
 .item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  width: 100%;
-  min-height: var(--control-h-sm);
+  gap: var(--sp-3);
+  width: calc(100% - 2 * var(--sp-2));
+  min-height: var(--control-h-md);
+  margin: 0 var(--sp-2);
   padding: 0 var(--sp-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   text-align: left;
-  transition: background var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out);
+  /* hover 只变背景色与文字色，按 DESIGN.md 第 2.4.1 节 hover 行走 --dur-instant（
+     再慢就成拖影）；padding 是折叠/展开的尺寸位移，按第 2.5 节走 --dur-normal。
+     hover 是双向状态用 --ease-in-out，位移用 --ease-out。 */
+  transition:
+    background-color var(--dur-instant) var(--ease-in-out),
+    color var(--dur-instant) var(--ease-in-out),
+    padding var(--dur-normal) var(--ease-out);
 }
 
+/* 五态：hover / active / selected（.itemActive）在下面三条；focus-visible 由
+   styles/global.css 的 :focus-visible 统一给（Windows 侧 1px accent + 1px offset，§5
+   焦点环行），条目左右各有 sp-2 外边距，焦点环画在外侧也不会被 .sidebar 的
+   overflow: hidden 裁掉，这里绝不写 outline: none（DESIGN.md 第 2.4.1 节
+   focus-visible 行）。十个视图恒可达，侧栏没有 disabled 态，所以不为它编一条
+   只改颜色的规则。 */
 .item:hover {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover);
   color: var(--text-primary);
 }
 
+/* 按下必须与 hover 视觉可分，否则「到底按下了没有」判断不了；
+   时长按 DESIGN.md 第 2.4.1 节 active 行走 --dur-fast */
 .item:active {
-  background: var(--bg-active);
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
 }
 
 .itemActive {
-  background: var(--bg-selected);
-  color: var(--text-primary);
-  font-weight: var(--fw-medium);
-}
-
-.itemActive::before {
-  content: "";
-  position: absolute;
-  top: var(--sp-1);
-  bottom: var(--sp-1);
-  left: 0;
-  width: var(--accent-bar-w);
-  border-radius: var(--radius-full);
-  background: var(--accent);
+  background-color: var(--bg-selected);
+  color: var(--accent-text);
+  font-weight: var(--fw-semibold);
+  /* 选中是一次决定，不是指针路过：时长按 DESIGN.md 第 2.4.1 节 selected 行走 --dur-fast */
+  transition-duration: var(--dur-fast);
 }
 
 .itemIcon {
@@ -117,14 +151,14 @@
 }
 
 .itemLabel {
-  font-size: var(--fs-13);
-  line-height: var(--lh-13);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* 折叠态图标居中，且整项仍满足 28×28 最小点击区（DESIGN.md 第 6 节） */
+/* 折叠态图标居中，且整项仍满足最小点击区（DESIGN.md 第 6 节） */
 .collapsed .item {
   justify-content: center;
   padding: 0;
@@ -134,8 +168,16 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  padding-top: var(--sp-2);
+  /* 把底栏顶到最下面；导航组紧跟品牌区，中间不留一坨空白 */
+  margin: auto var(--sp-2) 0;
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--border-subtle);
+}
+
+/* footer 已经内缩 sp-2，条目自身的 margin 会再缩一次，这里抵消掉 */
+.footer .item {
+  width: 100%;
+  margin: 0;
 }
 
 .footerActions {
@@ -143,7 +185,9 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
-  padding: 0 var(--sp-3);
+  padding: 0 var(--sp-2);
+  /* 折叠时内缩归零、两个按钮改成竖排：仍是折叠展开的尺寸位移，同走 --dur-normal */
+  transition: padding var(--dur-normal) var(--ease-out);
 }
 
 .collapsed .footerActions {

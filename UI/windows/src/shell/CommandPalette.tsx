@@ -3,33 +3,43 @@
  * （DESIGN.md 第 4.3 节）。
  *
  * 它是键盘用户的主入口，所以所有跨视图动作都必须能在这里找到：切视图、启动会话、改槽位、
- * 刷新、切主题、打开配置目录。匹配用 lib 的 fuzzyMatch 做子序列匹配，命中字符用 --accent-text 高亮。
+ * 管理渠道（隐藏 / 别名 / 模型与 effort 覆盖）、刷新、切主题、切用量时间窗、打开配置目录。
+ * 匹配用 lib 的 fuzzyMatch 做子序列匹配，命中字符用 --accent-text 高亮。
  *
- * 改槽位天然是两步（先选槽位，再选渠道与模型），所以面板有两级：root 与 slot。
- * slot 级里 Esc 或空输入按退格回到 root，不用鼠标也能退出来。
+ * 改槽位与管渠道天然是两步（先选目标，再选要改成什么），所以面板有两级：root 与 slot / channel。
+ * 二级里 Esc 或空输入按退格回到 root，不用鼠标也能退出来。channel 级里别名与模型覆盖是自由文本，
+ * 直接用上方输入框的文字当新值（在条目上回显），Enter 即写入，不为它自造第二个输入框。
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Icon } from '../components';
 import type { IconName } from '../components';
-import { cx, fuzzyMatch } from '../lib';
-import { openPath, revealInFolder } from '../api';
-import { errorText, pickDefaultHub, useApp } from '../store';
+import { cx, formatRelative, formatTime, fuzzyMatch, redactSecrets } from '../lib';
+import { REFRESH_KEYS, errorText, pickDefaultHub, useApp } from '../store';
+import type { RefreshKey } from '../store';
 import { useNav } from '../store/nav';
 import type { ThemeMode, ViewId } from '../store/nav';
 import { THEME_LABEL } from '../store/nav';
-import type { HubConfig, LaunchTarget, SlotName } from '../types/contract';
+import { useToast } from '../store/toast';
+import { DENSITY_LABEL, useUi } from '../store/ui';
+import type { Density } from '../store/ui';
+import type { Effort, HubConfig, LaunchTarget, SlotName } from '../types/contract';
+import { EFFORT_CHOICES } from '../views/channels/model';
+import { EFFORT_UNSET, SLOT_DEFAULT_EFFORT, effortChoices, fromEffortChoice, toEffortChoice } from '../views/slots/slotModel';
+import { PRESET_GRANULARITY, PRESET_LABEL, matchPreset, rangeFor } from '../views/usage/parts/range';
+import type { RangePreset } from '../views/usage/parts/range';
 import { useAnnouncer } from './announce';
-import { VIEW_LIST, VIEW_META, VIEW_REFRESH_KEY, viewShortcut } from './views';
+import { VIEW_LIST, VIEW_META, VIEW_REFRESH_KEY, refreshView, viewShortcut } from './views';
 import styles from './CommandPalette.module.css';
 
-/** 四个分组的顺序与标题（DESIGN.md 第 4.3 节） */
-type PaletteGroupId = 'nav' | 'channel' | 'slot' | 'action';
+/** 五个分组的顺序与标题（DESIGN.md 第 4.3 节；「最近使用」是 REDESIGN-PROMPT 第 2.3 节补的） */
+type PaletteGroupId = 'nav' | 'recent' | 'channel' | 'slot' | 'action';
 
-const GROUP_SEQUENCE: PaletteGroupId[] = ['nav', 'channel', 'slot', 'action'];
+const GROUP_SEQUENCE: PaletteGroupId[] = ['nav', 'recent', 'channel', 'slot', 'action'];
 
 const GROUP_TITLE: Record<PaletteGroupId, string> = {
   nav: '导航',
+  recent: '最近使用',
   channel: '渠道',
   slot: '槽位',
   action: '动作',
@@ -39,8 +49,47 @@ const SLOTS: SlotName[] = ['fable', 'opus', 'sonnet', 'haiku'];
 
 const THEME_SEQUENCE: ThemeMode[] = ['system', 'dark', 'light'];
 
+/** 界面大小三档，与设置页「外观」同一组取值（store/ui.ts） */
+const DENSITY_SEQUENCE: Density[] = ['standard', 'large', 'larger'];
+
+/** 「最近使用」分组的上限：按 Channel.lastUsedAt 倒序取前 5 条 */
+const MAX_RECENT = 5;
+
+/** 复制进诊断报告的错误流水条数上限：报告是摘要，不是整条 journal 的搬运 */
+const REPORT_ERROR_LIMIT = 20;
+
 /** 每组最多显示的条数：再多就靠继续输入筛，而不是让面板长到屏幕外 */
 const MAX_PER_GROUP = 8;
+
+/** refresh key 的人话名字：刷新播报失败时要说清是哪一路失败 */
+const REFRESH_KEY_LABEL: Record<RefreshKey, string> = {
+  env: '环境信息',
+  channels: '渠道',
+  hubs: 'hub 配置',
+  pools: '账号池',
+  usage: '用量',
+  errors: '错误流水',
+  doctor: '体检',
+  chat: '对话',
+  plugins: '插件',
+  tasks: '计划任务',
+};
+
+/** 用量时间窗的三个预设，与用量视图工具栏的 SegmentedControl 同一口径 */
+const RANGE_PRESETS: readonly RangePreset[] = ['today', 'week', 'month'];
+
+const GRANULARITY_LABEL: Record<'hour' | 'day', string> = { hour: '按小时', day: '按天' };
+
+/**
+ * 刷新播报说真话：refresh 永不抛出，await 之后读 error[key]，非 null 就是失败，
+ * 把失败 key 与其原因原文都念出来（AGENTS.md：错误原样暴露、绝不伪装）。
+ */
+function refreshProblems(keys: RefreshKey[]): string[] {
+  const errors = useApp.getState().error;
+  return keys
+    .filter((key) => errors[key] != null)
+    .map((key) => `${REFRESH_KEY_LABEL[key]}：${errors[key]}`);
+}
 
 type PaletteAction =
   | { kind: 'run'; run(): void | Promise<void> }
@@ -58,7 +107,10 @@ interface PaletteItem {
   action: PaletteAction;
 }
 
-type PaletteMode = { kind: 'root' } | { kind: 'slot'; hubName: string; slot: SlotName };
+type PaletteMode =
+  | { kind: 'root' }
+  | { kind: 'slot'; hubName: string; slot: SlotName }
+  | { kind: 'channel'; channelId: string };
 
 interface ScoredRow {
   item: PaletteItem;
@@ -113,7 +165,21 @@ export default function CommandPalette() {
   const refresh = useApp((state) => state.refresh);
   const refreshAll = useApp((state) => state.refreshAll);
   const setSlot = useApp((state) => state.setSlot);
+  const setSlotEffort = useApp((state) => state.setSlotEffort);
+  const setHidden = useApp((state) => state.setHidden);
+  const setAlias = useApp((state) => state.setAlias);
+  const setOverride = useApp((state) => state.setOverride);
   const launch = useApp((state) => state.launch);
+  const openPath = useApp((state) => state.openPath);
+  const revealInFolder = useApp((state) => state.revealInFolder);
+  const usageRange = useApp((state) => state.usageRange);
+  const setUsageRange = useApp((state) => state.setUsageRange);
+
+  const density = useUi((state) => state.density);
+  const setDensity = useUi((state) => state.setDensity);
+
+  const toastSuccess = useToast((state) => state.success);
+  const toastError = useToast((state) => state.error);
 
   const view = useNav((state) => state.view);
   const setView = useNav((state) => state.setView);
@@ -165,6 +231,30 @@ export default function CommandPalette() {
       }
     };
 
+    const runSetSlotEffort = async (
+      hubName: string,
+      slot: SlotName,
+      effort: Effort | null,
+      label: string,
+    ): Promise<void> => {
+      try {
+        await setSlotEffort(hubName, slot, effort);
+        announce(`${label}，已写入 ${hubName} 的配置`);
+      } catch (cause) {
+        announce(`${label}未成功：${errorText(cause)}`);
+      }
+    };
+
+    /** 渠道的隐藏 / 别名 / 覆盖都写 claude1-config.json（CONTRACT.md 第 3 节），成败播报走同一套 */
+    const runChannelWrite = async (call: () => Promise<void>, label: string): Promise<void> => {
+      try {
+        await call();
+        announce(`${label}，已写入 claude1-config.json`);
+      } catch (cause) {
+        announce(`${label}未成功：${errorText(cause)}`);
+      }
+    };
+
     const runOpen = async (path: string, label: string, reveal: boolean): Promise<void> => {
       try {
         await (reveal ? revealInFolder(path) : openPath(path));
@@ -173,6 +263,193 @@ export default function CommandPalette() {
         announce(`${label}未成功：${errorText(cause)}`);
       }
     };
+
+    /**
+     * 复制诊断报告（REDESIGN-PROMPT 第 2.3 节）：体检结论 + 最近错误摘要组装成纯文本进剪贴板。
+     * 整段文本必须过 redactSecrets——detail 与 message 是自由文本，fail-closed 不赌上游干净
+     * （CONTRACT.md 第 1.2 节）。成败反馈走 toast（复制类操作的统一通道）+ announce 播报。
+     */
+    const runCopyDiagnostics = async (): Promise<void> => {
+      const state = useApp.getState();
+      const failed = state.doctor.filter((check) => check.level === 'fail').length;
+      const noticed = state.doctor.filter((check) => check.level === 'info').length;
+      const lines: string[] = [
+        `Agent Hub 诊断报告（${formatTime(Math.floor(Date.now() / 1000))}）`,
+        `体检：共 ${state.doctor.length} 项，失败 ${failed} 项，提醒 ${noticed} 项`,
+      ];
+      for (const check of state.doctor) {
+        lines.push(`- [${check.level}] ${check.title}${check.detail === null ? '' : `：${check.detail}`}`);
+      }
+      lines.push(`最近错误：${state.errors.length} 条`);
+      for (const row of state.errors.slice(0, REPORT_ERROR_LIMIT)) {
+        const parts = [
+          formatTime(row.ts),
+          row.phase,
+          row.status === null ? null : `HTTP ${row.status}`,
+          row.code,
+          row.message,
+        ].filter((part): part is string => part !== null);
+        lines.push(`- ${parts.join(' ')}`);
+      }
+      try {
+        await navigator.clipboard.writeText(redactSecrets(lines.join('\n')));
+        toastSuccess('诊断报告已复制到剪贴板');
+        announce('诊断报告已复制到剪贴板');
+      } catch (cause) {
+        toastError(`复制诊断报告未成功：${errorText(cause)}`);
+        announce(`复制诊断报告未成功：${errorText(cause)}`);
+      }
+    };
+
+    // 二级：管理某个渠道——启动、隐藏、别名、模型与 effort 覆盖。
+    // 别名与模型覆盖是自由文本，直接用上方输入框的文字当新值（条目上回显），Enter 写入；
+    // 隐藏渠道也完整列在这里，别名与 id 仍然能启动（CONTRACT.md），不许过滤掉。
+    if (mode.kind === 'channel') {
+      const channel = channels.find((candidate) => candidate.id === mode.channelId) ?? null;
+      if (!channel) {
+        return [
+          {
+            id: 'channel-missing',
+            group: 'channel',
+            label: '找不到这个渠道，先去渠道视图确认配置',
+            hint: null,
+            icon: 'warning',
+            keywords: 'channel 渠道',
+            action: { kind: 'run', run: () => goto('channels') },
+          },
+        ];
+      }
+
+      const typed = query.trim();
+      const rows: PaletteItem[] = [];
+
+      const notes: string[] = [channel.apiFormat];
+      if (channel.hidden) notes.push('已隐藏');
+      if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
+      if (channel.credential === 'missing') notes.push('凭证未配置');
+      rows.push({
+        id: `channel-${channel.id}-launch`,
+        group: 'channel',
+        label: `用 ${channel.name} 启动会话`,
+        hint: notes.join(' · '),
+        icon: 'play',
+        keywords: `${channel.alias ?? ''} launch 启动`,
+        action: {
+          kind: 'run',
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+        },
+      });
+
+      rows.push({
+        id: `channel-${channel.id}-hidden`,
+        group: 'channel',
+        label: channel.hidden ? `取消隐藏渠道 ${channel.name}` : `隐藏渠道 ${channel.name}`,
+        hint: '隐藏后列表默认不显示，别名与 id 仍能启动',
+        icon: channel.hidden ? 'eye' : 'eye-off',
+        keywords: 'hidden 隐藏 取消隐藏 显示',
+        action: {
+          kind: 'run',
+          run: () =>
+            runChannelWrite(
+              () => setHidden(channel.id, !channel.hidden),
+              channel.hidden ? `取消隐藏渠道 ${channel.name}` : `隐藏渠道 ${channel.name}`,
+            ),
+        },
+      });
+
+      if (typed !== '' && typed !== (channel.alias ?? '')) {
+        rows.push({
+          id: `channel-${channel.id}-alias-set`,
+          group: 'channel',
+          label: `把 ${channel.name} 的别名设为「${typed}」`,
+          hint: channel.alias === null ? '当前未设置别名' : `当前别名：${channel.alias}`,
+          icon: 'edit',
+          keywords: 'alias 别名',
+          action: {
+            kind: 'run',
+            run: () => runChannelWrite(() => setAlias(channel.id, typed), `把 ${channel.name} 的别名设为「${typed}」`),
+          },
+        });
+      }
+      if (channel.alias !== null) {
+        rows.push({
+          id: `channel-${channel.id}-alias-clear`,
+          group: 'channel',
+          label: `清除 ${channel.name} 的别名`,
+          hint: `当前别名：${channel.alias}`,
+          icon: 'close',
+          keywords: 'alias 别名 清除',
+          action: {
+            kind: 'run',
+            run: () => runChannelWrite(() => setAlias(channel.id, null), `清除 ${channel.name} 的别名`),
+          },
+        });
+      }
+
+      if (typed !== '' && typed !== (channel.modelOverride ?? '')) {
+        rows.push({
+          id: `channel-${channel.id}-model-set`,
+          group: 'channel',
+          label: `把 ${channel.name} 的模型覆盖设为「${typed}」`,
+          hint: channel.modelOverride === null ? '当前未覆盖模型' : `当前覆盖：${channel.modelOverride}`,
+          icon: 'edit',
+          keywords: 'override 模型 覆盖 model',
+          action: {
+            kind: 'run',
+            run: () =>
+              runChannelWrite(
+                () => setOverride(channel.id, typed, channel.effortOverride),
+                `把 ${channel.name} 的模型覆盖设为「${typed}」`,
+              ),
+          },
+        });
+      }
+      if (channel.modelOverride !== null) {
+        rows.push({
+          id: `channel-${channel.id}-model-clear`,
+          group: 'channel',
+          label: `清除 ${channel.name} 的模型覆盖`,
+          hint: `当前覆盖：${channel.modelOverride}`,
+          icon: 'close',
+          keywords: 'override 模型 覆盖 清除 model',
+          action: {
+            kind: 'run',
+            run: () =>
+              runChannelWrite(
+                () => setOverride(channel.id, null, channel.effortOverride),
+                `清除 ${channel.name} 的模型覆盖`,
+              ),
+          },
+        });
+      }
+
+      // 模型与 effort 由同一个 IPC 一起写，改 effort 时必须带上现有模型覆盖，免得顺手清空
+      const currentEffort = toEffortChoice(channel.effortOverride);
+      for (const choice of EFFORT_CHOICES) {
+        const isCurrent = currentEffort === choice.value;
+        const label =
+          choice.value === 'none'
+            ? `清除 ${channel.name} 的 effort 覆盖`
+            : `把 ${channel.name} 的 effort 覆盖设为 ${choice.label}`;
+        rows.push({
+          id: `channel-${channel.id}-effort-${choice.value}`,
+          group: 'channel',
+          label,
+          hint: isCurrent ? `当前 · ${choice.title}` : choice.title,
+          icon: 'zap',
+          keywords: `effort 覆盖 ${choice.label}`,
+          action: {
+            kind: 'run',
+            run: () =>
+              runChannelWrite(
+                () => setOverride(channel.id, channel.modelOverride, choice.value === 'none' ? null : choice.value),
+                label,
+              ),
+          },
+        });
+      }
+      return rows;
+    }
 
     // 二级：给某个槽位挑渠道与模型
     if (mode.kind === 'slot') {
@@ -257,6 +534,32 @@ export default function CommandPalette() {
           run: () => runSetSlot(target.name, slot, null, null, `${slot} 槽位绑定已清除`),
         },
       });
+
+      // effort 五档（DESIGN.md 第 4.1 节）：未设置 = 不写 effort_by_slot，落到内置默认档
+      const currentEffort = toEffortChoice(target.effortBySlot[slot]);
+      for (const choice of effortChoices(slot)) {
+        const isCurrent = currentEffort === choice.value;
+        const label =
+          choice.value === EFFORT_UNSET
+            ? `清除 ${slot} 槽位的 effort 设置`
+            : `把 ${slot} 槽位的 effort 设为 ${choice.label}`;
+        const hintParts = [
+          isCurrent ? '当前' : null,
+          choice.value === EFFORT_UNSET ? `内置默认档 ${SLOT_DEFAULT_EFFORT[slot]}` : null,
+        ].filter((part): part is string => part !== null);
+        rows.push({
+          id: `slot-${slot}-effort-${choice.value}`,
+          group: 'slot',
+          label,
+          hint: hintParts.length === 0 ? null : hintParts.join(' · '),
+          icon: 'zap',
+          keywords: `${slot} effort ${choice.label}`,
+          action: {
+            kind: 'run',
+            run: () => runSetSlotEffort(target.name, slot, fromEffortChoice(choice.value), label),
+          },
+        });
+      }
       return rows;
     }
 
@@ -275,9 +578,31 @@ export default function CommandPalette() {
       });
     }
 
+    // 最近使用（REDESIGN-PROMPT 第 2.3 节）：按 Channel.lastUsedAt 倒序的渠道启动动作，
+    // 上限 MAX_RECENT 条。没用过任何渠道时整组为空，分组自然不渲染。
+    const recentChannels = channels
+      .filter((channel) => channel.lastUsedAt !== null)
+      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+      .slice(0, MAX_RECENT);
+    for (const channel of recentChannels) {
+      rows.push({
+        id: `recent-${channel.id}`,
+        group: 'recent',
+        label: `用 ${channel.name} 启动会话`,
+        hint: `最近使用 ${formatRelative(channel.lastUsedAt)}`,
+        icon: 'clock',
+        keywords: `recent 最近 ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
+        action: {
+          kind: 'run',
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+        },
+      });
+    }
+
+    // 隐藏渠道不过滤：CONTRACT 明确「隐藏渠道别名与 id 仍然能启动」，面板只标注，不藏起来
     for (const channel of channels) {
-      if (channel.hidden) continue;
       const notes: string[] = [channel.apiFormat];
+      if (channel.hidden) notes.push('已隐藏');
       if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
       if (channel.credential === 'missing') notes.push('凭证未配置');
       rows.push({
@@ -291,6 +616,19 @@ export default function CommandPalette() {
           kind: 'run',
           run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
         },
+      });
+      const manageHints = [
+        channel.alias === null ? null : `别名 ${channel.alias}`,
+        channel.hidden ? '已隐藏' : null,
+      ].filter((part): part is string => part !== null);
+      rows.push({
+        id: `channel-manage-${channel.id}`,
+        group: 'channel',
+        label: `管理 ${channel.name}（启动、隐藏、别名、覆盖）`,
+        hint: manageHints.length === 0 ? null : manageHints.join(' · '),
+        icon: 'edit',
+        keywords: `管理 隐藏 别名 覆盖 manage ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
+        action: { kind: 'enter', mode: { kind: 'channel', channelId: channel.id } },
       });
     }
 
@@ -318,8 +656,13 @@ export default function CommandPalette() {
       action: {
         kind: 'run',
         run: async () => {
-          await refresh(VIEW_REFRESH_KEY[view]);
-          announce(`${VIEW_META[view].title} 数据已刷新`);
+          await refreshView(view);
+          const problems = refreshProblems(VIEW_REFRESH_KEY[view]);
+          announce(
+            problems.length === 0
+              ? `${VIEW_META[view].title} 数据已刷新`
+              : `${VIEW_META[view].title} 刷新未成功：${problems.join('；')}`,
+          );
         },
       },
     });
@@ -335,10 +678,49 @@ export default function CommandPalette() {
         kind: 'run',
         run: async () => {
           await refreshAll();
-          announce('全部数据已刷新');
+          const problems = refreshProblems(REFRESH_KEYS);
+          announce(problems.length === 0 ? '全部数据已刷新' : `刷新未全部成功：${problems.join('；')}`);
         },
       },
     });
+
+    // 用量时间窗与分桶粒度，预设与粒度文案跟用量视图工具栏同一份（parts/range.ts）。
+    // setUsageRange 内部会触发重聚合，这里只播报「窗口已切换」这个事实，不替重聚合的结果打包票。
+    const currentPreset = matchPreset(usageRange.fromTs);
+    for (const preset of RANGE_PRESETS) {
+      rows.push({
+        id: `action-range-${preset}`,
+        group: 'action',
+        label: `用量时间窗：${PRESET_LABEL[preset]}`,
+        hint: preset === currentPreset ? '当前' : `${GRANULARITY_LABEL[PRESET_GRANULARITY[preset]]}分桶`,
+        icon: 'clock',
+        keywords: `usage 用量 时间窗 范围 range ${preset}`,
+        action: {
+          kind: 'run',
+          run: () => {
+            setUsageRange({ ...rangeFor(preset), granularity: PRESET_GRANULARITY[preset] });
+            announce(`用量时间窗已切换为${PRESET_LABEL[preset]}，正在重新聚合`);
+          },
+        },
+      });
+    }
+    for (const granularity of ['hour', 'day'] as const) {
+      rows.push({
+        id: `action-granularity-${granularity}`,
+        group: 'action',
+        label: `用量分桶粒度：${GRANULARITY_LABEL[granularity]}`,
+        hint: usageRange.granularity === granularity ? '当前' : null,
+        icon: 'usage',
+        keywords: `usage 用量 粒度 分桶 granularity ${granularity}`,
+        action: {
+          kind: 'run',
+          run: () => {
+            setUsageRange({ granularity });
+            announce(`用量分桶粒度已切换为${GRANULARITY_LABEL[granularity]}，正在重新聚合`);
+          },
+        },
+      });
+    }
 
     rows.push({
       id: 'action-sidebar',
@@ -367,6 +749,37 @@ export default function CommandPalette() {
         },
       });
     }
+
+    // 界面大小三档（REDESIGN-PROMPT 第 2.3 节）：接 store/ui.ts 的 density，
+    // 与设置页「外观」同一开关。这是「保存设置」类操作，成败反馈走 toast。
+    for (const candidate of DENSITY_SEQUENCE) {
+      rows.push({
+        id: `action-density-${candidate}`,
+        group: 'action',
+        label: `界面大小：${DENSITY_LABEL[candidate]}`,
+        hint: candidate === density ? '当前' : null,
+        icon: 'monitor',
+        keywords: `density 界面大小 缩放 ${candidate}`,
+        action: {
+          kind: 'run',
+          run: () => {
+            setDensity(candidate);
+            toastSuccess(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
+            announce(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
+          },
+        },
+      });
+    }
+
+    rows.push({
+      id: 'action-copy-diagnostics',
+      group: 'action',
+      label: '复制诊断报告',
+      hint: '体检结论与最近错误摘要进剪贴板',
+      icon: 'copy',
+      keywords: 'copy 复制 诊断 报告 diagnostics report',
+      action: { kind: 'run', run: runCopyDiagnostics },
+    });
 
     rows.push({
       id: 'action-doctor',
@@ -439,18 +852,31 @@ export default function CommandPalette() {
   }, [
     announce,
     channels,
+    density,
     env,
     hubs,
     launch,
     mode,
+    openPath,
+    query,
     refresh,
     refreshAll,
+    revealInFolder,
+    setAlias,
+    setDensity,
+    setHidden,
+    setOverride,
     setSlot,
+    setSlotEffort,
     setTheme,
+    setUsageRange,
     setView,
     sidebarCollapsed,
     theme,
+    toastError,
+    toastSuccess,
     toggleSidebar,
+    usageRange,
     view,
   ]);
 
@@ -499,6 +925,19 @@ export default function CommandPalette() {
     inputRef.current?.focus();
   }, []);
 
+  /**
+   * 遮罩淡入。面板本体的入场归 CSS 的 palette-in 关键帧（--dur-slow），遮罩这一层是
+   * 「面板入场」那档 --dur-normal（DESIGN.md 第 2.5 节时长语义表）：先铺底再浮面板，
+   * 免得 50% 黑底一帧砸下来。
+   * transition 只在挂载后翻一次状态才会跑，所以要等一帧——rAF 保证第一帧遮罩是透明的。
+   * 减少动效模式下 background-color 仍在放行名单里，只是被压到 --dur-instant，遮罩不会消失。
+   */
+  const [scrimIn, setScrimIn] = useState(false);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setScrimIn(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
   useEffect(() => {
     setActive(0);
   }, [query, mode]);
@@ -543,7 +982,7 @@ export default function CommandPalette() {
       if (row) execute(row.item);
       return;
     }
-    if (event.key === 'Backspace' && query === '' && mode.kind === 'slot') {
+    if (event.key === 'Backspace' && query === '' && mode.kind !== 'root') {
       event.preventDefault();
       backToRoot();
     }
@@ -557,7 +996,7 @@ export default function CommandPalette() {
   const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
       event.preventDefault();
-      if (mode.kind === 'slot') backToRoot();
+      if (mode.kind !== 'root') backToRoot();
       else close();
       return;
     }
@@ -573,7 +1012,7 @@ export default function CommandPalette() {
 
   return (
     <div
-      className={styles.overlay}
+      className={cx(styles.overlay, scrimIn && styles.overlayIn)}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) close();
       }}
@@ -588,21 +1027,29 @@ export default function CommandPalette() {
       >
         <div className={styles.inputRow}>
           <Icon name="search" className={styles.searchIcon} />
-          {mode.kind === 'slot' ? (
+          {mode.kind === 'root' ? null : (
             <span className={styles.scope}>
-              槽位 · {mode.slot}
+              {mode.kind === 'slot'
+                ? `槽位 · ${mode.slot}`
+                : `渠道 · ${channels.find((candidate) => candidate.id === mode.channelId)?.name ?? mode.channelId}`}
               <button type="button" className={styles.scopeBack} onClick={backToRoot} aria-label="返回全部命令">
-                <Icon name="close" size={12} />
+                <Icon name="close" size={14} />
               </button>
             </span>
-          ) : null}
+          )}
           <input
             ref={inputRef}
             className={styles.input}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={mode.kind === 'slot' ? '筛选渠道与模型' : '输入命令：切视图、启动会话、改槽位、刷新、切主题'}
+            placeholder={
+              mode.kind === 'slot'
+                ? '筛选渠道与模型'
+                : mode.kind === 'channel'
+                  ? '筛选动作；输入的文字可直接设为别名或模型覆盖'
+                  : '输入命令：切视图、启动会话、改槽位、管理渠道、刷新、切主题'
+            }
             role="combobox"
             aria-expanded={true}
             aria-controls="palette-list"
@@ -656,7 +1103,7 @@ export default function CommandPalette() {
         <div className={styles.legend}>
           <span>↑↓ 移动</span>
           <span>Enter 执行</span>
-          <span>{mode.kind === 'slot' ? 'Esc 返回' : 'Esc 关闭'}</span>
+          <span>{mode.kind === 'root' ? 'Esc 关闭' : 'Esc 返回'}</span>
         </div>
       </div>
     </div>

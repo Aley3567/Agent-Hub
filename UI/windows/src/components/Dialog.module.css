@@ -6,8 +6,9 @@
   align-items: center;
   justify-content: center;
   padding: var(--sp-6);
-  /* DESIGN.md 第 4.1 节：遮罩 rgba(0,0,0,.5) */
-  background: rgba(0, 0, 0, 0.5);
+  /* DESIGN.md 第 4.1 节：遮罩 rgba(0,0,0,.5)，取值集中在 tokens.css 的 --overlay-scrim */
+  background: var(--overlay-scrim);
+  /* 遮罩压暗按 2.5 关键帧清单 fade 那一行：--dur-normal + --ease-out（复核项，值本来就对） */
   animation: fade var(--dur-normal) var(--ease-out);
 }
 
@@ -23,6 +24,14 @@
   background: var(--bg-elevated);
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+  /*
+   * 面板自己也走一次 fade。遮罩那条动的是「整层压暗」，这条动的是「对话框来了」——
+   * 2.5 时长语义表把「对话框入场」划给 --dur-normal，落到面板上这件事才有明确定义；
+   * 只靠父层淡入的话，面板的入场时长是被遮罩顺带决定的。
+   * both 让首帧就停在 opacity 0，不会先闪一下完整面板。
+   * 关键帧仍用本文件已有的 fade，不新写——2.5 的关键帧清单是白名单，只有 8 个。
+   */
+  animation: fade var(--dur-normal) var(--ease-out) both;
 }
 
 

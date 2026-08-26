@@ -1,10 +1,13 @@
+/* DESIGN.md 第 2.2.1 节：卡片外轮廓属独立容器，用 --border-default；
+   下面 header/footer 的分隔线仍属容器内部，保持 --border-subtle */
 .card {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 

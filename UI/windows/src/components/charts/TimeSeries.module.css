@@ -77,6 +77,9 @@
   font-family: var(--font-mono);
   font-size: var(--fs-11);
   line-height: var(--lh-11);
+  /* DESIGN.md 2.3 的适用范围里点了「时间戳」：hover 在相邻两个桶之间移动时，
+     08:00 → 11:15 这种宽度差会让整个浮层左右跳，定宽数字才钉得住 */
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

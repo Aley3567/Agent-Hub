@@ -51,7 +51,9 @@ export function EmptyState({
         </span>
       ) : (
         <span className={styles.icon}>
-          <Icon name={icon} size={20} />
+          {/* 不传 size：统一走 tokens.css 的 --icon-size（20px）栅格，外面那个
+              --sp-10（40px）的圆底盘容得下 */}
+          <Icon name={icon} />
         </span>
       )}
       <p className={cx(styles.title, hero && styles.titleHero)}>{title}</p>

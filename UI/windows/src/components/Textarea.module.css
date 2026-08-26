@@ -26,9 +26,14 @@
   border-color: var(--accent);
 }
 
+/* hover 只变色（DESIGN.md 2.4.1 hover 行）：描边抬到 --border-strong */
+.textarea:hover:not(:disabled):not(:focus) {
+  border-color: var(--border-strong);
+}
+
 .textarea:focus-visible {
-  /* DESIGN.md 4.1 的 accent 焦点环，粗细与偏移取 5 节 Windows 行的 1px + 1px；
-     不用 box-shadow 假环 */
+  /* DESIGN.md 4.1 的 accent 焦点环，粗细与偏移按 5 节 Windows 行取 tokens.css 的
+     --focus-ring-w / --focus-ring-offset（1px + 1px offset），不用 box-shadow 假环 */
   outline: var(--focus-ring-w) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
 }
@@ -37,9 +42,12 @@
   color: var(--text-tertiary);
 }
 
+/* disabled：描边退到 --border-subtle、cursor: default，不用整体 opacity
+   （DESIGN.md 2.4.1 disabled 行） */
 .textarea:disabled {
+  border-color: var(--border-subtle);
   color: var(--text-tertiary);
-  cursor: not-allowed;
+  cursor: default;
 }
 
 .invalid {
@@ -54,8 +62,13 @@
   outline-color: var(--danger);
 }
 
+/*
+ * DESIGN.md 2.3 点名这处 .mono「只换字体族」，而同节要求所有数值定宽。
+ * Textarea 装的是 JSON / env 片段这类带数字的文本，补上 tabular-nums。
+ */
 .mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .error {

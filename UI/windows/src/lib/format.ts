@@ -130,6 +130,40 @@ export function formatRelative(ts: number | null | undefined, now: number = Date
   return `${Math.floor(abs / YEAR)} 年${suffix}`;
 }
 
+const COUNTDOWN_UNITS: Array<[number, string]> = [
+  [YEAR, '年'],
+  [MONTH, '个月'],
+  [DAY, '天'],
+  [HOUR, '小时'],
+  [MINUTE, '分钟'],
+];
+
+/**
+ * 未来相对时间（倒计时方向），取最大的两个单位，例如「3 天 2 小时后」「1 小时 30 分钟后」。
+ * 计划任务视图的「下次运行倒计时」用它（DESIGN.md 4.7）；formatRelative 只给单单位
+ * （「3 天后」），不够表达下次运行的精度。过去时间返回「已错过」，由调用方配琥珀
+ * StatusDot——任务是错过，不是失败（DESIGN.md 4.7）。
+ */
+export function formatCountdown(ts: number | null | undefined, now: number = Date.now() / 1000): string {
+  if (isMissing(ts)) return MISSING;
+  const target = Math.abs(ts) > 1e11 ? ts / 1000 : ts;
+  const base = Math.abs(now) > 1e11 ? now / 1000 : now;
+  const diff = target - base;
+  if (diff <= 0) return '已错过';
+  if (diff < MINUTE) return '1 分钟内';
+  let rest = Math.floor(diff);
+  const parts: string[] = [];
+  for (const [secs, label] of COUNTDOWN_UNITS) {
+    const value = Math.floor(rest / secs);
+    if (value > 0) {
+      parts.push(`${value} ${label}`);
+      rest -= value * secs;
+      if (parts.length === 2) break;
+    }
+  }
+  return `${parts.join(' ')}后`;
+}
+
 /**
  * 比例转百分比。入参是 0–1 的比率（UsageSummary.cacheHitRate 就是这个口径）。
  * null 直接返回破折号——没有输入 token 时命中率不存在，不能显示成 0%。

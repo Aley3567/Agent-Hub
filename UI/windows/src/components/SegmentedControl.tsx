@@ -82,7 +82,8 @@ export function SegmentedControl<T extends string>({
               if (!selected) onChange(option.value);
             }}
           >
-            {option.icon ? <Icon name={option.icon} size={size === 'sm' ? 13 : 14} /> : null}
+            {/* 不传 size：统一走 tokens.css 的 --icon-size 栅格（见 Icon.module.css 的说明） */}
+            {option.icon ? <Icon name={option.icon} /> : null}
             <span className={cx(styles.label, truncate && styles.labelTruncate)}>{option.label}</span>
           </button>
         );

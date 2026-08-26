@@ -46,7 +46,15 @@ export function Select({
   const hasError = invalid || (error !== null && error !== undefined && error !== '');
   return (
     <span className={cx(styles.wrap, wrapperClassName)}>
-      <span className={cx(styles.field, styles[selectSize], hasError && styles.invalid)}>
+      {/* 外壳跟着原生 disabled 一起变；safari15 没有 :has()，状态从这里传下去 */}
+      <span
+        className={cx(
+          styles.field,
+          styles[selectSize],
+          hasError && styles.invalid,
+          rest.disabled === true && styles.disabled,
+        )}
+      >
         <select
           className={cx(styles.select, mono && styles.mono, className)}
           aria-invalid={hasError || undefined}
@@ -61,7 +69,8 @@ export function Select({
               ))
             : children}
         </select>
-        <Icon name="chevron-down" size={14} className={styles.chevron} />
+        {/* 不传 size：统一走 tokens.css 的 --icon-size 栅格 */}
+        <Icon name="chevron-down" className={styles.chevron} />
       </span>
       {error !== null && error !== undefined && error !== '' ? (
         <span className={styles.error} role="alert">

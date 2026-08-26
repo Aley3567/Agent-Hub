@@ -17,7 +17,7 @@ export interface SwitchProps {
   'aria-describedby'?: string;
 }
 
-/** 36×20，轨道 --border-strong，开启转 --accent（DESIGN.md 第 4.1 节） */
+/** 40×22，轨道 --border-strong，开启转 --accent（DESIGN.md 第 4.1 节 Switch 行） */
 export function Switch({
   checked,
   onChange,

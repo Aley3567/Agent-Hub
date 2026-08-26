@@ -33,8 +33,18 @@ export function Input({
   const hasError = invalid || (error !== null && error !== undefined && error !== '');
   return (
     <span className={cx(styles.wrap, wrapperClassName)}>
-      <span className={cx(styles.field, styles[inputSize], hasError && styles.invalid)}>
-        {leadingIcon ? <Icon name={leadingIcon} size={14} className={styles.leading} /> : null}
+      {/* 外壳跟着原生 disabled 一起变（DESIGN.md 2.4.1 disabled 行）：
+          safari15 没有 :has()，所以由这里把状态传给外层，而不是靠父选择器 */}
+      <span
+        className={cx(
+          styles.field,
+          styles[inputSize],
+          hasError && styles.invalid,
+          rest.disabled === true && styles.disabled,
+        )}
+      >
+        {/* 不传 size：统一走 tokens.css 的 --icon-size 栅格 */}
+        {leadingIcon ? <Icon name={leadingIcon} className={styles.leading} /> : null}
         <input
           className={cx(styles.input, mono && styles.mono, className)}
           aria-invalid={hasError || undefined}

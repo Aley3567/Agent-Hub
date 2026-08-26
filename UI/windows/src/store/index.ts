@@ -10,8 +10,10 @@
  *   3. 动作方法直通 IPC，成功后自动 refresh 受影响的 key；失败时记进 error 并把异常抛回
  *      调用方，让视图能就地显示原因，绝不静默吞掉。
  *
- * loading / error 的 key：七个 refresh key，加上动作方法自己的名字
- * （setHidden / setAlias / setOverride / setSlot / setSlotEffort / launch）。
+ * loading / error 的 key：十个 refresh key，加上动作方法自己的名字
+ * （setHidden / setAlias / setOverride / setSlot / setSlotEffort / launch /
+ * doctorFixSubagentPins / openPath / revealInFolder / sendChatMessage /
+ * setPluginEnabled / createTask / updateTask / deleteTask）。
  *
  * loadedKeys 记录每个 key 是否至少完成过一次加载（成败都算），视图用它区分
  * 「还没加载过」与「加载过但为空」：空态只在后者出现，避免首帧闪空态。
@@ -19,31 +21,47 @@
 import { create } from 'zustand';
 import {
   appEnv,
+  createTask as createTaskIpc,
+  deleteTask as deleteTaskIpc,
+  doctorFixSubagentPins as fixSubagentPins,
   isOffline,
   launch as launchSession,
   listAccountPools,
   listChannels,
+  listChatSessions,
   listHubs,
+  listPlugins,
+  listTasks,
+  openPath as openPathIpc,
   recentErrors,
   recentUsage,
+  revealInFolder as revealInFolderIpc,
   runDoctor,
+  sendChatMessage as sendChatMessageIpc,
   setChannelAlias,
   setChannelHidden,
   setChannelOverride,
   setHubSlot,
   setHubSlotEffort,
+  setPluginEnabled as setPluginEnabledIpc,
+  updateTask as updateTaskIpc,
   usageSummary,
 } from '../api';
 import type {
   AccountPool,
   AppEnv,
   Channel,
+  ChatMessage,
+  ChatSession,
   DoctorCheck,
   Effort,
   ErrorRow,
   HubConfig,
   LaunchResult,
   LaunchTarget,
+  NewScheduledTask,
+  PluginItem,
+  ScheduledTask,
   SlotName,
   UsageRow,
   UsageSummary,
@@ -57,6 +75,9 @@ export interface AppState {
   recentUsage: UsageRow[];
   errors: ErrorRow[];
   doctor: DoctorCheck[];
+  chatSessions: ChatSession[];
+  plugins: PluginItem[];
+  tasks: ScheduledTask[];
   env: AppEnv | null;
   offline: boolean;
   loading: Record<string, boolean>;
@@ -64,7 +85,9 @@ export interface AppState {
   /** 每个 key 是否至少完成过一次加载（成败都算）；空态只准在它之后出现 */
   loadedKeys: Record<string, boolean>;
   /** 成败判别：refresh 自身永不抛出，await 之后读 error[key]，null 即成功 */
-  refresh(key: 'channels' | 'hubs' | 'pools' | 'usage' | 'errors' | 'doctor' | 'env'): Promise<void>;
+  refresh(
+    key: 'channels' | 'hubs' | 'pools' | 'usage' | 'errors' | 'doctor' | 'env' | 'chat' | 'plugins' | 'tasks',
+  ): Promise<void>;
   refreshAll(): Promise<void>;
   setHidden(id: string, hidden: boolean): Promise<void>;
   setAlias(id: string, alias: string | null): Promise<void>;
@@ -72,6 +95,19 @@ export interface AppState {
   setSlot(hub: string, slot: SlotName, channel: string | null, model: string | null): Promise<void>;
   setSlotEffort(hub: string, slot: SlotName, effort: Effort | null): Promise<void>;
   launch(target: LaunchTarget): Promise<LaunchResult>;
+  /** 发送后自动 refresh('chat')，返回值是演示回复本体（用户消息已追加进会话） */
+  sendChatMessage(sessionId: string, content: string): Promise<ChatMessage>;
+  /** 成功后自动 refresh('plugins')；渠道级只读项会抛中文错误 */
+  setPluginEnabled(id: string, enabled: boolean): Promise<void>;
+  /** 成功后自动 refresh('tasks') */
+  createTask(task: NewScheduledTask): Promise<ScheduledTask>;
+  /** patch 只认 enabled / schedule / name；成功后自动 refresh('tasks') */
+  updateTask(id: string, patch: { enabled?: boolean; schedule?: string; name?: string }): Promise<ScheduledTask>;
+  /** 成功后自动 refresh('tasks') */
+  deleteTask(id: string): Promise<void>;
+  doctorFixSubagentPins(): Promise<DoctorCheck[]>;
+  openPath(path: string): Promise<void>;
+  revealInFolder(path: string): Promise<void>;
   usageRange: { fromTs: number; toTs: number; granularity: 'hour' | 'day' };
   setUsageRange(r: Partial<AppState['usageRange']>): void;
 }
@@ -80,7 +116,18 @@ export interface AppState {
 export type RefreshKey = Parameters<AppState['refresh']>[0];
 
 /** refreshAll 的顺序：env 先行，后面的视图文案里要用到路径 */
-export const REFRESH_KEYS: RefreshKey[] = ['env', 'channels', 'hubs', 'pools', 'usage', 'errors', 'doctor'];
+export const REFRESH_KEYS: RefreshKey[] = [
+  'env',
+  'channels',
+  'hubs',
+  'pools',
+  'usage',
+  'errors',
+  'doctor',
+  'chat',
+  'plugins',
+  'tasks',
+];
 
 /** 最近记录的默认条数：够诊断视图翻几屏，又不至于把整条 journal 拉进内存 */
 const RECENT_LIMIT = 200;
@@ -148,6 +195,21 @@ export const useApp = create<AppState>()((set, get) => {
     await Promise.all(after.map((next) => get().refresh(next)));
   };
 
+  /** 与 runAction 同一流程，但动作本身有返回值要交还调用方（如 sendChatMessage 的回复本体） */
+  const runActionResult = async <T>(key: string, call: () => Promise<T>, after: RefreshKey[]): Promise<T> => {
+    begin(key);
+    let result: T;
+    try {
+      result = await call();
+      finish(key, null);
+    } catch (cause) {
+      finish(key, errorText(cause));
+      throw cause;
+    }
+    await Promise.all(after.map((next) => get().refresh(next)));
+    return result;
+  };
+
   return {
     channels: [],
     hubs: [],
@@ -156,6 +218,9 @@ export const useApp = create<AppState>()((set, get) => {
     recentUsage: [],
     errors: [],
     doctor: [],
+    chatSessions: [],
+    plugins: [],
+    tasks: [],
     env: null,
     offline: isOffline,
     loading: {},
@@ -190,6 +255,15 @@ export const useApp = create<AppState>()((set, get) => {
             break;
           case 'doctor':
             set({ doctor: await runDoctor() });
+            break;
+          case 'chat':
+            set({ chatSessions: await listChatSessions() });
+            break;
+          case 'plugins':
+            set({ plugins: await listPlugins() });
+            break;
+          case 'tasks':
+            set({ tasks: await listTasks() });
             break;
           case 'env':
             set({ env: await appEnv() });
@@ -236,6 +310,37 @@ export const useApp = create<AppState>()((set, get) => {
       }
       return result;
     },
+
+    sendChatMessage: (sessionId, content) =>
+      runActionResult('sendChatMessage', () => sendChatMessageIpc(sessionId, content), ['chat']),
+
+    setPluginEnabled: (id, enabled) =>
+      runAction('setPluginEnabled', () => setPluginEnabledIpc(id, enabled), ['plugins']),
+
+    createTask: (task) => runActionResult('createTask', () => createTaskIpc(task), ['tasks']),
+
+    updateTask: (id, patch) => runActionResult('updateTask', () => updateTaskIpc(id, patch), ['tasks']),
+
+    deleteTask: (id) => runAction('deleteTask', () => deleteTaskIpc(id), ['tasks']),
+
+    doctorFixSubagentPins: async () => {
+      begin('doctorFixSubagentPins');
+      let checks: DoctorCheck[];
+      try {
+        checks = await fixSubagentPins();
+      } catch (cause) {
+        finish('doctorFixSubagentPins', errorText(cause));
+        throw cause;
+      }
+      finish('doctorFixSubagentPins', null);
+      // 返回值就是修复后的完整体检结果，直接落库并视作 doctor 完成过一次加载，省一次重复体检
+      set((state) => ({ doctor: checks, loadedKeys: { ...state.loadedKeys, doctor: true } }));
+      return checks;
+    },
+
+    openPath: (path) => runAction('openPath', () => openPathIpc(path), []),
+
+    revealInFolder: (path) => runAction('revealInFolder', () => revealInFolderIpc(path), []),
 
     setUsageRange: (r) => {
       set((state) => ({ usageRange: { ...state.usageRange, ...r } }));

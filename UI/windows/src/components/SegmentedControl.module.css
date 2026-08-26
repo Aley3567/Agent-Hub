@@ -5,7 +5,7 @@
   gap: 1px;
   /* 1px 描边内再留 2px，选中块不贴边 */
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: 2px;
   background: var(--bg-inset);
   max-width: 100%;
@@ -31,8 +31,24 @@
   text-overflow: clip;
 }
 
+/*
+ * 整组禁用（DESIGN.md 2.4.1 disabled 行）：禁止用整体 opacity 压暗，改成逐属性回落——
+ * 外框退到 --border-subtle，段文字退到 --text-tertiary，cursor: default。
+ * 选中段的 --bg-surface 底块保留，只把文字降到 --text-secondary：禁用状态下仍然要读得出
+ * 「现在选的是哪一档」，底块形状就是同一行要求的第二重编码（不只靠颜色）。
+ */
 .disabled {
-  opacity: 0.45;
+  border-color: var(--border-subtle);
+}
+
+.disabled .segment {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.disabled .selected {
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
 }
 
 /* 与 Button 同高，便于并排 */
@@ -58,16 +74,18 @@
   background: transparent;
   color: var(--text-secondary);
   font-family: var(--font-ui);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
   font-weight: var(--fw-medium);
   white-space: nowrap;
   cursor: pointer;
+  /* hover 只变色 → --dur-instant（DESIGN.md 2.5 时长语义表第一行） */
   transition:
     background-color var(--dur-instant) var(--ease-out),
     color var(--dur-instant) var(--ease-out);
 }
 
+/* 焦点环取 tokens.css 的两个 token（DESIGN.md 第 5 节 Windows 行 1px / offset 1px） */
 .segment:focus-visible {
   outline: var(--focus-ring-w) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
@@ -78,15 +96,32 @@
   color: var(--text-primary);
 }
 
-.segment:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/*
+ * active（DESIGN.md 2.4.1 active 行）。这一态原先完全没有：点下去到 onChange 生效之间
+ * 没有任何反馈，快速连点时分不清「点没点上」。按该行用更重的 --bg-active，
+ * 时长切到 --dur-fast，与 hover 的 --dur-instant 区分开。
+ */
+.segment:active:not(:disabled):not(.selected) {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  transition-duration: var(--dur-fast);
 }
 
+/* 单段禁用：同样不用 opacity，只降文字色并收掉指针（DESIGN.md 2.4.1 disabled 行） */
+.segment:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/*
+ * selected（DESIGN.md 2.4.1 selected 行）：时长列是 --dur-fast——它就是该行点名的
+ * 「chip / tab 选中」。选中块落下去要看得见，--dur-instant 会让 effort 五档之间的切换像闪一下。
+ */
 .selected {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   color: var(--text-primary);
+  transition-duration: var(--dur-fast);
 }
 
 .label {

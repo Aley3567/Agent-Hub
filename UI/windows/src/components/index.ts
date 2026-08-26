@@ -20,7 +20,16 @@ export { Badge, type BadgeProps, type BadgeTone } from './Badge';
 export { StatusDot, type StatusDotProps, type StatusTone, type StatusToneInput } from './StatusDot';
 export { Tooltip, type TooltipProps, type TooltipSide } from './Tooltip';
 export { Dialog, type DialogProps } from './Dialog';
-export { Table, Th, Td, type TableProps, type ThProps, type TdProps } from './Table';
+export {
+  Table,
+  Th,
+  Td,
+  MidTruncate,
+  type TableProps,
+  type ThProps,
+  type TdProps,
+  type MidTruncateProps,
+} from './Table';
 export { EmptyState, type EmptyStateProps, type EmptyStateAction } from './EmptyState';
 export { CodeBlock, type CodeBlockProps } from './CodeBlock';
 export { Spinner, type SpinnerProps, type SpinnerSize } from './Spinner';

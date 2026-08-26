@@ -1,6 +1,18 @@
+/* DESIGN.md 4.1.1「表格外框」：1px --border-default + --radius-md，落点是滚动包裹层而不是
+   <table>——border-collapse: collapse 下 <table> 上的圆角会被单元格边框穿出。
+   这里只声明 overflow-x: auto：按 CSS overflow 规则，另一轴的 visible 会被计算成 auto，
+   于是包裹层本身就是滚动容器、圆角处会裁掉内容，同时横滚没有被 overflow: hidden 掐死。 */
 .scroll {
   width: 100%;
   overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+/* 已经被 Card（尤其 flush 的 Card）包住的表格用它退掉外框，避免两条 1px 线贴在一起 */
+.unframed {
+  border: 0;
+  border-radius: 0;
 }
 
 .table {
@@ -8,14 +20,24 @@
   border-collapse: collapse;
   color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: var(--fs-13);
-  line-height: var(--lh-13);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+/* DESIGN.md 4.1.1「列宽策略」：只有声明了 <colgroup> 的表才切 fixed。
+   理由——auto 下 colgroup 的 width 只是建议值，模型名这种长 mono 串会把列撑过
+   --table-col-model-max（240px），七列合计就越过 1160px 的可用宽而横滚；fixed 才让
+   colgroup 严格生效、把 240px 变成硬上限，中截断也才有确定的裁切宽度。
+   反过来，没有 colgroup 的表（PoolCard、UsageTable、FailureTable、diagnostics 副表）
+   靠内容 + minWidth 分配列宽，切 fixed 会让它们变成等分列，所以默认保持 auto。 */
+.table.fixed {
+  table-layout: fixed;
 }
 
 /* DESIGN.md 第 4.1 节：表头 --fs-11 大写字距 .04em --text-tertiary */
 .table thead th,
 .th {
-  height: 28px;
+  height: var(--control-h-sm);
   padding: 0 var(--sp-3);
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-tertiary);
@@ -28,7 +50,7 @@
   white-space: nowrap;
 }
 
-/* 行高 34（DESIGN.md 4.1 的 36 按 5 节 Windows 行 -2px）、
+/* 行高取 --row-h（DESIGN.md 4.1 的 40 按 5 节 Windows 行控件密度收成 34）、
    行间 1px --border-subtle、hover --bg-hover */
 .table tbody td,
 .td {
@@ -37,9 +59,8 @@
   vertical-align: middle;
 }
 
-/* 紧凑行同样跟随 Windows 密度 -2px：30 → 28 */
 .table.dense tbody td {
-  height: 28px;
+  height: var(--control-h-md);
 }
 
 .table tbody tr {
@@ -55,8 +76,12 @@
   background: var(--bg-hover);
 }
 
+/* 选中行。DESIGN.md 2.4.1 selected 行的时长列是 --dur-fast：选中是一次明确的状态变化，
+   要比 hover 那 --dur-instant 的路过感慢一档才看得出「这一行被选上了」。
+   只加 transition-duration，行底色与结构不动。 */
 .table tbody tr[aria-selected='true'] {
   background: var(--bg-selected);
+  transition-duration: var(--dur-fast);
 }
 
 .table.sticky thead th {
@@ -78,6 +103,27 @@
   text-align: right;
 }
 
+/* 上面三条对 <Td> 够用（`.table tbody td, .td` 没声明 text-align），但对 <Th> 不够：
+   表头那条分组规则 `.table thead th, .th` 里的 text-align: left 特异性是 (0,1,2)，
+   压得死 (0,1,0) 的 .align-*，于是 <Th numeric> 与 <Th align> 全部失效——
+   渲染出「数字单元格右对齐、表头却左对齐」的错位，违反 DESIGN.md 第 4.1 节
+   「数字列右对齐 mono」。分组规则里那个 left 要留着给没走 Th 组件的原生 <th> 兜底
+   （<th> 的浏览器默认是居中），所以这里按同等特异性再覆盖一次，而不是去删它。 */
+.table thead th.align-left,
+.th.align-left {
+  text-align: left;
+}
+
+.table thead th.align-center,
+.th.align-center {
+  text-align: center;
+}
+
+.table thead th.align-right,
+.th.align-right {
+  text-align: right;
+}
+
 .mono {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -88,4 +134,80 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- 中截断（DESIGN.md 4.1.1「模型名列」）---------------------------------
+   双 span：前段可收缩并用 ellipsis 吃掉溢出，后段 nowrap + 不收缩，所以尾部的日期戳
+   （0805 / 20250805）永远可见——DESIGN.md 4.1.1 说砍尾部等于把两个不同模型显示成同一个。
+   DOM 里两段文本仍是完整原串，所以选中复制拿到的是完整值，不是截断后的显示串。 */
+.midTruncate {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.midTruncateHead {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.midTruncateTail {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* --- sticky 操作列（DESIGN.md 4.1.1「sticky 操作列」）---------------------
+   1. 背景必须完全不透明，否则横滚时透出下面滚过去的单元格文字：非当前行取行底
+      --bg-base（也和 sticky 表头同色），当前行取 --bg-selected-table-solid。
+      --sticky-action-bg 是这份底色的唯一来源，下面的渐变伪元素直接读它，避免两处色值漂移。
+      hover 的 --bg-hover 是半透明值，故意不引到这一列上，不然又会透字。
+   2. 左侧 1px --border-subtle：它是容器内部的列分隔线，按 DESIGN.md 2.2.1 节的规则
+      不升级成 --border-default。 */
+/* 刻意不给这一列加 background-color 过渡：--sticky-action-bg 是由视图覆盖的变量，
+   一旦某个调用点传进半透明值，过渡的中间态就会透出横滚过去的单元格文字，
+   正是 DESIGN.md 4.1.1「sticky 操作列」第 1 条要防的那个 bug。 */
+.stickyAction {
+  --sticky-action-bg: var(--bg-base);
+  position: sticky;
+  right: 0;
+  z-index: var(--z-sticky);
+  background: var(--sticky-action-bg);
+  /* 这条线**不能**用 border-left：.table 是 border-collapse: collapse，合并模式下单元格
+     边框归 table 的 border grid 统一绘制、不属于单元格盒子，横滚时会留在原位不跟着钉住的
+     列走。inset box-shadow 画在单元格自己的盒子上，跟着 sticky 一起移动。
+     顺带省掉 1px 盒宽——动作列 132px 扣掉左右 --sp-3 后余量本来就是 0。 */
+  box-shadow: inset 1px 0 0 var(--border-subtle);
+}
+
+/* 3. 分隔线外侧向左一道渐变，表明「左边还有内容没看完」。用伪元素叠 linear-gradient，
+      不用 mask-image（safari15 下还得成对写 -webkit- 前缀）。常显，不挂滚动监听。
+      分隔线现在是 inset box-shadow、画在单元格盒内，所以伪元素贴着 100% 就行，
+      不必再让开 1px。 */
+.stickyAction::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  width: var(--table-sticky-fade-w);
+  background: linear-gradient(to left, var(--sticky-action-bg), transparent);
+  pointer-events: none;
+}
+
+/* 当前行：换成不透明等价色，由 Td 的 currentRow prop 显式挂上。
+   刻意不顺手把 tr[aria-selected='true'] 也映射过来——那条行底用的是 --bg-selected
+   （rgba .20），而 --bg-selected-table-solid 是 --bg-selected-table（rgba .08）的不透明
+   等价色，两者不同色，映射过去会在 sticky 列上留一条色带。 */
+.stickyActionCurrent {
+  --sticky-action-bg: var(--bg-selected-table-solid);
+}
+
+/* 表头的操作列同时钉住上边和右边，必须压在只钉上边的其他表头之上 */
+.table thead th.stickyAction {
+  z-index: calc(var(--z-sticky) + 1);
 }

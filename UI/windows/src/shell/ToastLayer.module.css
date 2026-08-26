@@ -1,0 +1,99 @@
+/* toast 渲染层（--z-toast，REDESIGN-PROMPT 第 2.3 节第 5 条）。
+   浮层三件套按 DESIGN.md 第 2.2.1 节：--bg-elevated + --border-default + --shadow-md。
+   入场用 transition（opacity + 2px 级位移，--dur-normal --ease-out），不新增 @keyframes——
+   关键帧白名单只有 9 个（DESIGN.md 第 2.5 节），面板入场这一档用过渡已够；
+   reduced-motion 下 global.css 的属性白名单丢掉 transform、只留 opacity，不丢信息。 */
+
+.layer {
+  position: fixed;
+  right: var(--sp-6);
+  /* 压在 StatusBar（30px）之上，留出一道间距 */
+  bottom: calc(30px + var(--sp-3));
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  /* 层本身不吃指针，只让每条 toast 可点，免得挡住底下的状态栏 */
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  max-width: 360px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--text-primary);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(var(--sp-2));
+  transition:
+    opacity var(--dur-normal) var(--ease-out),
+    transform var(--dur-normal) var(--ease-out);
+}
+
+/* 挂载后一帧由组件翻上这个类（见 ToastLayer.tsx），入场过渡才跑 */
+.toastIn {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.icon {
+  flex: none;
+  /* 13px 行高下让 16px 图标与首行文字视觉对齐 */
+  margin-top: 2px;
+}
+
+.iconSuccess {
+  color: var(--success);
+}
+
+.iconError {
+  color: var(--danger);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  /* 长错误原文允许换行，但最多三行，完整内容以视图内的错误呈现为准 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.close {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -1px calc(-1 * var(--sp-1)) -1px 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-in-out),
+    color var(--dur-instant) var(--ease-in-out);
+}
+
+.close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.close:active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}

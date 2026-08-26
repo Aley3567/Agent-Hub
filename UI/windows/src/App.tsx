@@ -19,20 +19,24 @@ import RouteProgress from './shell/RouteProgress';
 import Sidebar from './shell/Sidebar';
 import StatusBar from './shell/StatusBar';
 import TitleBar from './shell/TitleBar';
+import ToastLayer from './shell/ToastLayer';
 import ViewHeader from './shell/ViewHeader';
 import { useAnnouncer } from './shell/announce';
 import { useGlobalKeyboard } from './shell/keyboard';
-import { VIEWS, VIEW_META, VIEW_REFRESH_KEY } from './shell/views';
+import { VIEWS, VIEW_META, VIEW_REFRESH_KEY, refreshView } from './shell/views';
 import styles from './App.module.css';
 
 /** 路由表的键与路径由 CONTRACT.md 第 6.1 节写死，这里只是把它们包成 lazy 组件 */
 const LAZY_VIEWS = {
+  chat: lazy(VIEWS.chat),
   channels: lazy(VIEWS.channels),
   slots: lazy(VIEWS.slots),
   usage: lazy(VIEWS.usage),
   diagnostics: lazy(VIEWS.diagnostics),
   accounts: lazy(VIEWS.accounts),
   doctor: lazy(VIEWS.doctor),
+  plugins: lazy(VIEWS.plugins),
+  tasks: lazy(VIEWS.tasks),
   settings: lazy(VIEWS.settings),
 } satisfies Record<ViewId, ComponentType>;
 
@@ -41,13 +45,15 @@ export default function App() {
   const paletteOpen = useNav((state) => state.paletteOpen);
 
   const refreshAll = useApp((state) => state.refreshAll);
-  const refresh = useApp((state) => state.refresh);
-  const busy = useApp((state) => state.loading[VIEW_REFRESH_KEY[view]] === true);
+  const busy = useApp((state) => VIEW_REFRESH_KEY[view].some((key) => state.loading[key] === true));
   const channelCount = useApp((state) => state.channels.length);
   const hubCount = useApp((state) => state.hubs.length);
   const poolCount = useApp((state) => state.pools.length);
   const errorCount = useApp((state) => state.errors.length);
   const doctorChecks = useApp((state) => state.doctor);
+  const chatSessionCount = useApp((state) => state.chatSessions.length);
+  const pluginCount = useApp((state) => state.plugins.length);
+  const taskCount = useApp((state) => state.tasks.length);
   const turns = useApp((state) => state.usage?.totals.turns ?? null);
 
   const announce = useAnnouncer((state) => state.announce);
@@ -75,6 +81,8 @@ export default function App() {
 
   const countText = useMemo<string | null>(() => {
     switch (view) {
+      case 'chat':
+        return `${chatSessionCount} 个会话`;
       case 'channels':
         return `${channelCount} 个渠道`;
       case 'slots':
@@ -87,17 +95,21 @@ export default function App() {
         return `${poolCount} 个账号池`;
       case 'doctor':
         return `${doctorChecks.length} 项检查`;
+      case 'plugins':
+        return `${pluginCount} 个插件`;
+      case 'tasks':
+        return `${taskCount} 个任务`;
       case 'settings':
         return null;
     }
-  }, [channelCount, doctorChecks.length, errorCount, hubCount, poolCount, turns, view]);
+  }, [channelCount, chatSessionCount, doctorChecks.length, errorCount, hubCount, pluginCount, poolCount, taskCount, turns, view]);
 
   const meta = VIEW_META[view];
-  const refreshKey = VIEW_REFRESH_KEY[view];
   const CurrentView = LAZY_VIEWS[view];
 
   return (
-    <div className={styles.app}>
+    // view-enter + firstPaint：整层壳只挂载一次，所以这里就是「首屏内容浮现」，走 --dur-slow
+    <div className={cx(styles.app, 'view-enter', styles.firstPaint)}>
       <TitleBar />
       <div className={styles.body}>
         <Sidebar />
@@ -111,7 +123,7 @@ export default function App() {
                 size="sm"
                 icon="refresh"
                 loading={busy}
-                onClick={() => void refresh(refreshKey)}
+                onClick={() => void refreshView(view)}
                 title="刷新本视图数据 Ctrl+R"
               >
                 刷新
@@ -121,7 +133,16 @@ export default function App() {
           <div className={styles.scroll}>
             <div className={cx(styles.container, meta.fullWidth && styles.fullWidth)}>
               <Suspense fallback={<RouteProgress />}>
-                <CurrentView />
+                {/* 视图切换入场：styles/global.css 的 view-enter（opacity + 2px 上移，
+                    自带 --dur-normal，DESIGN.md 第 2.5 节关键帧清单里那一个）。
+                    两个细节是刻意的：
+                      · key={view} —— 不换 key 的话 React 复用同一个 DOM 节点，动画不会重播；
+                      · 这层放在 Suspense 内侧 —— 兜底期间 children 根本不挂载，
+                        所以动画等 lazy chunk 落地、内容真的到位那一刻才开始，
+                        不会在顶部进度线还在跑的时候空转一遍。 */}
+                <div key={view} className="view-enter">
+                  <CurrentView />
+                </div>
               </Suspense>
             </div>
           </div>
@@ -129,6 +150,8 @@ export default function App() {
       </div>
       <StatusBar />
       {paletteOpen ? <CommandPalette /> : null}
+      {/* toast 渲染层常驻（空队列时自身返回 null），层级 --z-toast，在命令面板之上 */}
+      <ToastLayer />
     </div>
   );
 }

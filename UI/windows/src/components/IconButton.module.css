@@ -9,25 +9,46 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+  /* hover 只变色 → --dur-instant（DESIGN.md 2.5 时长语义表第一行） */
   transition:
     background-color var(--dur-instant) var(--ease-out),
     border-color var(--dur-instant) var(--ease-out),
     color var(--dur-instant) var(--ease-out);
 }
 
+/* 焦点环取 tokens.css 的 --focus-ring-w / --focus-ring-offset（DESIGN.md 第 5 节 Windows 行
+   给的 1px / offset 1px），绝不 outline: none */
 .button:focus-visible {
   outline: var(--focus-ring-w) solid var(--accent);
   outline-offset: var(--focus-ring-offset);
 }
 
-.button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+/* 按下：DESIGN.md 2.4.1 active 行的时长列是 --dur-fast，比 hover 的 --dur-instant 慢一档，
+   两者才「视觉可区分」——图标按钮没有文字，press 反馈全靠这一下底色变化 */
+.button:active:not(:disabled) {
+  transition-duration: var(--dur-fast);
 }
 
-/* DESIGN.md 第 4.1 节：IconButton 28×28；也是第 6 节要求的最小点击区，
-   所以 sm 不参与第 5 节 Windows 行的「按钮高 -2px」——再减就跌破可达性底线。
-   md 是加大号，按 Windows 密度收成 30。 */
+/*
+ * disabled：DESIGN.md 2.4.1 disabled 行——--text-tertiary + cursor: default，
+ * 禁止整体 opacity 压暗。图标按钮没有文字，所以除了变色再补一圈 --border-subtle 细边，
+ * 满足同一行「不许只靠颜色表意」：轮廓变化是第二重编码。
+ */
+.button:disabled,
+.button[aria-disabled='true'] {
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* aria-disabled 仍要可聚焦（2.4.1 叠加规则第 3 条），所以只掐指针不写原生 disabled */
+.button[aria-disabled='true'] {
+  pointer-events: none;
+}
+
+/* DESIGN.md 第 4.1 节：IconButton 28×28（Windows 按 5 节控件密度行取 --icon-btn-size）；
+   也是第 6 节要求的最小点击区，不再往下缩 */
 .sm {
   width: var(--icon-btn-size);
   height: var(--icon-btn-size);
@@ -58,6 +79,12 @@
   border-color: var(--border-strong);
 }
 
+/* DESIGN.md 2.4.1 active 行「必须与 hover 视觉可区分」。--bg-surface / --bg-hover /
+   --bg-active 是同一序列往下走一档，与 Button 的 .secondary:active 同做法。 */
+.secondary:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
 .danger {
   color: var(--danger);
 }
@@ -66,7 +93,34 @@
   background: var(--danger-muted);
 }
 
+/* danger 的基态是透明、hover 才上 --danger-muted，所以按下不能照抄 Button 那样换成中性的
+   --bg-active——那比 hover 的红调更淡，按下反而像松开了。用本文件 .active:hover 同一套叠加
+   手法：底色守住 --danger-muted，再叠一层 --bg-active 加深，红调不丢且明显比 hover 重。 */
+.danger:active:not(:disabled) {
+  background-color: var(--danger-muted);
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+}
+
+/*
+ * selected（aria-pressed，例如筛选已开启）。DESIGN.md 2.4.1 selected 行的时长列是
+ * --dur-fast：这是「chip / tab 选中」那一类，选中要看得见地落下去，不能像 hover 那样一闪。
+ */
 .active {
   background: var(--accent-muted);
+  color: var(--accent-text);
+  transition-duration: var(--dur-fast);
+}
+
+/*
+ * selected + hover 的叠加（DESIGN.md 2.4.1 叠加规则第 1 条：背景在选中底之上再叠 --bg-hover）。
+ * 必须显式写：上面 .ghost:hover / .secondary:hover 的特异性同为 (0,3,0)，靠源码顺序在后面
+ * 才压得住；不写这条的话 hover 会用 --bg-hover **换掉** accent 选中底，指针一放上去
+ * 「当前已开启」就消失了。--bg-hover 是半透明值，用 background-image 叠一层同色渐变实现，
+ * 底色仍是 --accent-muted，不会把选中底冲掉。
+ */
+.active:hover:not(:disabled),
+.active:active:not(:disabled) {
+  background-color: var(--accent-muted);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
   color: var(--accent-text);
 }

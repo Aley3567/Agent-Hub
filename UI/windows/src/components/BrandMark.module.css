@@ -11,8 +11,8 @@
 }
 
 .sm .wordmark {
-  font-size: var(--fs-14);
-  line-height: var(--lh-14);
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
   font-weight: var(--fw-semibold);
 }
 

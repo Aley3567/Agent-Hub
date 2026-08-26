@@ -5,6 +5,17 @@
   gap: var(--sp-2);
   padding: var(--sp-8) var(--sp-6);
   text-align: center;
+  /*
+   * 空态是「加载完了，但这里确实什么都没有」这一屏的入场，按 2.5 时长语义表归
+   * --dur-normal（面板入场）。它接在 Spinner / 顶部进度线之后出现，硬切会让人以为闪了一下
+   * 错误；淡入 --dur-normal 才读得出「结论出来了」。
+   * 关键帧直接引用 styles/global.css 的 view-enter（2.5 关键帧清单里的 8 个之一），
+   * 不在本文件新写 @keyframes——清单是白名单。位移只有 2px，reduced-motion 下由 global.css
+   * 的通配 animation: none 关掉，关掉后空态仍然完整可见。
+   * 必须写成 global(view-enter)：CSS Modules 会把裸关键帧名哈希成本文件私有名，
+   * 那个名字没有对应的 @keyframes，动画会静默失效（macOS 侧构建产物里实测过一次）。
+   */
+  animation: global(view-enter) var(--dur-normal) var(--ease-out) both;
 }
 
 .icon {

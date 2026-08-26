@@ -2,14 +2,14 @@
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  /* DESIGN.md 第 4.1 节：高 18 */
-  height: 18px;
+  /* DESIGN.md 第 4.1 节：高 20；Windows 按 5 节控件密度行收成 18，数值在 tokens.css */
+  height: var(--badge-h);
   max-width: 100%;
   border-radius: var(--radius-sm);
-  padding: 0 var(--sp-1);
+  padding: 0 var(--sp-2);
   font-family: var(--font-ui);
-  font-size: var(--fs-11);
-  line-height: var(--lh-11);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
   font-weight: var(--fw-medium);
   white-space: nowrap;
   overflow: hidden;

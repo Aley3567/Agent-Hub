@@ -143,7 +143,7 @@ export function BarChart({
           const y = rowIndex * (BAR_HEIGHT + ROW_GAP);
           let offset = 0;
           return (
-            <g key={`${row.label}-${rowIndex}`}>
+            <g key={`${row.label}-${rowIndex}`} className={styles.row}>
               <title>{row.title ?? `${row.label}：${formatValue(row.total)}`}</title>
               <text
                 className={styles.label}
@@ -153,7 +153,8 @@ export function BarChart({
               >
                 {truncateToWidth(row.label, labelWidth, LABEL_SIZE)}
               </text>
-              <rect x={barX} y={y} width={barWidth} height={BAR_HEIGHT} rx="2" fill="var(--bg-inset)" />
+              {/* 底槽的 fill 与 hover 换色都交给 CSS（见 BarChart.module.css 的 .track） */}
+              <rect className={styles.track} x={barX} y={y} width={barWidth} height={BAR_HEIGHT} rx="2" />
               {row.segments.map((value, index) => {
                 if (value <= 0) return null;
                 const segmentWidth = (value / scaleMax) * barWidth;
@@ -184,6 +185,33 @@ export function BarChart({
           );
         })}
       </svg>
+
+      {/* 行明细原先只在 SVG <title> 里，键盘与读屏够不着；补一张视觉隐藏的数据表兜底（DESIGN.md 6 节） */}
+      <table className="sr-only">
+        <caption>{ariaLabel ?? '横向条形图'}：各行明细</caption>
+        <thead>
+          <tr>
+            <th scope="col">项目</th>
+            {Array.from({ length: seriesCount }, (_unused, index) => (
+              <th key={index} scope="col">
+                {seriesLabels[index] ?? `序列 ${index + 1}`}
+              </th>
+            ))}
+            {seriesCount > 1 ? <th scope="col">合计</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {prepared.map((row, rowIndex) => (
+            <tr key={`${row.label}-${rowIndex}`}>
+              <th scope="row">{row.title ?? row.label}</th>
+              {Array.from({ length: seriesCount }, (_unused, index) => (
+                <td key={index}>{formatValue(row.segments[index] ?? 0)}</td>
+              ))}
+              {seriesCount > 1 ? <td>{formatValue(row.total)}</td> : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
