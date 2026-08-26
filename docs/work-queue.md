@@ -246,6 +246,65 @@ git 历史。受影响的 `p0-tasks.md` T0.5、T0.6 已改写为**从代码直�
 
 ---
 
+## S12 · 首字节前断流对客户端静默重放
+
+**状态**：✅ 2026-08-22 仓库实现（`4e48481`）；✅ 2026-08-23 已移植到运行态副本
+`~/.claude/scripts/claude-hub.py`（备份 `claude-hub.py.bak-20260823-073819`，回滚即恢复该文件）。
+运行态副本上 `tests/test_claude_hub.py` + `tests/test_routes.py` 共 256 条通过；
+hub 随 launcher 起，所以只有**新起的会话**吃到修复，已在跑的会话不受影响。
+
+**目的**：让上游网关的 120s **静默期**闸门不再吃掉整个回合。闸门在模型还在排队时触发，
+断点几乎全在真实内容之前——`output_tokens=2` 的空回合占实测 11 次断流中的 6 次。
+
+**根因（S3 诊断的延伸）**：`_forward_to_channel` 过去在读第一个上游 chunk **之前**就
+`await response.prepare(request)`，于是只值 202B 的 `message_start` 就把下游提交掉，
+本来安全可重放的失败被钉成终局。Claude Code 侧无解：流重试上限 `Wr=1` / `Co=2` 硬编码，
+且以「尚未提交」为前提，没有环境变量能改。
+
+**做法**：`_DeferredDownstream`（`claude-hub.py`，紧邻 `_SSETerminalTracker`）把流式响应
+扣在手里，直到 `_SSETerminalTracker.content_started` 证明上游真的在产出
+（`message_start` / `ping` 只算元数据）；`_forward_to_channel` 变成薄重放壳，
+把 `UpstreamStreamReplayable` 重放最多 `STREAM_REPLAY_ATTEMPTS`(2) 次，
+缓冲上限 `STREAM_REPLAY_BUFFER_BYTES`(256 KiB) —— 超限就提交，宁可放弃重放也不丢字节、不无界增长。
+
+**没做伪装**：重放耗尽仍旧 abort 传输；干净 EOF 缺 terminal 事件走原路（那是上游自己的畸形
+答复，重放只会复现），每次失败的尝试照旧各写一行 `phase=stream` 错误账，方便事后数「吃掉了几次」。
+
+**验收合同（已满足）**：`python3 -m unittest discover -s tests -p 'test_*.py'` 805 通过，
+含 3 条新测试——真实 loopback 双连接静默重放、重放预算耗尽后照旧 abort、
+元数据前奏超过缓冲上限即提交；函数长度棘轮双维度不退步（`_forward_to_channel_attempt` 451 < 467）。
+
+**明确不做**：`_handle_transformed_messages`（openai_chat 转译路径）未改；把 `504` 加入
+`ROUTE_FAILOVER_STATUSES` 仍是独立一卡（见 `error-attribution-diagnosis-2026-08-20.md`「未开的卡」）。
+
+---
+
+## S13 · 运行态副本与仓库双向分叉，`install.sh` 当前是破坏性的
+
+**目的**：把 `~/.claude/scripts/claude-hub.py` 上只存在于运行态的功能收回仓库，
+恢复「仓库是唯一真相」，让 `install.sh` 重新可用。
+
+**依据**（2026-08-23 实测）：两边各有对方没有的东西。
+
+| 只在运行态副本 | 只在仓库 |
+| --- | --- |
+| `signature_guard` 渠道开关 + 配置校验 | `_TurnJournal` 单回合日志身份（`40a503f` / `31e99c1`） |
+| `_signature_guard_sanitize_history` + 一次性无 thinking 重放 | |
+| `CLAUDE_HUB_PARENT_WATCH` / `CLAUDE_HUB_PARENT_PID` + `ParentGone` | |
+
+**风险（先读这条）**：`install.sh` 的 `needs_install` 是 `cmp` 后直接覆盖，
+**现在跑它会把运行态的 `signature_guard` 与 parent-watch 抹掉**。对账完成前不要跑。
+
+**做法**：把上表左列逐项搬回仓库并补测试（`signature_guard` 的分支要有真实 400 fixture），
+然后跑一次 `install.sh` 让两边逐字一致。S12 的 stall 重放两边都已有，不必再搬。
+
+**验收合同**：`cmp -s claude-hub.py ~/.claude/scripts/claude-hub.py` 静默通过，
+且 `python3 -m unittest discover -s tests -p 'test_*.py'` 全绿。
+
+**明确不做**：反向覆盖——把仓库版直接装过去等于删功能。
+
+---
+
 ## S11 · 修掉假 1M 模型槽位
 
 **状态**：【待建】。2026-08-20 `claude1 doctor --probe` 体检发现、按指派只报告未修
@@ -267,7 +326,8 @@ host-managed 场景删除该键）；启动路径发探测请求。
 
 ## S14 · Agent-Hub：Rust 管理面（TUI + CLI + 编排式对话）
 
-**状态**：M1 代码完成，待提交后继续 M2。2026-08-24 决策树 Q1–Q11 已定稿（`agent-hub-design.md`），
+**状态**：✅ M1 代码 checkpoint（`0841520`）；继续 M2 前仍需手动打开真实 TUI 列表验收。
+2026-08-24 决策树 Q1–Q11 已定稿（`agent-hub-design.md`），
 四路调研完成（cc-switch-cli / All API Hub / ai-switch 家族 / T3 Code），
 参考实现已浅克隆至 `~/Documents/Codex/2026-06-07/cc-switch-cli`。
 
@@ -285,3 +345,140 @@ key 材料；裸命令 TUI 列表可 j/k 导航、q 退出；`python3 -m unittes
 
 **明确不做**：写路径（切换/快照/回滚）是 M2；MCP/prompts 后置（Q10）；
 proxy/daemon/webdav 不抄（Python hub 已有协议层）；GUI 不动（M5 才接 `UI/`）。
+
+## S15 · gateway transform 路径的三个语义缺口
+
+**状态**：【实验实现，未形成仓库 checkpoint】。2026-08-25 在尚未跟踪的 `gateway/`
+实验目录中处理了两条真实故障，剩余三条仍未闭环；在该目录的产品归属、测试与提交边界
+明确前，不把它们记作主线已修。来源：审查 session `83d64860` 的 M2 落地成果，从
+`.workbuddy-ai/memory/`（已删除的临时 workspace）打捞。
+
+**实验目录中已实现（2026-08-25，未提交）**：
+- `instructions` 曾把 Anthropic 的 `system` 数组原样转发，上游报
+  `instructions: invalid type: sequence, expected a string`（真实上游控制台错误）。
+  实验实现由 `flattenSystemToInstructions` 拼成单字符串。
+- `tool_use` / `tool_result` 曾被静默 drop 后照发 `end_turn` + `message_stop`，
+  违反 CLAUDE.md「工具调用丢了不伪装 completed」。现返回 400 显式拒绝
+  （`unsupportedBlockError`）；实验实现对 `image` 等有损块放行并记
+  `HUB_DEGRADE_TRANSFORM_BLOCK_DROPPED`。
+
+**目的**：把上面那个 400 拒绝换成真支持，并补齐 thinking 保真。当前状态是"诚实但不可用"
+——真实 Claude Code 首个请求即带 tools 并进入 tool_use 循环，所以 transform 模式
+目前对 Claude Code 客户端实际不可用，只能跑无工具单轮。
+
+**锚点与依据**：
+- tools 定义已在转发（`internal/proxy/proxy.go` 的 `anthropicTool`），但
+  `internal/adapter/openairesponses/` 里 `grep 'tool\|function'` 零命中 ——
+  上游回工具调用网关不认。双向都缺。
+- signature 链条是断的：adapter 里 `grep signature` 零命中，而
+  `internal/renderer/anthropic/anthropic.go` 有 `signature_delta` 输出能力 →
+  transform 路径产出的 thinking block 永远无 signature → 多轮回传 thinking 时上游 400。
+- renderer 有 10+ 处 `json.Marshal`，所以 canonical 三层必然 re-serialize；
+  thinking/signature 要走字节保真通道而不是经过 canonical 结构体
+  （对照 CLIProxyAPI #2172）。
+
+**验收合同**：transform 模式下真实 Claude Code（干净环境、不设 `HTTP_PROXY`）能完成
+一次带工具调用的多轮任务；thinking 回传不触发 400；`go test ./...` 不退步。
+
+**明确不做**：Chat Completions adapter（M3 另立）；非流式 buffering。
+
+## S16 · 19 条渠道盘点：10 条静默失效，全是小修复
+
+**状态**：【待建】。分类结果出自 session `83d64860` 的实测，**本卡未复跑**，执行前先重验。
+
+**目的**：可用容量被系统性高估。实测 19 条渠道 = 7 健康 / 10 失效 / 2 待确认，
+10 条失效原因各不相同且全部是小修复能救的（欠费充值、`base_url` 改一行、换 key、改 filter）。
+修渠道的成本远低于把 gateway 做成完整协议转换网关，收益是立即拿回容量。
+
+**结构性发现**：一个私有上游域名下挂 5 条 provider 记录（两组 alias），是同一故障域被
+计成 5 条独立渠道 —— 所以"渠道多所以总有能用的"这个直觉不成立。真实名称只保留在
+CC Switch 私有数据与本机诊断记录中，不进入仓库。
+
+**两条判据纪律**（本轮审查确认，重验时必须遵守）：
+- 协议缺陷是 **(渠道 × 模型) 二维**的，不是渠道单维属性；按渠道整体判好坏会同时误杀
+  可用组合、漏掉坏组合。
+- 健康检查**必须看 `Content-Type`**：阿里云 WAF 挑战页返回 HTTP 200 + `text/html`，
+  只看状态码的探测会把被拦渠道报成健康。
+
+**验收合同**：产出一张 (渠道 × 模型) 矩阵，每格标状态 + 判据来源；10 条失效逐条给出
+修复动作与成本；同故障域合并计数后给出真实可用容量数。
+
+**明确不做**：不在本卡里改 gateway 代码；不碰凭证明文（只读 cc-switch DB，输出永不含 key）。
+
+## S17 · 渠道无 transport 配置时默认直连导致上游 451（应默认感知代理）
+
+**状态**：【代码完成，运行态未验证】（`7818ae2`）。2026-08-25 实测定位；2026-08-26
+完成修复与自动化验证。GitHub issue: Aley3567/Agent-Hub#117。
+
+**目的**：用户开着本地代理，新增一个未配置 transport 的渠道后，claude1 每个请求都被
+其上游以 451「当前网络请求已被拒绝」拒绝。原因不是上游坏，而是两个缺省
+行为叠加：launcher 会为没配 transport 的渠道把 API host 塞进 `NO_PROXY`；当前隔离 Hub
+虽然仍能从系统配置发现 direct + proxy 候选，却只在直连返回 403 时换 transport，451 会被
+立即提交给客户端。设计缺陷：自动路由既残留了强制直连改写，也漏掉了明确的网络策略拒绝，
+最终还裸抛 451，没有任何「可能需要代理」的提示。
+
+**依据**：
+- 实测证据链：直连受影响上游返回 451 HTML 拒绝页；走本地代理时，同一请求对两个模型
+  都返回 200，且 stream+tools 完整请求通过。真实渠道、域名、模型与代理地址只保留在
+  CC Switch 私有数据和本机错误日志中，不进入仓库。
+- 对照成功渠道显式配置了 `settings_config.transport = {"mode": "proxy", "proxies": [...]}`。
+- 代码锚点：`claude-provider-once.py` transport 解析（无 `transport` → `auto`）与
+  `build_settings()` 的 `NO_PROXY` 注入；`claude-hub.py::_post_with_account_failover()` 原本只对
+  403 设置 `retry_response`。2026-08-26 在桥进程等价的干净环境中解析真实 endpoint，候选为
+  `[direct, proxy:<local-proxy>]`，证明当前 451 实况的直接阻断点是重试分类，不是候选发现。
+
+**做法**（择一或组合，先出最小改法）：
+1. 无 `transport` 配置时不再把 host 塞进 `NO_PROXY`，让系统代理（`HTTP(S)_PROXY`）自然生效；
+   `auto` 模式保持 direct + proxy 双候选。
+2. 或提供全局默认 transport（如 `CLAUDE1_TRANSPORT_PROXY`），渠道无配置时继承。
+3. 直连被 451 / 网络层拒绝时，错误层给出可操作提示：「该渠道可能需要代理，请在渠道配置
+   transport」，不伪装成功。
+
+**验收合同**：新渠道（无 transport 配置）在开着本地代理的环境下请求受影响上游不再 451；
+错误日志对「可能需要代理」的渠道给出可操作提示；`python3 -m unittest discover -s tests -p 'test_*.py'`
+全绿，新增针对 transport 缺省行为的测试。
+
+**明确不做**：不改受影响上游的行为；不给所有渠道强制走代理（部分渠道必须直连）；
+不在本卡动协议层。
+
+**实现记录（2026-08-26）**：缺省/auto 渠道不再由 launcher 把 API host 注入
+`NO_PROXY`，显式 `direct` 仍隔离系统代理；Hub 将上游 `451` 与 `403` 同样视为可安全换
+transport 的明确拒绝，在同账号内先尝试下一个候选。所有候选最终仍返回 `451` 时，客户端
+错误与持久错误日志附带 transport 配置提示。新增缺省 `NO_PROXY`、显式 direct、
+direct-451→proxy-200、最终 451 提示四组回归测试；全套 820 项测试通过。尚未发送真实凭证
+请求，受影响上游的真实 Claude Code 会话验收保留。
+
+## S18 · openai_responses 转换对上游新形态 fail-closed 成 502「incompatible response」
+
+**状态**：【待建】。2026-08-25 实测定位，连续 8+ 次实况。 GitHub issue: Aley3567/Agent-Hub#118。
+
+**目的**：`502 hub: channel 'direct' returned an incompatible openai_responses response`
+长期反复出现，客户端只看到误导性文案无法自救。根因是 openai_responses 输出转换层对
+上游新字段/新形态系统性 fail-closed：今天 17:31 起连续 8+ 次
+`code=HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED` 卡在 `$.output[0].phase`，每次先等 4–24s
+才整单 502。违反 CLAUDE.md「默认放行，例外才拒」总原则——不认识的 output block/phase
+应走 `HUB_DEGRADE_*` 有损放行，而不是把整个渠道打成不可用。
+
+**依据**：
+- 错误模板：`claude-hub.py:3378` 把 `ProtocolTransformError` 统一转 502 +
+  `hub: channel '{alias}' returned an incompatible {api_format} response`，丢弃 code/path。
+- 拒绝点：`claude1_protocol.py` 中 `HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED` 共 15+ 处，
+  覆盖多种上游 output block 形态（含 `$.output[0].phase` 等）。
+- 实况：`~/.cc-switch/logs/claude-hub-errors.jsonl` 2026-08-25 17:31+ 连续 8 条
+  `format=openai_responses` + `status=502`，`model=deepseek-v4-flash`，`channel=direct`，
+  `ms=4.3–23.9s`。
+- 长期性：openai_chat 路径同类（2026-08-23 grok-4.5 `HUB_UPSTREAM_USAGE_INVALID
+  $.usage.total_tokens`）——转换层对上游新形态是系统性 fail-closed，不是单个模型问题。
+
+**做法**（先出最小改法）：
+1. openai_responses 输出转换按「能无损转就转 / 有损放行记 HUB_DEGRADE_* / 只有安全因果才拒」
+   三档重审全部 `HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED` 拒绝点；未知 phase/block 形态
+   放行并记录降级码。
+2. 必须拒的场景，客户端错误文案带上 `code@path`（如
+   `HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED@$.output[0].phase`），不伪装成笼统 incompatible。
+
+**验收合同**：`deepseek-v4-flash`（openai_responses 直连）在真实会话中不再整单 502；
+不认识的 output 形态在 errors/usage 里留下 `HUB_DEGRADE_*` 痕迹且响应可用；
+`python3 -m unittest discover -s tests -p 'test_*.py'` 全绿，新增未知 phase/block 放行测试。
+
+**明确不做**：不改上游（OpenAI Responses spec 方言归上游）；不在本卡动凭证与鉴权。

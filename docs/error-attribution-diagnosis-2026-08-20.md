@@ -139,6 +139,10 @@ degrade"那一档。同一个 hub 里 `openai_chat` 的顶层未知元数据**�
 `response.prepare(request)` 之前,下游尚未提交任何字节,请求体可安全重放,与现有 401/403/429
 的理由一致。但代价是失败请求再烧一次 120s,属"写重试",需单独决策,本次未做。
 
+> 2026-08-22 补记:同一条推理的**流式**那半边已落地——首字节前断流对客户端静默重放
+> (`work-queue.md` S12)。它只覆盖 200 后断流、下游未提交的情形,**不含 504**:504 是已提交的
+> HTTP 响应,仍需上面这张独立的卡。
+
 把响应输出块的未知字段一并降级放行。`a9e8ae3` 只把 `_response_function_call_item`(流式
 function_call)一处改成了记 `HUB_DEGRADE_UPSTREAM_TOOL_CALL_METADATA_DROPPED` 后放行,
 `_require_upstream_field_allowlist` 余下 13 处仍以 `HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED`

@@ -157,16 +157,18 @@ HTTP / HTTPS CONNECT；SOCKS 在有真实的第二个 adapter 之前不伪装支
 | 已发 body 后断线，无响应 | 否 | 否 | 否 | 提交状态不明，避免重复扣费/工具执行 |
 | `401` | 否 | 是 | 只限显式 route group | 通常是凭证拒绝 |
 | 上游 `403` | `auto` 中每个 transport 最多一次 | 所有 transport 都拒绝后 | 只限显式 route group | 显式拒绝未生成内容；先排除 IP / WAF / 地域路由 |
+| 上游 `451` | `auto` 中每个 transport 最多一次 | 否 | 否 | 明确的网络策略/地域拒绝；换 IP 路径但不换凭证或模型 |
 | `429` | 否 | 是 | 只限显式 route group | 遵守 `Retry-After` |
 | `5xx` | 否 | 否 | 默认否 | 上游可能已执行请求 |
+| 上游断流，下游尚未提交 | 否 | 由账号池重新调度 | 否 | 客户端一个字节都没看到；同一 target 原样重放，上限 `STREAM_REPLAY_ATTEMPTS` |
 | 已开始向 Claude 响应 | 否 | 否 | 否 | downstream 已 commit |
 | 本地账号池 pre-commit 拒绝 | 不适用 | 不适用 | 只限显式 route group | 未发任何 upstream 字节；cooldown 映射 `429` 并透传剩余冷却为 `Retry-After`，全员 disabled 映射 `503` |
 
 实现不能只根据异常类名猜测提交状态。生产 adapter 必须把请求阶段
 显式报告为 `not_connected` / `connected_not_sent` / `sent_uncommitted` /
 `response_started`。只有前两个阶段允许无条件切换 transport。
-`403` 是单独的显式拒绝例外：同一 provider / account 可在其他 transport
-上各尝试一次，但不对同一 transport 循环重试。
+`403` / `451` 是单独的显式拒绝例外：同一 provider / account 可在其他 transport
+上各尝试一次，但不对同一 transport 循环重试；只有 `403` 会继续进入账号池或显式 route。
 
 route group 内全部 target 都以上述安全错误耗尽时，最终响应取最后一个
 target 的错误（last-error-wins）：若最后一个 target 是 `401`，即使之前
@@ -274,9 +276,12 @@ Hub 私有日志。
 
 - DNS / TCP / CONNECT / TLS 失败：下一 transport 只尝试一次。
 - body 已发出后 reset：不重试。
-- 上游首个 SSE 事件后断线：不重试。
+- 上游只发过元数据事件(`message_start` / `ping`)就断线：下游还没 commit，
+  同一 target 原样重放，上限 `STREAM_REPLAY_ATTEMPTS`；断流不惩罚账号（只有 401/403/429 才 `report`）。
+- 上游发出真实内容事件后断线：不重试，中止下游传输。
 - `401`：保留现有账号池行为。
 - `403`：同一 account 先遍历 transport 候选，全部拒绝后才报告账号池。
+- `451`：同一 account 先遍历 transport 候选；最终仍拒绝时提示配置 transport，不换账号或 provider。
 - `429`：保留现有账号池行为，默认不通过更换 IP 绕过限流。
 - `5xx`：默认不重试。
 - 已失败 transport 在 cooldown 内被跳过，到期后只允许一个半开探测。
@@ -303,7 +308,7 @@ Hub 私有日志。
 
 ### 阶段 B：Hub `UpstreamExecutor`
 
-状态：已实现。连接/DNS/代理失败只在取得响应前切换 transport；403 在同一
+状态：已实现。连接/DNS/代理失败只在取得响应前切换 transport；403/451 在同一
 账号内先遍历 transport，401/429 保留账号池语义；已开始的响应不重放。
 
 - 用可编程 adapter 先写失败阶段与重试测试。
