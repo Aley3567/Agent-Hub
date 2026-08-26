@@ -22,8 +22,8 @@
 
 测试只从下列稳定公开边界观察协议行为：
 
-1. 请求：`prepare_request` / `transform_request`；
-2. 非流响应：`prepare_response` / `transform_response`；
+1. 请求：`prepare_request`；
+2. 非流响应：`prepare_response`；
 3. 流响应：`AnthropicStreamBridge` / `translate_sse_chunks`；
 4. Hub HTTP：`POST /v1/messages` 与 `POST /v1/messages/count_tokens`。
 

@@ -6117,6 +6117,8 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertIn(b"text_delta", rendered)
         self.assertIn(b"event: error", rendered)
         self.assertIn(b"mid-response", rendered)
+        # 措辞按失败事实生成:timeout 路径不得谎称 clean EOF。
+        self.assertIn(b"upstream read stalled", rendered)
         self.assertTrue(downstream.eof)
         self.assertFalse(request.transport.aborted)
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
@@ -8393,6 +8395,7 @@ class ClaudeHubTests(unittest.TestCase):
                 self.assertIn(b"event: error\n", body)
                 self.assertIn(b'"type":"api_error"', body)
                 self.assertIn(b"mid-response", body)
+                self.assertIn(b"clean EOF", body)
                 self.assertIn(b"without message_stop or error", body)
             finally:
                 if client is not None:

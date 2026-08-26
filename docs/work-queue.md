@@ -526,3 +526,30 @@ thinking_delta、正文零字节 → 客户端 Ctrl+O 可见思维链但回复�
 （openai_chat 同类截断另行开卡）；不换 h2 客户端（实测该网关 h2 在 ~64KB 处截断，
 aiohttp h1.1 不受影响）。
 - 2026-08-26 UI 契约扩展 chat/plugins/tasks 三视图，实施中。
+
+## S20 · 下游失活被误判为上游中断：死客户端触发全量重放与错误归因
+
+**状态**：【待建】。2026-08-26 code-review（3a4d81f/4662665 审查）发现。问题预先存在，
+卡 3 的收口触及并重新验证了该分支；结构已核实（异常链与分类条件逐行读过），未做运行态复现。
+
+**问题**：客户端在下游尚未启动时断连（典型：思考扣留窗内客户端离开），首次真实内容
+flush 调用 `downstream.open()` → `response.prepare()` 抛 `ClientError/OSError`。该异常被
+`_forward_to_channel_attempt` 流循环的广义 except 捕获，与上游传输中断走同一入口
+`_resolve_broken_native_stream`；其中「not downstream.started + TRANSPORT_BROKEN_ERRORS」
+的分类使其被当成上游在正文开始前停滞 → 完整请求按 `STREAM_REPLAY_ATTEMPTS`(=2) 重放，
+但客户端已死，重放必然再失败并以 504/bare abort 收场；每条 journal 把失败归因于
+渠道/账户（upstream broke）而非丢失的客户端。
+
+**对照**：`_write_truncated_native_terminal` 已显式区分下游写失败（abort transport +
+`UpstreamStreamAborted("downstream closed while reporting ...")`）；缺口只在
+`_resolve_broken_native_stream` 的分类条件没有同等的下游来源判定。
+
+**修法方向**：分类前先区分异常来源——把 `_DeferredDownstream.open()/write()` 内的下游侧
+连接失败转成带标记的专用异常（或等价机制），使 `_resolve_broken_native_stream`
+直接 raise `UpstreamStreamAborted` 并让 journal 记可辨识的归因，不进入重放臂。
+
+**验收合同**：新增测试——客户端首字前断开（模拟下游 open 抛 ClientError）：上游
+session.calls == 1（不重放）、journal 行可辨识为下游失活、无重试延迟；全套测试保持绿。
+
+**明确不做**：不改上游传输类异常的重放语义；不动 thinking-hold 扣留窗口；
+不为下游失活造新的用户可见响应（客户端已不在）。

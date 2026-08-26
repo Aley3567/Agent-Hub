@@ -159,6 +159,10 @@ THINKING_HOLD_MAX_SECONDS = 45.0
 # client session is built): the read watchdog inside _DeferredDownstream tells
 # its hold trip apart from a real read timeout by wall clock alone.
 HUB_DEGRADE_STREAM_REPLAYED = "HUB_DEGRADE_STREAM_REPLAYED"
+# Transport failures that mean "the connection broke" rather than "the upstream
+# answered wrong". One shared tuple so a new retryable transport class extends
+# every classification site at once (except clauses and replay eligibility).
+TRANSPORT_BROKEN_ERRORS = (aiohttp.ClientError, asyncio.TimeoutError, OSError)
 
 HOP_BY_HOP = {
     "host",
@@ -1470,7 +1474,7 @@ def translated_stream_error_evidence(
         )
     elif isinstance(
         exc,
-        (aiohttp.ClientError, asyncio.TimeoutError, OSError),
+        TRANSPORT_BROKEN_ERRORS,
     ):
         code = "HUB_UPSTREAM_STREAM_INTERRUPTED"
         location = ""
@@ -3494,7 +3498,7 @@ async def _handle_transformed_messages(
             f"hub: channel '{alias}' returned an incompatible {api_format} response",
             "api_error",
         )
-    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+    except TRANSPORT_BROKEN_ERRORS as exc:
         log(
             f"{request.path} '{model_in}' -> {alias}/{model_out} "
             f"{api_format} CONNECT FAIL: {type(exc).__name__}"
@@ -3671,6 +3675,16 @@ class _TurnJournal(NamedTuple):
     instance_id: str | None
     started: float
     degrade_codes: tuple[str, ...]
+
+    def marked_replayed(self) -> "_TurnJournal":
+        """Return a copy whose rows carry the invisible-replay marker.
+
+        The journal row must say this attempt was invisibly replayed, not
+        silently eaten -- the one marker shared by every replay arm.
+        """
+        return self._replace(
+            degrade_codes=self.degrade_codes + (HUB_DEGRADE_STREAM_REPLAYED,)
+        )
 
     def error(self, *, phase: str, account_id: str | None, **fields) -> None:
         """Append one error row, filling in this turn's identity."""
@@ -3937,9 +3951,7 @@ def _journal_broken_native_stream(
     if replayed:
         # Same marker as the clean-EOF replay arm: the journal row must say
         # this attempt was invisibly replayed, not silently eaten.
-        journal = journal._replace(
-            degrade_codes=journal.degrade_codes + (HUB_DEGRADE_STREAM_REPLAYED,)
-        )
+        journal = journal.marked_replayed()
     journal.error(
         phase="stream",
         account_id=account_id,
@@ -3971,9 +3983,7 @@ async def _resolve_incomplete_native_sse(
         # family, 2026-08-26) shows these clean-EOF kills are
         # intermittent, not deterministic, so the old "replay would just
         # repeat it" reasoning does not hold in this phase.
-        journal._replace(
-            degrade_codes=journal.degrade_codes + (HUB_DEGRADE_STREAM_REPLAYED,)
-        ).error(
+        journal.marked_replayed().error(
             phase="stream",
             account_id=journal_account,
             exc_type="IncompleteSSE",
@@ -4077,7 +4087,7 @@ async def _resolve_broken_native_stream(
     raises (replayable/aborted) or returns the ended response.
     """
     transport_will_be_replayed = not downstream.started and isinstance(
-        exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
+        exc, TRANSPORT_BROKEN_ERRORS
     )
     _journal_broken_native_stream(
         journal,
@@ -4558,7 +4568,7 @@ async def _forward_to_channel_attempt(
             ) from exc
         log(f"{log_prefix} ACCOUNT POOL FAIL: {type(exc).__name__}: {exc}")
         return _account_pool_error(exc)
-    except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+    except TRANSPORT_BROKEN_ERRORS as exc:
         log(f"{log_prefix} CONNECT FAIL: {type(exc).__name__}")
         journal.error(
             phase="response",
@@ -5033,7 +5043,7 @@ async def cli_check(target: str | None) -> None:
                     alias,
                     f"✗ {response.status} {duration:.1f}s ({model}) {body}",
                 )
-        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+        except TRANSPORT_BROKEN_ERRORS as exc:
             return alias, f"✗ {type(exc).__name__}: {exc}"
 
     async with aiohttp.ClientSession(connector=_upstream_connector()) as session:
