@@ -29,6 +29,7 @@ class StoreCapability(str, Enum):
     """Read-only result of probing a provider store."""
 
     ABSENT = "absent"
+    UNAVAILABLE = "unavailable"
     READ_ONLY = "read_only"
     COMPATIBLE = "compatible"
     INCOMPATIBLE = "incompatible"

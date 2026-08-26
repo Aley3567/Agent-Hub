@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -103,7 +104,82 @@ class SwitchctlTests(unittest.TestCase):
         self.assertEqual(code, switchctl.EXIT_OK)
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["data"]["capability"], "compatible")
+        data = payload["data"]
+        self.assertEqual(data["capability"], "compatible")
+        self.assertTrue(data["available"])
+        self.assertEqual(data["mode"], "companion")
+        self.assertIsInstance(data["hint"], str)
+        self.assertNotEqual(data["hint"], "")
+
+    def test_detect_unavailable_is_distinguishable_from_absent(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        os.chmod(self.db_path, 0o000)
+        try:
+            locked_service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            code = switchctl.main(["detect"], service=locked_service, stdout=stdout, stderr=stderr)
+            self.assertEqual(code, switchctl.EXIT_OK)
+            unavailable_payload = json.loads(stdout.getvalue())
+        finally:
+            os.chmod(self.db_path, 0o600)
+
+        absent_service = ProviderApplicationService(
+            CCSwitchProviderStore(Path(self.temp_dir.name) / "absent.db")
+        )
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["detect"], service=absent_service, stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_OK)
+        absent_payload = json.loads(stdout.getvalue())
+
+        self.assertEqual(unavailable_payload["data"]["capability"], "unavailable")
+        self.assertFalse(unavailable_payload["data"]["available"])
+        self.assertIsNone(unavailable_payload["data"]["mode"])
+        self.assertEqual(absent_payload["data"]["capability"], "absent")
+        self.assertIsNotNone(absent_payload["data"]["mode"])
+        self.assertNotEqual(unavailable_payload["data"], absent_payload["data"])
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "requires non-root")
+    def test_mode_fails_closed_when_store_unavailable(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        os.chmod(self.db_path, 0o000)
+        try:
+            service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            code = switchctl.main(["mode"], service=service, stdout=stdout, stderr=stderr)
+        finally:
+            os.chmod(self.db_path, 0o600)
+        self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "store_unavailable")
+
+    def test_runtime_error_envelope_does_not_leak_exception_text(self) -> None:
+        class _ExplodingStore:
+            def detect(self) -> StoreCapability:
+                raise RuntimeError("probe failed at /Users/admin/secrets/cc-switch.db")
+
+            def list(self):
+                raise RuntimeError("unused")
+
+            def inspect(self, reference):
+                raise RuntimeError("unused")
+
+        service = ProviderApplicationService(_ExplodingStore())
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["detect"], service=service, stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
+        output_raw = stdout.getvalue()
+        payload = json.loads(output_raw)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "runtime_error")
+        self.assertEqual(payload["error"]["message"], "detect failed: RuntimeError")
+        self.assertNotIn("/", output_raw)
+        self.assertNotIn(".db", output_raw)
+        self.assertNotIn("secrets", output_raw)
 
     def test_list_command_and_security_redaction(self) -> None:
         _init_test_db(self.db_path, version=16)

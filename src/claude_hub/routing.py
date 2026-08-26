@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .domain import RuntimeMode, StoreCapability
+from .store import ProviderStoreUnavailableError
 
 
 class FirstScreen(str, Enum):
@@ -49,6 +50,14 @@ def resolve_runtime_mode(
         StoreCapability.CORRUPT,
     }:
         return RuntimeMode.INCOMPATIBLE
+    if cc_switch_capability is StoreCapability.UNAVAILABLE:
+        # The store exists but its state cannot be proven (locked, permission
+        # denied). Guessing a mode here would silently reroute startup, so
+        # fail closed with an actionable error instead.
+        raise ProviderStoreUnavailableError(
+            "CC Switch availability could not be determined; "
+            "resolve access to the database or choose --store standalone"
+        )
     return RuntimeMode.STANDALONE if standalone_exists else RuntimeMode.EMPTY
 
 

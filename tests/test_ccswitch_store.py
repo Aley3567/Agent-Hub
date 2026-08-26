@@ -147,12 +147,46 @@ class CCSwitchStoreTests(unittest.TestCase):
         store = CCSwitchProviderStore(self.db_path)
         self.assertEqual(store.detect(), StoreCapability.INCOMPATIBLE)
 
-    def test_detect_operational_error_returns_absent_not_corrupt(self) -> None:
+    def test_detect_operational_error_returns_unavailable_not_corrupt(self) -> None:
         _init_test_db(self.db_path, version=16)
         store = CCSwitchProviderStore(self.db_path)
         with patch("claude_hub.ccswitch._readonly_connection", side_effect=sqlite3.OperationalError("database is locked")):
-            # Lock contention must NOT report CORRUPT
-            self.assertEqual(store.detect(), StoreCapability.ABSENT)
+            # Lock contention must NOT report CORRUPT or ABSENT
+            self.assertEqual(store.detect(), StoreCapability.UNAVAILABLE)
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "requires non-root")
+    def test_detect_locked_database_is_unavailable(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        holder = sqlite3.connect(self.db_path)
+        try:
+            holder.execute("BEGIN EXCLUSIVE")
+            store = CCSwitchProviderStore(self.db_path)
+            self.assertEqual(store.detect(), StoreCapability.UNAVAILABLE)
+            with self.assertRaises(ProviderStoreUnavailableError):
+                store.list()
+        finally:
+            holder.rollback()
+            holder.close()
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "requires non-root")
+    def test_detect_permission_denied_file_is_unavailable(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        os.chmod(self.db_path, 0o000)
+        try:
+            store = CCSwitchProviderStore(self.db_path)
+            self.assertEqual(store.detect(), StoreCapability.UNAVAILABLE)
+        finally:
+            os.chmod(self.db_path, 0o600)
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "requires non-root")
+    def test_detect_permission_denied_parent_dir_is_unavailable(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        os.chmod(self.temp_dir.name, 0o600)
+        try:
+            store = CCSwitchProviderStore(self.db_path)
+            self.assertEqual(store.detect(), StoreCapability.UNAVAILABLE)
+        finally:
+            os.chmod(self.temp_dir.name, 0o700)
 
     def test_list_operational_error_raises_unavailable_not_corrupt(self) -> None:
         _init_test_db(self.db_path, version=16)

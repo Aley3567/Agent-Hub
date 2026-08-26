@@ -15,6 +15,7 @@ from claude_hub.routing import (
     resolve_runtime_mode,
     resolve_startup_route,
 )
+from claude_hub.store import ProviderStoreUnavailableError
 
 
 class ModeRoutingTests(unittest.TestCase):
@@ -73,6 +74,24 @@ class ModeRoutingTests(unittest.TestCase):
                 standalone_exists=False,
                 store_override="invalid-override",
             )
+
+    def test_unavailable_store_fails_closed(self) -> None:
+        with self.assertRaises(ProviderStoreUnavailableError):
+            resolve_runtime_mode(StoreCapability.UNAVAILABLE, standalone_exists=False)
+        with self.assertRaises(ProviderStoreUnavailableError):
+            resolve_runtime_mode(StoreCapability.UNAVAILABLE, standalone_exists=True)
+        with self.assertRaises(ProviderStoreUnavailableError):
+            resolve_startup_route(StoreCapability.UNAVAILABLE, standalone_exists=False)
+
+    def test_explicit_standalone_override_beats_unavailable_probe(self) -> None:
+        self.assertEqual(
+            resolve_runtime_mode(
+                StoreCapability.UNAVAILABLE,
+                standalone_exists=True,
+                store_override="standalone",
+            ),
+            RuntimeMode.STANDALONE,
+        )
 
     def test_first_screen_mapping(self) -> None:
         self.assertEqual(

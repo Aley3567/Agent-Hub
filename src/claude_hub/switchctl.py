@@ -52,6 +52,28 @@ EXIT_OK = 0
 EXIT_RUNTIME_ERROR = 1
 EXIT_USAGE = 2
 
+_DETECT_HINTS: dict[StoreCapability, str] = {
+    StoreCapability.COMPATIBLE: (
+        "CC Switch database is readable; companion provider commands are available."
+    ),
+    StoreCapability.READ_ONLY: (
+        "CC Switch schema supports read-only access; write features need a newer schema."
+    ),
+    StoreCapability.ABSENT: (
+        "CC Switch database not found; install CC Switch or run standalone quick setup."
+    ),
+    StoreCapability.UNAVAILABLE: (
+        "CC Switch database exists but cannot be probed; "
+        "check file permissions or close the process locking it, then retry."
+    ),
+    StoreCapability.INCOMPATIBLE: (
+        "CC Switch schema version is unsupported; update CC Switch to a supported version."
+    ),
+    StoreCapability.CORRUPT: (
+        "CC Switch database is corrupt; repair or restore it before use."
+    ),
+}
+
 _USAGE = "switchctl detect"
 _HELP_USAGE = (
     _USAGE,
@@ -339,7 +361,20 @@ def main(
 
         if command == "detect":
             capability = application.detect()
-            data: dict[str, object] = {"capability": capability.value}
+            has_standalone = standalone_exists or prof_store.has_profiles()
+            try:
+                route = application.resolve_startup(
+                    standalone_exists=has_standalone,
+                )
+                resolved_mode: str | None = route.mode.value
+            except ProviderStoreUnavailableError:
+                resolved_mode = None
+            data: dict[str, object] = {
+                "capability": capability.value,
+                "available": capability.can_read,
+                "mode": resolved_mode,
+                "hint": _DETECT_HINTS.get(capability, "No guidance available."),
+            }
         elif command == "list":
             providers: list[dict[str, object]] = []
             for reference in application.list():
@@ -490,7 +525,9 @@ def main(
             output,
             diagnostics,
             code="runtime_error",
-            message=f"{command} failed: {exc}",
+            # Exception text may embed filesystem paths or private values;
+            # only the exception class name is safe to expose.
+            message=f"{command} failed: {type(exc).__name__}",
         )
         return EXIT_RUNTIME_ERROR
 

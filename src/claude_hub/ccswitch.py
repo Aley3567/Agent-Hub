@@ -104,14 +104,19 @@ class CCSwitchProviderStore:
     def detect(self) -> StoreCapability:
         """Probe CC Switch file existence and schema capability."""
         path = self.database_path
-        if not path.is_file():
-            return StoreCapability.ABSENT
+        try:
+            if not path.is_file():
+                return StoreCapability.ABSENT
+        except OSError:
+            # Existence itself cannot be proven (e.g. permission denied):
+            # report unprobeable instead of absent.
+            return StoreCapability.UNAVAILABLE
 
         try:
             if path.stat().st_size == 0:
                 return StoreCapability.CORRUPT
         except OSError:
-            return StoreCapability.ABSENT
+            return StoreCapability.UNAVAILABLE
 
         try:
             with _readonly_connection(path) as conn:
@@ -141,21 +146,26 @@ class CCSwitchProviderStore:
                     return StoreCapability.COMPATIBLE
                 return StoreCapability.READ_ONLY
         except sqlite3.OperationalError:
-            # Operational errors (e.g. database locked, unable to open) mean unavailable, not corrupt
-            return StoreCapability.ABSENT
+            # Locked or otherwise unopenable: the store exists but cannot be
+            # probed. Reporting absent would silently reroute startup modes.
+            return StoreCapability.UNAVAILABLE
         except sqlite3.DatabaseError:
             # Format/structural errors mean corrupt
             return StoreCapability.CORRUPT
         except OSError:
-            return StoreCapability.ABSENT
+            return StoreCapability.UNAVAILABLE
 
-    def list(self) -> tuple[ProviderRef, ...]:
-        """Return stable provider references from CC Switch."""
+    def _require_readable(self) -> StoreCapability:
         capability = self.detect()
         if not capability.can_read:
             if capability is StoreCapability.ABSENT:
                 raise ProviderStoreUnavailableError(
-                    f"CC Switch database not found or unavailable at {self.database_path}"
+                    f"CC Switch database not found at {self.database_path}"
+                )
+            if capability is StoreCapability.UNAVAILABLE:
+                raise ProviderStoreUnavailableError(
+                    "CC Switch database exists but cannot be probed "
+                    "(locked or permission denied)"
                 )
             if capability is StoreCapability.CORRUPT:
                 raise ProviderConfigCorruptError(
@@ -164,6 +174,11 @@ class CCSwitchProviderStore:
             raise ProviderStoreIncompatibleError(
                 f"CC Switch database at {self.database_path} has incompatible schema"
             )
+        return capability
+
+    def list(self) -> tuple[ProviderRef, ...]:
+        """Return stable provider references from CC Switch."""
+        self._require_readable()
 
         path = self.database_path
         try:
@@ -208,19 +223,7 @@ class CCSwitchProviderStore:
                 f"Store {reference.store!r} is not {CC_SWITCH_STORE_ID!r}"
             )
 
-        capability = self.detect()
-        if not capability.can_read:
-            if capability is StoreCapability.ABSENT:
-                raise ProviderStoreUnavailableError(
-                    f"CC Switch database not found or unavailable at {self.database_path}"
-                )
-            if capability is StoreCapability.CORRUPT:
-                raise ProviderConfigCorruptError(
-                    f"CC Switch database at {self.database_path} is corrupt"
-                )
-            raise ProviderStoreIncompatibleError(
-                f"CC Switch database at {self.database_path} has incompatible schema"
-            )
+        capability = self._require_readable()
 
         path = self.database_path
         try:
