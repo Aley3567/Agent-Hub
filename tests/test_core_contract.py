@@ -74,8 +74,8 @@ class CoreContractTests(unittest.TestCase):
         self.assertIn("reference", repr(inspection))
 
     def test_in_memory_provider_store_and_service(self) -> None:
-        p1 = ProviderRef(store="cc-switch", provider_id="p1", display_name="Provider 1")
-        p2 = ProviderRef(store="cc-switch", provider_id="p2", display_name="Provider 2", is_current=True)
+        p1 = ProviderRef(store="in-memory", provider_id="p1", display_name="Provider 1")
+        p2 = ProviderRef(store="in-memory", provider_id="p2", display_name="Provider 2", is_current=True)
         fake_store = InMemoryProviderStore(
             capability=StoreCapability.COMPATIBLE,
             providers=[p1, p2],
@@ -84,10 +84,12 @@ class CoreContractTests(unittest.TestCase):
         self.assertEqual(service.detect(), StoreCapability.COMPATIBLE)
         self.assertEqual(service.list(), (p1, p2))
         self.assertEqual(service.inspect(p1).reference, p1)
-        self.assertEqual(service.inspect_stable_id("p2").reference, p2)
+        self.assertEqual(service.inspect_stable_id("p2", store_name="in-memory").reference, p2)
 
         with self.assertRaises(ProviderNotFoundError):
-            service.inspect_stable_id("non-existent")
+            service.inspect_stable_id("non-existent", store_name="in-memory")
+        with self.assertRaises(ProviderNotFoundError):
+            service.inspect(ProviderRef(store="other-store", provider_id="p1"))
 
 
 if __name__ == "__main__":
