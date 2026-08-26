@@ -46,7 +46,7 @@ const RESERVED_ALIAS_WORDS: [&str; 15] = [
 ];
 
 /// `claude1-config.json` 要求的版本。低于它就说明还没被 claude1 迁移过。
-const REQUIRED_CONFIG_VERSION: i64 = 3;
+pub(crate) const REQUIRED_CONFIG_VERSION: i64 = 3;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

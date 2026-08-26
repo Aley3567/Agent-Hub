@@ -14,16 +14,27 @@
  * 覆盖面按 CONTRACT.md 第 4 节的下限：8 个渠道（三种 apiFormat、1 个 hidden、
  * 1 个 incompatible、1 个 isCurrent）、2 个 hub（一个 running）、400 行 usage
  * （跨 7 天、含 6 种降级码）、30 行 errors（4xx / 5xx / 超时 / 连接失败）、
- * 2 个账号池、10 条 doctor 结果（含 2 个 fail）。
+ * 2 个账号池、10 条 doctor 结果（含 2 个 fail）。另需：3 个对话会话（合计 ≥12 条消息，
+ * 覆盖 user/assistant/system 三种 role，含一条演示降级提示）、10 个插件项
+ * （五种 kind 全覆盖，含只读与可写两态）、4 个计划任务（三种 kind 全覆盖、
+ * 1 个 disabled、nextRunAt 为过去与将来各一）。
+ * 任务与插件的 mock 写操作**就地改示例数据**（含简化版 nextRunAt 自算），
+ * 让 enable / 改 schedule 后界面能看到状态流转；这与落盘类写操作的离线拒绝不同，
+ * 差别在于这些 surface 本轮本来就是演示/本地清单纯种，没有「假装落盘」的歧义。
  */
 import type {
   AccountPool,
   AppEnv,
   Channel,
+  ChatMessage,
+  ChatSession,
   DoctorCheck,
   ErrorRow,
   Granularity,
   HubConfig,
+  NewScheduledTask,
+  PluginItem,
+  ScheduledTask,
   UsageBucket,
   UsageRow,
   UsageSummary,
@@ -832,3 +843,476 @@ export const MOCK_ENV: AppEnv = {
   hasClaudeBin: true,
   pythonVersion: 'Python 3.13.2',
 };
+
+// ---------------------------------------------------------------------------
+// 对话（演示数据。CONTRACT.md §3：本轮恒为演示实现，不接真实后端）
+// ---------------------------------------------------------------------------
+
+/** 演示降级提示，CONTRACT.md 第 4 节要求至少一条。 */
+const DEMO_NOTICE = '当前为演示数据，未连接真实后端；接入 claude-hub 后这里会返回真实回复。';
+
+export const MOCK_CHAT_SESSIONS: ChatSession[] = [
+  {
+    id: 'mock-chat-smoke',
+    title: '当前渠道冒烟对话',
+    channelId: 'ch-anthropic-official',
+    model: 'claude-opus-4-1-20250805',
+    createdAt: NOW - 2 * HOUR,
+    updatedAt: NOW - 1 * HOUR,
+    messages: [
+      { role: 'system', content: DEMO_NOTICE, ts: NOW - 2 * HOUR },
+      { role: 'user', content: '你好，帮我确认一下这条渠道是不是真的通了。', ts: NOW - 2 * HOUR + 60 },
+      {
+        role: 'assistant',
+        content:
+          '（演示回复）这条消息没有真的发到任何上游。等接入 claude-hub 后，这个问题会带着你选的渠道与模型走一遍真实请求。',
+        ts: NOW - 2 * HOUR + 90,
+      },
+      { role: 'user', content: '那这个会话现在是在哪个模型上？', ts: NOW - HOUR - 120 },
+      {
+        role: 'assistant',
+        content: '（演示回复）看会话头部的模型名，它来自所选渠道声明的默认模型或你的本地覆盖。',
+        ts: NOW - HOUR,
+      },
+    ],
+  },
+  {
+    id: 'mock-chat-slots',
+    title: '槽位模型对比',
+    channelId: 'ch-relay-cn',
+    model: 'claude-sonnet-4-5-20250929',
+    createdAt: NOW - DAY,
+    updatedAt: NOW - DAY + 600,
+    messages: [
+      { role: 'system', content: DEMO_NOTICE, ts: NOW - DAY },
+      { role: 'user', content: 'sonnet 槽位和 opus 槽位各绑了哪个渠道？', ts: NOW - DAY + 300 },
+      {
+        role: 'assistant',
+        content: '（演示回复）真实的槽位绑定看「模型槽位」那一页，那里读的是 claude-hub.json 的真值。',
+        ts: NOW - DAY + 330,
+      },
+      { role: 'user', content: '好，那我自己去看。', ts: NOW - DAY + 600 },
+    ],
+  },
+  {
+    id: 'mock-chat-free',
+    title: '未绑定渠道的自由会话',
+    channelId: null,
+    model: 'claude-sonnet-4-5-20250929',
+    createdAt: NOW - 2 * DAY,
+    updatedAt: NOW - 2 * DAY + 400,
+    messages: [
+      { role: 'system', content: DEMO_NOTICE, ts: NOW - 2 * DAY },
+      { role: 'user', content: '没绑渠道的会话会走哪里？', ts: NOW - 2 * DAY + 200 },
+      {
+        role: 'assistant',
+        content: '（演示回复）演示态哪儿也不走。接入真实后端后，未绑定渠道的会话会回落到默认 hub 的 default channel。',
+        ts: NOW - 2 * DAY + 400,
+      },
+    ],
+  },
+];
+
+/** 离线模式下的演示回复：就地追加进示例会话并返回 assistant 消息，与 Rust 演示实现同形状。 */
+export function mockSendChatMessage(sessionId: string, content: string): Promise<ChatMessage> {
+  const session = MOCK_CHAT_SESSIONS.find((item) => item.id === sessionId);
+  if (!session) {
+    return Promise.reject(new Error(`找不到会话 ${sessionId}：请刷新会话列表重试。`));
+  }
+  const trimmed = content.trim();
+  if (!trimmed) {
+    return Promise.reject(new Error('消息内容为空，没有可发送的文本。'));
+  }
+  const ts = Math.floor(Date.now() / 1000);
+  session.messages.push({ role: 'user', content: trimmed, ts });
+  const channelName = MOCK_CHANNELS.find((channel) => channel.id === session.channelId)?.name ?? '（未绑定渠道）';
+  const excerpt = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+  const reply: ChatMessage = {
+    role: 'assistant',
+    content: `（演示回复）你刚才说：「${excerpt}」。这个会话绑定渠道「${channelName}」、模型 ${session.model}。${DEMO_NOTICE}`,
+    ts,
+  };
+  session.messages.push(reply);
+  session.updatedAt = ts;
+  return Promise.resolve(reply);
+}
+
+// ---------------------------------------------------------------------------
+// 插件（五种 kind 全覆盖，含全局可写与渠道只读两态）
+// ---------------------------------------------------------------------------
+
+export const MOCK_PLUGINS: PluginItem[] = [
+  {
+    id: 'global:hook:PreToolUse',
+    kind: 'hook',
+    name: 'PreToolUse',
+    scope: 'global',
+    channelId: null,
+    enabled: true,
+    summary: '全局的 PreToolUse 钩子，1 条规则',
+    detail: '[{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "echo pre" }] }]',
+  },
+  {
+    id: 'global:hook:PostToolUse',
+    kind: 'hook',
+    name: 'PostToolUse',
+    scope: 'global',
+    channelId: null,
+    enabled: false,
+    summary: '全局的 PostToolUse 钩子，2 条规则',
+    detail: '[{ "matcher": "Edit" }, { "matcher": "Write" }]',
+  },
+  {
+    id: 'global:outputStyle:outputStyle',
+    kind: 'outputStyle',
+    name: '简洁工程师',
+    scope: 'global',
+    channelId: null,
+    enabled: true,
+    summary: '全局的输出风格：简洁工程师',
+    detail: '"简洁工程师"',
+  },
+  {
+    id: 'global:statusLine:statusLine',
+    kind: 'statusLine',
+    name: 'statusLine',
+    scope: 'global',
+    channelId: null,
+    enabled: true,
+    summary: '全局的状态栏命令',
+    detail: '{ "type": "command", "command": "cc-statusline" }',
+  },
+  {
+    id: 'global:permissions:permissions',
+    kind: 'permissions',
+    name: 'permissions',
+    scope: 'global',
+    channelId: null,
+    enabled: false,
+    summary: '全局的权限规则（allow / deny / ask）',
+    detail: '{ "allow": ["Bash(ls:*)"], "deny": ["Bash(rm -rf:*)"] }',
+  },
+  {
+    id: 'global:mcp:docs',
+    kind: 'mcp',
+    name: 'docs',
+    scope: 'global',
+    channelId: null,
+    enabled: true,
+    summary: '全局 MCP 服务器「docs」',
+    detail: '{ "command": "docs-server", "args": ["--stdio"] }',
+  },
+  {
+    id: 'channel:ch-relay-cn:hook:SessionStart',
+    kind: 'hook',
+    name: 'SessionStart',
+    scope: 'channel',
+    channelId: 'ch-relay-cn',
+    enabled: true,
+    summary: '渠道「国内中转」的 SessionStart 钩子，1 条规则',
+    detail: '[{ "hooks": [{ "type": "command", "command": "relay-init" }] }]',
+  },
+  {
+    id: 'channel:ch-anthropic-official:permissions:permissions',
+    kind: 'permissions',
+    name: 'permissions',
+    scope: 'channel',
+    channelId: 'ch-anthropic-official',
+    enabled: true,
+    summary: '渠道「Anthropic 官方」的权限规则（allow / deny / ask）',
+    detail: '{ "allow": ["Bash(git status:*)"] }',
+  },
+  {
+    id: 'channel:ch-grok-chat:outputStyle:outputStyle',
+    kind: 'outputStyle',
+    name: '直白',
+    scope: 'channel',
+    channelId: 'ch-grok-chat',
+    enabled: true,
+    summary: '渠道「Grok」的输出风格：直白',
+    detail: '"直白"',
+  },
+  {
+    id: 'channel:ch-relay-cn:mcp:relay-search',
+    kind: 'mcp',
+    name: 'relay-search',
+    scope: 'channel',
+    channelId: 'ch-relay-cn',
+    enabled: true,
+    summary: '渠道「国内中转」的 MCP 服务器「relay-search」',
+    detail: '{ "command": "relay-search", "args": [] }',
+  },
+];
+
+/**
+ * 离线模式下的开关：可写项（global）就地改示例数据；只读项（channel）拒绝，
+ * 文案与 Rust 侧一致——离线也不许「静默成功」。
+ */
+export function mockSetPluginEnabled(id: string, enabled: boolean): Promise<void> {
+  const item = MOCK_PLUGINS.find((plugin) => plugin.id === id);
+  if (!item) {
+    return Promise.reject(new Error(`找不到插件项：${id}`));
+  }
+  if (item.scope === 'channel') {
+    return Promise.reject(
+      new Error(
+        `「${item.name}」是渠道级扩展点，来自 settings_config、存在 CC Switch 数据库里，桌面端只读不改；要调整请在 CC Switch 里编辑对应渠道`,
+      ),
+    );
+  }
+  item.enabled = enabled;
+  return Promise.resolve();
+}
+
+// ---------------------------------------------------------------------------
+// 计划任务（三种 kind 全覆盖、1 个 disabled、nextRunAt 过去/将来各一）
+// ---------------------------------------------------------------------------
+
+export const MOCK_TASKS: ScheduledTask[] = [
+  {
+    id: 'task-morning-channel',
+    name: '工作日早上开官方渠道',
+    kind: 'launch-channel',
+    target: { kind: 'channel', channelId: 'ch-anthropic-official' },
+    schedule: '0 9 * * 1-5',
+    scheduleText: '每工作日 09:00',
+    enabled: true,
+    lastRunAt: TODAY_START - DAY + 9 * HOUR,
+    nextRunAt: NOW + 5 * HOUR,
+    createdAt: TODAY_START - 7 * DAY,
+  },
+  {
+    id: 'task-slot-review',
+    name: '傍晚复盘用 opus 槽位',
+    kind: 'launch-slot',
+    target: { kind: 'slot', slot: 'opus' },
+    schedule: '30 18 * * *',
+    scheduleText: '每天 18:30',
+    enabled: true,
+    lastRunAt: null,
+    // 过去时刻：上一次该跑没跑成（比如机器合盖），界面要能呈现这种状态
+    nextRunAt: NOW - 2 * HOUR,
+    createdAt: TODAY_START - 3 * DAY,
+  },
+  {
+    id: 'task-doctor-weekly',
+    name: '周日体检提醒',
+    kind: 'doctor-reminder',
+    target: null,
+    schedule: '0 8 * * 0',
+    scheduleText: '每周日 08:00',
+    enabled: true,
+    lastRunAt: TODAY_START - 4 * DAY + 8 * HOUR,
+    nextRunAt: NOW + 26 * HOUR,
+    createdAt: TODAY_START - 30 * DAY,
+  },
+  {
+    id: 'task-nightly-off',
+    name: '凌晨自动冒烟（已停用）',
+    kind: 'launch-channel',
+    target: { kind: 'channel', channelId: 'ch-relay-cn', model: 'claude-haiku-4-5-20251001' },
+    schedule: '0 2 * * *',
+    scheduleText: '每天 02:00',
+    enabled: false,
+    lastRunAt: TODAY_START - 10 * DAY,
+    nextRunAt: null,
+    createdAt: TODAY_START - 30 * DAY,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// mock 侧的简化版 nextRunAt
+//
+// 只覆盖标准五字段（分 时 日 月 周）里的 `*`、`,`、`-`、`*/n`（含 `a-b/n`），
+// 周字段 0 与 7 都是周日，日周同限取「或」——与 Rust 侧 cron.rs 同口径，
+// 但不引 cron 库。认不出的表达式返回 null（界面显示「无法解析」而不是假时间）。
+// ---------------------------------------------------------------------------
+
+interface CronField {
+  set: Set<number>;
+  restricted: boolean;
+}
+
+/** 解析一个字段；任何一段不合法就返回 null。 */
+function parseCronField(raw: string, min: number, max: number, foldSunday: boolean): CronField | null {
+  const set = new Set<number>();
+  let restricted = false;
+  for (const part of raw.split(',')) {
+    const piece = part.trim();
+    if (!piece) return null;
+    const [baseRaw, stepRaw] = piece.split('/');
+    const step = stepRaw === undefined ? 1 : Number(stepRaw);
+    if (!Number.isInteger(step) || step < 1) return null;
+    const base = (baseRaw ?? '').trim();
+    let lo: number;
+    let hi: number;
+    if (base === '*') {
+      lo = min;
+      hi = max;
+    } else if (base.includes('-')) {
+      const [a, b] = base.split('-').map((s) => Number(s.trim()));
+      if (!Number.isInteger(a) || !Number.isInteger(b) || a < min || b > max || a > b) return null;
+      lo = a;
+      hi = b;
+    } else {
+      const value = Number(base);
+      if (!Number.isInteger(value) || value < min || value > max) return null;
+      lo = value;
+      hi = value;
+    }
+    if (lo !== min || hi !== max || step !== 1) restricted = true;
+    for (let value = lo; value <= hi; value += step) {
+      set.add(foldSunday && value === 7 ? 0 : value);
+    }
+  }
+  return { set, restricted };
+}
+
+interface MockCron {
+  minutes: CronField;
+  hours: CronField;
+  monthDays: CronField;
+  months: CronField;
+  weekdays: CronField;
+}
+
+function parseMockCron(schedule: string): MockCron | null {
+  const fields = schedule.trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+  const minutes = parseCronField(fields[0] ?? '', 0, 59, false);
+  const hours = parseCronField(fields[1] ?? '', 0, 23, false);
+  const monthDays = parseCronField(fields[2] ?? '', 1, 31, false);
+  const months = parseCronField(fields[3] ?? '', 1, 12, false);
+  const weekdays = parseCronField(fields[4] ?? '', 0, 7, true);
+  if (!minutes || !hours || !monthDays || !months || !weekdays) return null;
+  return { minutes, hours, monthDays, months, weekdays };
+}
+
+/** 严格晚于 after（unix 秒）的下一触发时刻；解析不了或两年内没有就返回 null。 */
+function mockNextRunAt(schedule: string, after: number): number | null {
+  const cron = parseMockCron(schedule);
+  if (!cron) return null;
+  const start = Math.floor(after / 60) * 60 + 60;
+  // 逐天推进，命中天再按时→分升序找第一个候选
+  const cursor = new Date(start * 1000);
+  for (let day = 0; day < 740; day += 1) {
+    const y = cursor.getFullYear();
+    const m = cursor.getMonth();
+    const d = cursor.getDate();
+    if (cron.months.set.has(m + 1)) {
+      const domOk = cron.monthDays.set.has(d);
+      const dowOk = cron.weekdays.set.has(cursor.getDay());
+      const dayOk =
+        cron.monthDays.restricted && cron.weekdays.restricted ? domOk || dowOk : domOk && dowOk;
+      if (dayOk) {
+        for (const hour of [...cron.hours.set].sort((a, b) => a - b)) {
+          for (const minute of [...cron.minutes.set].sort((a, b) => a - b)) {
+            const ts = Math.floor(new Date(y, m, d, hour, minute, 0).getTime() / 1000);
+            if (ts >= start) return ts;
+          }
+        }
+      }
+    }
+    cursor.setTime(new Date(y, m, d + 1, 0, 0, 0).getTime());
+  }
+  return null;
+}
+
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const;
+
+/** schedule 的中文人话：只给常见模式起人话，认不出的回显表达式（与 Rust 侧同策略）。 */
+function mockScheduleText(schedule: string): string {
+  const cron = parseMockCron(schedule);
+  if (!cron) return `无法解析：${schedule.trim()}`;
+  const single = (field: CronField): number | null => (field.set.size === 1 ? [...field.set][0] ?? null : null);
+  const minute = single(cron.minutes);
+  const hour = single(cron.hours);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (minute !== null && hour !== null) {
+    const time = `${pad(hour)}:${pad(minute)}`;
+    const day = single(cron.monthDays);
+    const weekday = single(cron.weekdays);
+    if (!cron.monthDays.restricted && !cron.weekdays.restricted) return `每天 ${time}`;
+    if (!cron.monthDays.restricted && weekday !== null) return `每${WEEKDAY_NAMES[weekday]} ${time}`;
+    if (!cron.monthDays.restricted && cron.weekdays.set.size === 5 && [1, 2, 3, 4, 5].every((d) => cron.weekdays.set.has(d)))
+      return `每工作日 ${time}`;
+    if (!cron.weekdays.restricted && day !== null) return `每月 ${day} 日 ${time}`;
+  }
+  if (
+    !cron.hours.restricted &&
+    !cron.monthDays.restricted &&
+    !cron.months.restricted &&
+    !cron.weekdays.restricted &&
+    cron.minutes.set.has(0)
+  ) {
+    // */n 分钟：集合恰好铺满 0, n, 2n…
+    for (let n = 2; n <= 59; n += 1) {
+      const expect = new Set<number>();
+      for (let value = 0; value <= 59; value += n) expect.add(value);
+      if (expect.size === cron.minutes.set.size && [...expect].every((v) => cron.minutes.set.has(v))) {
+        return `每 ${n} 分钟`;
+      }
+    }
+  }
+  return `按 cron「${schedule.trim()}」`;
+}
+
+function mockTaskView(task: ScheduledTask): ScheduledTask {
+  return { ...task };
+}
+
+/** 离线模式下的创建：就地追加示例数据，id / 时间戳 / scheduleText / nextRunAt 由这层补全。 */
+export function mockCreateTask(task: NewScheduledTask): Promise<ScheduledTask> {
+  const name = task.name.trim();
+  if (!name) return Promise.reject(new Error('任务名称不能为空。'));
+  const cron = parseMockCron(task.schedule);
+  if (!cron) {
+    return Promise.reject(new Error(`任务的 cron 表达式无效（分 时 日 月 周五字段）：${task.schedule}`));
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const created: ScheduledTask = {
+    id: `task-${Date.now().toString(36)}-${MOCK_TASKS.length}`,
+    name,
+    kind: task.kind,
+    target: task.target,
+    schedule: task.schedule.trim(),
+    scheduleText: mockScheduleText(task.schedule),
+    enabled: task.enabled,
+    lastRunAt: null,
+    nextRunAt: task.enabled ? mockNextRunAt(task.schedule, now) : null,
+    createdAt: now,
+  };
+  MOCK_TASKS.push(created);
+  return Promise.resolve(mockTaskView(created));
+}
+
+/** 离线模式下的更新：改了 schedule 或 enabled 时用简化版 nextRunAt 重算。 */
+export function mockUpdateTask(
+  id: string,
+  patch: { enabled?: boolean; schedule?: string; name?: string },
+): Promise<ScheduledTask> {
+  const task = MOCK_TASKS.find((item) => item.id === id);
+  if (!task) return Promise.reject(new Error(`找不到计划任务：${id}`));
+  if (patch.name !== undefined) {
+    const name = patch.name.trim();
+    if (!name) return Promise.reject(new Error('任务名称不能为空。'));
+    task.name = name;
+  }
+  if (patch.schedule !== undefined) {
+    if (!parseMockCron(patch.schedule)) {
+      return Promise.reject(new Error(`任务的 cron 表达式无效（分 时 日 月 周五字段）：${patch.schedule}`));
+    }
+    task.schedule = patch.schedule.trim();
+  }
+  if (patch.enabled !== undefined) task.enabled = patch.enabled;
+  task.scheduleText = mockScheduleText(task.schedule);
+  task.nextRunAt = task.enabled ? mockNextRunAt(task.schedule, Math.floor(Date.now() / 1000)) : null;
+  return Promise.resolve(mockTaskView(task));
+}
+
+export function mockDeleteTask(id: string): Promise<void> {
+  const index = MOCK_TASKS.findIndex((item) => item.id === id);
+  if (index === -1) return Promise.reject(new Error(`找不到计划任务：${id}`));
+  MOCK_TASKS.splice(index, 1);
+  return Promise.resolve();
+}
