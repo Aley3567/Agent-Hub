@@ -41,7 +41,8 @@
    失败仍可见、可渲染、可 hook，不再裸 abort。
 2. **思考期扣留 + 静默重放**（提交前截断）：tracker 新增 `commit_started`
    分类（message_start/ping/thinking 系列扣留，其余 payload 一律视为正文放行——
-   可见性优先于更长的隐形扣留）；扣留上限 1MiB / 120s 双保护窗；窗内干净 EOF
+   可见性优先于更长的隐形扣留）；扣留上限 1MiB / 45s 双保护窗（初版 120s，当晚
+   依据截断点位数据与 CC 静默耐受实验收紧到 45s，见第九节）；窗内干净 EOF
    且下游零字节 → `UpstreamStreamReplayable` 静默重放（预算沿用
    STREAM_REPLAY_ATTEMPTS），每次尝试记 `HUB_DEGRADE_STREAM_REPLAYED`；
    超限降级到第 1 层。
@@ -101,6 +102,11 @@ commit_started 分类思路（需另行开卡）。
 - 真实上游自然复发验证未完成：下次 glm-5.3 再遇断流，看 errors.jsonl 出现
   `HUB_DEGRADE_STREAM_REPLAYED` 且会话无感即闭环。
 - 三副本收敛（S13 扩展）仍未做：scripts 版热修尚未回流任何仓库。
+- 体感卡与静默窗：扣留期客户端零字节，思考越长静默越久。实测真 CC 对 75s
+  纯静默（中途停顿后恢复）耐受无恙；SSE 注释心跳不会改变 CC 渲染、且一旦
+  发出即永久失去该请求的静默重放资格，故不采用；改用收紧保护窗
+  （120s→45s）封顶最坏静默。若未来出现「思考 >45s 才被截断」的 deg 数据，
+  再重审该窗口或引入带宽限期的心跳。
 - 失效条件：上游网关修复终态语义后（一个观察周期零 IncompleteSSE），重放
   逻辑可归档保留；若出现「扣留窗内重放后仍缺正文」的新形态，说明截断点位
   后移到正文早期，需要重审 commit_started 分类边界。

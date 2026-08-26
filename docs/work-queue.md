@@ -505,7 +505,9 @@ thinking_delta、正文零字节 → 客户端 Ctrl+O 可见思维链但回复�
    收尾，不再裸 abort——失败仍可见，但可渲染、可 hook。
 2. 提交前：tracker 新增 `commit_started` 分类（message_start/ping/thinking 系列扣留，
    其余一律视为正文放行）；native 流扣留上限 `THINKING_HOLD_BUFFER_BYTES`=1MiB、
-   保护窗 `THINKING_HOLD_MAX_SECONDS`=120s；窗内干净 EOF 且下游零字节 →
+   保护窗 `THINKING_HOLD_MAX_SECONDS`=45s（2026-08-26 晚由 120s 收紧：实测上游截断
+   全部发生在思考早期 2.7s/18.4s，且真 CC 对 75s 纯静默耐受无恙——缩窗把最坏静默
+   体感封顶，覆盖面几乎无损）；窗内干净 EOF 且下游零字节 →
    `UpstreamStreamReplayable` 静默重放（预算沿用 `STREAM_REPLAY_ATTEMPTS`），每次尝试记
    `HUB_DEGRADE_STREAM_REPLAYED`；超限降级到第 1 层。放弃的备选：SSE 哑心跳需要提前
    prepare 下游，与 route failover 的跨目标重放冲突，记录备查。

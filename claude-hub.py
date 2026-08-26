@@ -156,7 +156,7 @@ STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
 # bounded in bytes and seconds; crossing either commits the stream, after
 # which a truncation is reported to the client instead of replayed.
 THINKING_HOLD_BUFFER_BYTES = 1024 * 1024
-THINKING_HOLD_MAX_SECONDS = 120.0
+THINKING_HOLD_MAX_SECONDS = 45.0
 HUB_DEGRADE_STREAM_REPLAYED = "HUB_DEGRADE_STREAM_REPLAYED"
 
 HOP_BY_HOP = {
