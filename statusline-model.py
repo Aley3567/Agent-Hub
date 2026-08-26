@@ -146,6 +146,52 @@ def _model_from_env(model_id: str, env: dict[str, str]) -> str:
     return model_id
 
 
+def _gateway_selector_model(model_id: str) -> str:
+    """Return the model behind a Hub gateway selector id, when it is one.
+
+    ``handle_models`` advertises ids shaped ``anthropic/<alias>,<model>``, so a
+    channel switch performed inside the session is visible here and nowhere
+    else: ``CLAUDE1_CHANNEL_SELECTOR`` is frozen at launch and keeps naming the
+    startup channel for the whole process.  An id missing either half is left
+    to the other resolvers, which own every non-gateway shape.
+
+    The comma is the split point, not the slash: an upstream model name may
+    itself contain slashes (``route-a,Qwen/Qwen3.5-9B``) while a channel alias
+    never contains a comma.
+    """
+    prefix, separator, model = model_id.partition(",")
+    alias = prefix.rpartition("/")[2]
+    if separator and alias and model:
+        return model
+    return ""
+
+
+def _slot_model_from_placeholder(model_id: str, env: dict[str, str]) -> str:
+    """Return the slot model behind an official Anthropic tier placeholder.
+
+    claude-hub keeps Anthropic's own id (``claude-opus-4-8``) as the slot key
+    while routing that tier to a completely different channel, so a slot picked
+    in /model is recognisable only by the tier word in the id -- an exact slot
+    value match cannot succeed.  Deliberately limited to the official
+    ``claude-<tier>-`` shape: a third-party id must still match a slot value
+    exactly and is never resolved by keyword.
+    """
+    lowered = model_id.lower()
+    for tier in MODEL_TIERS:
+        if not lowered.startswith(f"claude-{tier.lower()}-"):
+            continue
+        slot_key = f"ANTHROPIC_DEFAULT_{tier}_MODEL"
+        selector = env.get(slot_key, "")
+        if not selector:
+            return ""
+        name = env.get(f"{slot_key}_NAME", "")
+        if name:
+            return name
+        _alias, separator, model = selector.partition(",")
+        return model if separator and model else selector
+    return ""
+
+
 def _claude1_live_route_model(env: dict[str, str]) -> str:
     """Return the model selected by claude1, when this is a claude1 process."""
     source = env.get("CLAUDE1_SESSION_SOURCE", "")
@@ -162,6 +208,20 @@ def _claude1_live_route_model(env: dict[str, str]) -> str:
             if model:
                 return env.get(f"ANTHROPIC_DEFAULT_{tier}_MODEL_NAME") or model
     return ""
+
+
+def _is_official_tier_placeholder(model_id: str) -> bool:
+    """Whether Claude Code's stdin id is an official tier placeholder.
+
+    Claude Code keeps the id ``claude-opus-*``/``claude-sonnet-*`` when a
+    claude1 provider maps that tier to a third-party model.  In that one case
+    the process environment is the only source of the real route.  A concrete
+    third-party id, however, is already the authoritative result of an
+    in-session ``/model`` switch and must never be replaced by the startup
+    model from ``ANTHROPIC_MODEL``.
+    """
+    lowered = model_id.casefold()
+    return any(lowered.startswith(f"claude-{tier.casefold()}-") for tier in MODEL_TIERS)
 
 
 def _current_provider_env(db_path: Path) -> dict[str, str]:
@@ -238,10 +298,24 @@ def resolve_model(
     model = payload.get("model")
     ui_name = str(model.get("display_name") or "?") if isinstance(model, dict) else "?"
     model_id = str(model.get("id") or "") if isinstance(model, dict) else ""
+    gateway_route = _gateway_selector_model(model_id)
+    if gateway_route:
+        return gateway_route
+    slot_route = _slot_model_from_placeholder(model_id, env)
+    if slot_route:
+        return slot_route
     mapped = mapped_model(payload, env)
-    live_route = _claude1_live_route_model(env)
-    if live_route:
-        return live_route
+    # For a concrete third-party id, stdin reflects the model selected by the
+    # current session.  The launcher env is only a startup fallback for the
+    # official tier placeholders (or when Claude omitted the id altogether).
+    if (
+        not model_id
+        or _is_official_tier_placeholder(model_id)
+        or model_id.casefold().startswith("anthropic/")
+    ):
+        live_route = _claude1_live_route_model(env)
+        if live_route:
+            return live_route
     actual = latest_response_model(payload.get("transcript_path"), now=now)
     if actual:
         if mapped and _without_1m(mapped) == _without_1m(actual):

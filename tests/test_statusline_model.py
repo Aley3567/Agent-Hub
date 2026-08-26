@@ -196,6 +196,24 @@ class StatuslineModelTests(unittest.TestCase):
                 "deepseek-v4-flash",
             )
 
+    def test_concrete_in_session_model_wins_over_claude1_startup_route(self) -> None:
+        """A /model switch must not be overwritten by the launch env."""
+        payload = {
+            "model": {
+                "id": "DeepSeek-V4-Flash-0731",
+                "display_name": "DeepSeek-V4-Flash-0731",
+            }
+        }
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "provider",
+            "ANTHROPIC_MODEL": "Qwen/Qwen3.5-9B",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "DeepSeek-V4-Flash-0731",
+        }
+        self.assertEqual(
+            statusline.resolve_model(payload, env),
+            "DeepSeek-V4-Flash-0731",
+        )
+
     def test_claude1_live_hub_route_strips_channel_alias_for_display(self) -> None:
         payload = {"model": {"id": "claude-opus-5", "display_name": "Opus"}}
         env = {
@@ -206,6 +224,85 @@ class StatuslineModelTests(unittest.TestCase):
             statusline.resolve_model(payload, env),
             "deepseek-v4-flash",
         )
+
+    def test_gateway_selector_id_outranks_frozen_startup_channel(self) -> None:
+        # Switching channel with /model changes only the stdin model id; the
+        # launcher's selector env still names the channel the session booted on.
+        payload = {
+            "model": {
+                "id": "anthropic/glm,glm-5.2",
+                "display_name": "[glm] glm-5.2",
+            }
+        }
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "hub",
+            "CLAUDE1_CHANNEL_SELECTOR": "fable,k3-256k",
+            "ANTHROPIC_MODEL": "fable,k3-256k",
+        }
+        self.assertEqual(statusline.resolve_model(payload, env), "glm-5.2")
+
+    def test_gateway_selector_keeps_slashes_inside_the_model_name(self) -> None:
+        payload = {"model": {"id": "anthropic/route-a,Qwen/Qwen3.5-9B"}}
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "hub",
+            "CLAUDE1_CHANNEL_SELECTOR": "fable,k3-256k",
+        }
+        self.assertEqual(
+            statusline.resolve_model(payload, env),
+            "Qwen/Qwen3.5-9B",
+        )
+
+    def test_tier_placeholder_resolves_to_that_slot_not_the_startup_channel(
+        self,
+    ) -> None:
+        # Picking a slot in /model leaves the id as Anthropic's placeholder, so
+        # the tier word is the only link back to the channel it routes to.
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "hub",
+            "CLAUDE1_CHANNEL_SELECTOR": "fable,k3-256k",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "grok,grok-4.5",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "grok-4.5",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": "fable,k3-256k",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "k3-256k",
+        }
+        self.assertEqual(
+            statusline.resolve_model({"model": {"id": "claude-opus-4-8"}}, env),
+            "grok-4.5",
+        )
+        self.assertEqual(
+            statusline.resolve_model({"model": {"id": "claude-fable-5"}}, env),
+            "k3-256k",
+        )
+
+    def test_tier_placeholder_falls_back_to_selector_when_slot_lacks_name(
+        self,
+    ) -> None:
+        env = {"ANTHROPIC_DEFAULT_SONNET_MODEL": "glm,glm-5.2"}
+        self.assertEqual(
+            statusline.resolve_model({"model": {"id": "claude-sonnet-5"}}, env),
+            "glm-5.2",
+        )
+
+    def test_official_placeholder_without_any_slot_stays_untouched(self) -> None:
+        # A plain Anthropic session defines no slots: the id must survive so the
+        # layout can render it as the official tier name.
+        self.assertEqual(
+            statusline.resolve_model({"model": {"id": "claude-opus-4-8"}}, {}),
+            "claude-opus-4-8",
+        )
+
+    def test_gateway_selector_needs_both_alias_and_model(self) -> None:
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "hub",
+            "CLAUDE1_CHANNEL_SELECTOR": "fable,k3-256k",
+        }
+        for incomplete in ("anthropic/,glm-5.2", "anthropic/glm,", "claude-opus-5"):
+            with self.subTest(model_id=incomplete):
+                payload = {"model": {"id": incomplete}}
+                self.assertEqual(
+                    statusline.resolve_model(payload, env),
+                    "k3-256k",
+                )
 
     def test_missing_stdin_id_falls_back_to_process_model(self) -> None:
         payload = {"model": {"display_name": "Logical tier"}}
