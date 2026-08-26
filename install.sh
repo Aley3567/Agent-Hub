@@ -101,6 +101,7 @@ for source_file in \
   "$SCRIPT_DIR/claude-hub.py" \
   "$SCRIPT_DIR/claude_hub_catalog.py" \
   "$SCRIPT_DIR/claude1_account_pool.py" \
+  "$SCRIPT_DIR/claude1_context_window.py" \
   "$SCRIPT_DIR/claude1_protocol.py" \
   "$SCRIPT_DIR/claude1_protocol_types.py" \
   "$SCRIPT_DIR/claude1_protocol_usage.py" \
@@ -128,6 +129,7 @@ if [ -L "$INSTALL_ROOT/scripts/claude-provider-once.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude-hub.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude_hub_catalog.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_account_pool.py" ] ||
+  [ -L "$INSTALL_ROOT/scripts/claude1_context_window.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_protocol.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_protocol_types.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_protocol_usage.py" ] ||
@@ -149,6 +151,7 @@ for target_path in \
   "$INSTALL_ROOT/scripts/claude-hub.py" \
   "$INSTALL_ROOT/scripts/claude_hub_catalog.py" \
   "$INSTALL_ROOT/scripts/claude1_account_pool.py" \
+  "$INSTALL_ROOT/scripts/claude1_context_window.py" \
   "$INSTALL_ROOT/scripts/claude1_protocol.py" \
   "$INSTALL_ROOT/scripts/claude1_protocol_types.py" \
   "$INSTALL_ROOT/scripts/claude1_protocol_usage.py" \
@@ -194,6 +197,7 @@ LAUNCHER_TARGET="$INSTALL_ROOT/scripts/claude-provider-once.py"
 HUB_TARGET="$INSTALL_ROOT/scripts/claude-hub.py"
 HUB_CATALOG_MODULE_TARGET="$INSTALL_ROOT/scripts/claude_hub_catalog.py"
 ACCOUNT_POOL_MODULE_TARGET="$INSTALL_ROOT/scripts/claude1_account_pool.py"
+CONTEXT_WINDOW_TARGET="$INSTALL_ROOT/scripts/claude1_context_window.py"
 PROTOCOL_TARGET="$INSTALL_ROOT/scripts/claude1_protocol.py"
 PROTOCOL_TYPES_TARGET="$INSTALL_ROOT/scripts/claude1_protocol_types.py"
 PROTOCOL_USAGE_TARGET="$INSTALL_ROOT/scripts/claude1_protocol_usage.py"
@@ -267,6 +271,7 @@ NEED_LAUNCHER=0
 NEED_HUB=0
 NEED_HUB_CATALOG_MODULE=0
 NEED_ACCOUNT_POOL_MODULE=0
+NEED_CONTEXT_WINDOW=0
 NEED_PROTOCOL=0
 NEED_PROTOCOL_TYPES=0
 NEED_PROTOCOL_USAGE=0
@@ -285,6 +290,8 @@ needs_install "$SCRIPT_DIR/claude_hub_catalog.py" "$HUB_CATALOG_MODULE_TARGET" 6
   NEED_HUB_CATALOG_MODULE=1
 needs_install "$SCRIPT_DIR/claude1_account_pool.py" "$ACCOUNT_POOL_MODULE_TARGET" 644 &&
   NEED_ACCOUNT_POOL_MODULE=1
+needs_install "$SCRIPT_DIR/claude1_context_window.py" "$CONTEXT_WINDOW_TARGET" 644 &&
+  NEED_CONTEXT_WINDOW=1
 needs_install "$SCRIPT_DIR/claude1_protocol.py" "$PROTOCOL_TARGET" 644 &&
   NEED_PROTOCOL=1
 needs_install "$SCRIPT_DIR/claude1_protocol_types.py" "$PROTOCOL_TYPES_TARGET" 644 &&
@@ -347,6 +354,9 @@ fi
 if [ "$NEED_ACCOUNT_POOL_MODULE" -eq 1 ]; then
   backup_existing "$ACCOUNT_POOL_MODULE_TARGET" "claude1_account_pool.py"
 fi
+if [ "$NEED_CONTEXT_WINDOW" -eq 1 ]; then
+  backup_existing "$CONTEXT_WINDOW_TARGET" "claude1_context_window.py"
+fi
 if [ "$NEED_PROTOCOL" -eq 1 ]; then
   backup_existing "$PROTOCOL_TARGET" "claude1_protocol.py"
 fi
@@ -394,6 +404,9 @@ if [ "$NEED_HUB_CATALOG_MODULE" -eq 1 ]; then
 fi
 if [ "$NEED_ACCOUNT_POOL_MODULE" -eq 1 ]; then
   install_file "$SCRIPT_DIR/claude1_account_pool.py" "$ACCOUNT_POOL_MODULE_TARGET" 644
+fi
+if [ "$NEED_CONTEXT_WINDOW" -eq 1 ]; then
+  install_file "$SCRIPT_DIR/claude1_context_window.py" "$CONTEXT_WINDOW_TARGET" 644
 fi
 if [ "$NEED_USAGE_REPORT" -eq 1 ]; then
   install_file "$SCRIPT_DIR/claude1_usage_report.py" "$USAGE_REPORT_TARGET" 644

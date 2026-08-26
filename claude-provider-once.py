@@ -50,6 +50,21 @@ from claude1_account_pool import (
     credential_fingerprint,
     normalize_account_endpoint,
 )
+from claude1_context_window import (
+    MATRIX_CLI_VERSION,
+    MAX_CONTEXT_TOKENS_ENV,
+    WARN_DECLARED_IGNORED,
+    WARN_FAKE_1M,
+    WARN_REDUNDANT_SUFFIX,
+    WARN_SUFFIX_WITHOUT_BETA,
+    WARN_UNKNOWN_OFFICIAL,
+    WARN_WINDOW_UNDECLARED,
+    declared_window_from_settings,
+    format_window,
+    positive_int,
+    resolve_context_window,
+    strip_suffix,
+)
 from claude1_transport import (
     TransportConfigError,
     diagnose_transport_policy,
@@ -78,6 +93,14 @@ DEFAULT_CLAUDE_BIN = _env_path(
     "CLAUDE1_DEFAULT_CLAUDE_BIN", HOME / ".local" / "bin" / "claude"
 )
 MRU_PATH = _env_path("CLAUDE1_MRU_PATH", HOME / ".cc-switch" / "claude1-mru.json")
+# Probed upstream context windows live outside the CC Switch DB on purpose: the
+# app keeps providers in an in-memory store and rewrites rows on switch, so a
+# probe writing into ``meta`` would race it.  This file is disposable — delete it
+# and the next probe refills it.
+CONTEXT_CACHE_PATH = _env_path(
+    "CLAUDE1_CONTEXT_CACHE",
+    HOME / ".cc-switch" / "claude1-context-cache.json",
+)
 CONFIG_PATH = _env_path(
     "CLAUDE1_CONFIG_PATH", HOME / ".cc-switch" / "claude1-config.json"
 )
@@ -679,6 +702,160 @@ def db_claude_rows() -> list[sqlite3.Row]:
         ).fetchall()
     finally:
         conn.close()
+
+
+CONTEXT_CACHE_VERSION = 1
+# Fields a model listing may use for its window, most specific first.
+_CONTEXT_WINDOW_FIELDS = (
+    "context_length",
+    "context_window",
+    "max_context_length",
+    "max_context_tokens",
+    "max_input_tokens",
+)
+# Hosts Claude Code itself treats as first-party (``_ke``).  Everything else,
+# including every gateway, cannot deliver the context-1m beta.
+_FIRST_PARTY_HOSTS = frozenset({"api.anthropic.com", "api.claude.com"})
+
+
+def provider_context_kind(base_url: str | None) -> str:
+    """Classify a base URL the way Claude Code's provider check does.
+
+    An absent base URL means the official API, matching ``hjt``: only then is
+    the context-1m beta actually sent for models that need it.
+    """
+    if not base_url:
+        return "firstParty"
+    try:
+        host = (urlparse(base_url).hostname or "").casefold()
+    except ValueError:
+        return "custom"
+    return "firstParty" if host in _FIRST_PARTY_HOSTS else "custom"
+
+
+def _context_cache_key(base_url: str | None, model: str) -> str:
+    return f"{(base_url or '').rstrip('/')}|{strip_suffix(model).casefold()}"
+
+
+def load_context_cache() -> dict[str, dict]:
+    """Read probed windows; a damaged cache is treated as empty, never fatal."""
+    try:
+        raw = json.loads(CONTEXT_CACHE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(raw, dict) or raw.get("version") != CONTEXT_CACHE_VERSION:
+        return {}
+    entries = raw.get("entries")
+    return entries if isinstance(entries, dict) else {}
+
+
+def cached_context_window(base_url: str | None, model: str) -> int | None:
+    entry = load_context_cache().get(_context_cache_key(base_url, model))
+    if not isinstance(entry, dict):
+        return None
+    window = entry.get("window")
+    if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
+        return None
+    return window
+
+
+def store_context_window(base_url: str | None, model: str, window: int) -> None:
+    """Persist one probed window.  Best-effort: a launch never fails on this."""
+    entries = load_context_cache()
+    entries[_context_cache_key(base_url, model)] = {
+        "window": window,
+        "probed_at": int(time.time()),
+    }
+    payload = {"version": CONTEXT_CACHE_VERSION, "entries": entries}
+    try:
+        _atomic_private_write(
+            CONTEXT_CACHE_PATH,
+            json.dumps(payload, ensure_ascii=False, indent=1) + "\n",
+        )
+    except OSError:
+        pass
+
+
+def _models_endpoint(base_url: str) -> str:
+    trimmed = base_url.rstrip("/")
+    if trimmed.endswith("/v1"):
+        return f"{trimmed}/models"
+    return f"{trimmed}/v1/models"
+
+
+def probe_upstream_context_window(
+    base_url: str,
+    token: str | None,
+    model: str,
+) -> int | None:
+    """Ask the upstream model listing for ``model``'s real context window.
+
+    Returns ``None`` whenever the answer is not unambiguous — a missing
+    endpoint, an unparsable body, or a listing that never names this model.  A
+    guessed window is worse than no window, so nothing is inferred here.
+    """
+    wanted = strip_suffix(model).casefold()
+    request = urllib.request.Request(_models_endpoint(base_url), method="GET")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("x-api-key", token)
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            if getattr(response, "status", response.getcode()) != 200:
+                return None
+            payload = json.loads(response.read(1_048_577).decode("utf-8"))
+    except (
+        json.JSONDecodeError,
+        UnicodeDecodeError,
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        OSError,
+        ValueError,
+    ):
+        return None
+
+    listing = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(listing, list):
+        return None
+    for item in listing:
+        if not isinstance(item, dict):
+            continue
+        identifier = item.get("id") or item.get("name")
+        if not isinstance(identifier, str) or identifier.casefold() != wanted:
+            continue
+        for field_name in _CONTEXT_WINDOW_FIELDS:
+            window = positive_int(item.get(field_name))
+            if window is not None:
+                return window
+        nested = item.get("context")
+        if isinstance(nested, dict):
+            for field_name in _CONTEXT_WINDOW_FIELDS + ("window",):
+                window = positive_int(nested.get(field_name))
+                if window is not None:
+                    return window
+    return None
+
+
+def slot_context_plan(
+    model: str,
+    settings_config: dict | None,
+    *,
+    base_url: str | None = None,
+):
+    """Resolve one slot's context window from configuration plus cache only.
+
+    Declared beats probed, and neither is consulted for models Claude Code
+    already knows.  This is called on the launch path, so it never touches the
+    network; ``claude1 doctor --probe`` is what fills the cache.
+    """
+    declared = declared_window_from_settings(settings_config)
+    probed = None if declared is not None else cached_context_window(base_url, model)
+    return resolve_context_window(
+        model,
+        declared_window=declared,
+        probed_window=probed,
+        provider_kind=provider_context_kind(base_url),
+    )
 
 
 def subagent_model_overrides() -> tuple[list[tuple[str, str]], list[str]]:
@@ -6471,6 +6648,7 @@ CLAUDE1_USAGE = f"""claude1 {VERSION} — 为本次 Claude Code 会话选择渠�
   claude1 list [--all]                 查看渠道，不启动 Claude
   claude1 accounts ...                 将同一上游的多个 CC Switch key 组成账号池
   claude1 doctor [--fix]               检查本机配置；--fix 清理子代理模型固定值
+                                       --probe 向上游模型列表询问真实上下文窗口
   claude1 usage [--day|--week|--month] 查看 token 用量与缓存命中率曲线
   claude1 errors [-n N]                查看当前 Hub 的脱敏上游错误记录
   claude1 use <backend>                显式设置普通 claude 的粘性后端
@@ -6852,7 +7030,148 @@ def fix_subagent_model_overrides() -> tuple[list[str], list[str], Path]:
     return changed, invalid, backup_path
 
 
-def cli_doctor(*, fix: bool = False) -> int:
+@dataclass(frozen=True)
+class ContextFinding:
+    """One provider slot whose context-window configuration needs attention."""
+
+    provider: str
+    env_key: str
+    model: str
+    code: str
+    message: str
+    window: int
+    source: str
+
+
+# A credential this short cannot be a real key; probing with it would only
+# produce a 401 that says nothing about the model listing.
+_MIN_PROBE_TOKEN_LEN = 16
+_NON_CREDENTIAL_TOKENS = frozenset({"PROXY_MANAGED", "MANAGED", "PLACEHOLDER"})
+
+
+def _probe_credential(env: dict) -> str | None:
+    for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"):
+        value = env.get(key)
+        if not isinstance(value, str):
+            continue
+        token = value.strip()
+        if (
+            len(token) >= _MIN_PROBE_TOKEN_LEN
+            and token.upper() not in _NON_CREDENTIAL_TOKENS
+        ):
+            return token
+    return None
+
+
+def context_window_findings(
+    rows: list[sqlite3.Row],
+    *,
+    probe: bool = False,
+) -> tuple[list[ContextFinding], int]:
+    """Audit every provider's model slots for context-window problems.
+
+    With ``probe`` the upstream model listing is consulted for third-party slots
+    that have no declared and no cached window, and any answer is cached.  The
+    audit itself is read-only with respect to the CC Switch DB.
+    """
+    findings: list[ContextFinding] = []
+    probed = 0
+    for row in rows:
+        name = str(row["name"])
+        try:
+            settings = json.loads(row["settings_config"] or "{}")
+        except (json.JSONDecodeError, TypeError, UnicodeError, RecursionError):
+            # A provider whose settings cannot be parsed is already reported by
+            # the settings audit; the window audit just has nothing to say.
+            continue
+        if not isinstance(settings, dict):
+            continue
+        env = settings.get("env")
+        if not isinstance(env, dict):
+            continue
+        base_url = env.get("ANTHROPIC_BASE_URL")
+        base_url = base_url.strip() if isinstance(base_url, str) else None
+        declared = declared_window_from_settings(settings)
+
+        seen: set[tuple[str, str]] = set()
+        for env_key in _MODEL_ENV_KEYS:
+            raw_model = env.get(env_key)
+            if not isinstance(raw_model, str) or not raw_model.strip():
+                continue
+            model = raw_model.strip()
+            fingerprint = (env_key, model.casefold())
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+
+            if (
+                probe
+                and base_url
+                and declared is None
+                and cached_context_window(base_url, model) is None
+                and not strip_suffix(model).casefold().startswith("claude-")
+            ):
+                window = probe_upstream_context_window(
+                    base_url, _probe_credential(env), model
+                )
+                if window is not None:
+                    store_context_window(base_url, model, window)
+                    probed += 1
+
+            plan = slot_context_plan(model, settings, base_url=base_url)
+            for note in plan.notes:
+                findings.append(
+                    ContextFinding(
+                        provider=name,
+                        env_key=env_key,
+                        model=model,
+                        code=note.code,
+                        message=note.message,
+                        window=plan.window,
+                        source=plan.source,
+                    )
+                )
+    return findings, probed
+
+
+# Findings that make the client believe a larger window than the upstream can
+# serve.  Those end in an upstream rejection, so they are failures; the rest are
+# tidiness or missing-declaration notices.
+_CONTEXT_FAILURE_CODES = frozenset({WARN_FAKE_1M, WARN_SUFFIX_WITHOUT_BETA})
+_CONTEXT_CODE_LABELS = {
+    WARN_FAKE_1M: "假 1M",
+    WARN_SUFFIX_WITHOUT_BETA: "后缀无上游支持",
+    WARN_REDUNDANT_SUFFIX: "后缀多余",
+    WARN_UNKNOWN_OFFICIAL: "模型未被本机 CLI 识别",
+    WARN_WINDOW_UNDECLARED: "窗口未声明",
+    WARN_DECLARED_IGNORED: "声明不生效",
+}
+# One line per code, printed once after the findings.  The per-finding message on
+# ``ContextFinding`` stays verbose for the UI; the doctor stays scannable.
+_CONTEXT_CODE_HINTS = {
+    WARN_FAKE_1M: (
+        "[1m] 让客户端按 1M 压缩，上游窗口更小时会话不会压缩而是被上游拒绝。"
+        "声明 claude1_capabilities.context_window，或去掉后缀"
+    ),
+    WARN_SUFFIX_WITHOUT_BETA: (
+        "该模型要靠 context-1m beta 才有 1M，而当前 provider 不会发送该 header；"
+        "[1m] 只改变了客户端的认知"
+    ),
+    WARN_REDUNDANT_SUFFIX: "模型原生就是 1M，去掉 [1m] 可让模型 ID 与上游一致",
+    WARN_UNKNOWN_OFFICIAL: (
+        f"claude- 前缀的模型不在本机 CLI v{MATRIX_CLI_VERSION} 的模型表中，"
+        f"{MAX_CONTEXT_TOKENS_ENV} 对它无效；升级 Claude Code 后重跑 "
+        "tools/extract_1m_matrix.py"
+    ),
+    WARN_WINDOW_UNDECLARED: (
+        "Claude Code 会按它假设的窗口压缩。声明 claude1_capabilities.context_window，"
+        "或用 `claude1 doctor --probe` 向上游询问"
+    ),
+    WARN_DECLARED_IGNORED: "窗口由 Claude Code 内建模型表决定，声明值不参与",
+}
+
+
+def cli_doctor(*, fix: bool = False, probe: bool = False) -> int:
     """Check local state and optionally remove persisted subagent model pins."""
     failures = 0
 
@@ -6873,7 +7192,12 @@ def cli_doctor(*, fix: bool = False) -> int:
             report("FAIL", f"{name}: settings_config 无效，已跳过")
         print()
     else:
-        print("claude1 doctor（只读配置与传输检查）\n")
+        header = (
+            "claude1 doctor --probe（会向上游模型列表发只读请求）"
+            if probe
+            else "claude1 doctor（只读配置与传输检查）"
+        )
+        print(f"{header}\n")
     if sys.version_info >= (3, 11):
         report("OK", f"Python {sys.version_info.major}.{sys.version_info.minor}")
     else:
@@ -6906,6 +7230,56 @@ def cli_doctor(*, fix: bool = False) -> int:
             )
         else:
             report("OK", "provider 未固定子代理模型")
+
+        findings, probed_count = context_window_findings(rows, probe=probe)
+        if probe:
+            report(
+                "INFO",
+                f"探测上游模型列表完成，新缓存 {probed_count} 个真实窗口"
+                f"（{CONTEXT_CACHE_PATH}）",
+            )
+        if findings:
+            # One provider can carry the same model in five slots; collapse those
+            # into a single line so the real variety stays visible.
+            grouped: dict[tuple[str, str, str], list[str]] = {}
+            for finding in findings:
+                key = (finding.provider, finding.model, finding.code)
+                grouped.setdefault(key, []).append(finding.env_key)
+            ordered = sorted(
+                grouped.items(),
+                key=lambda item: (
+                    item[0][2] not in _CONTEXT_FAILURE_CODES,
+                    item[0][0],
+                    item[0][1],
+                ),
+            )
+            for (provider, model, code), env_keys in ordered:
+                label = _CONTEXT_CODE_LABELS.get(code, code)
+                level = "FAIL" if code in _CONTEXT_FAILURE_CODES else "INFO"
+                slots = (
+                    env_keys[0]
+                    if len(env_keys) == 1
+                    else f"{len(env_keys)} 个模型槽位"
+                )
+                report(level, f"{provider} · {model} [{label}] {slots}")
+            for code in dict.fromkeys(item[0][2] for item in ordered):
+                hint = _CONTEXT_CODE_HINTS.get(code)
+                if hint:
+                    label = _CONTEXT_CODE_LABELS.get(code, code)
+                    print(f"       └ {label}：{hint}")
+        else:
+            report(
+                "OK",
+                "所有 provider 的上下文窗口声明与 Claude Code "
+                f"v{MATRIX_CLI_VERSION} 的模型表一致",
+            )
+        if not probe and any(
+            item.code == WARN_WINDOW_UNDECLARED for item in findings
+        ):
+            report(
+                "INFO",
+                "运行 `claude1 doctor --probe` 可向上游模型列表询问真实窗口",
+            )
 
     if any(_provider_uses_local_gateway(_provider_from_row(row)) for row in rows):
         if GATEWAY_BIN.is_file() and os.access(GATEWAY_BIN, os.X_OK):
@@ -7071,10 +7445,15 @@ def main(argv: list[str]) -> int:
         return cli_list_providers(show_all="--all" in argv[1:])
     if argv and argv[0] == "doctor":
         doctor_args = argv[1:]
-        if doctor_args not in ([], ["--fix"]):
-            print("[claude1] doctor 仅支持 --fix", file=sys.stderr)
+        allowed = {"--fix", "--probe"}
+        if not set(doctor_args) <= allowed or len(set(doctor_args)) != len(
+            doctor_args
+        ):
+            print("[claude1] doctor 仅支持 --fix 与 --probe", file=sys.stderr)
             return 2
-        return cli_doctor(fix=doctor_args == ["--fix"])
+        return cli_doctor(
+            fix="--fix" in doctor_args, probe="--probe" in doctor_args
+        )
     if argv and argv[0] == "usage":
         return cli_usage(argv[1:])
     if argv and argv[0] == "errors":
