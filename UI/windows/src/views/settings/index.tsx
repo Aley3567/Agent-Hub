@@ -17,14 +17,21 @@ import {
 } from '../../components';
 import { useApp } from '../../store';
 import { THEME_LABEL, useNav, type ThemeMode } from '../../store/nav';
+import { DENSITY_LABEL, useUi, type Density } from '../../store/ui';
 import EnvRow from './parts/EnvRow';
 import PathRow from './parts/PathRow';
 import styles from './index.module.css';
 
 const THEME_OPTIONS: ReadonlyArray<SegmentedOption<ThemeMode>> = [
-  { value: 'system', label: THEME_LABEL.system, icon: 'monitor', title: '跟随 macOS 的外观设置' },
+  { value: 'system', label: THEME_LABEL.system, icon: 'monitor', title: '跟随 Windows 的外观设置' },
   { value: 'dark', label: THEME_LABEL.dark, icon: 'moon', title: '始终用深色' },
   { value: 'light', label: THEME_LABEL.light, icon: 'sun', title: '始终用浅色' },
+];
+
+const DENSITY_OPTIONS: ReadonlyArray<SegmentedOption<Density>> = [
+  { value: 'standard', label: DENSITY_LABEL.standard, title: '默认密度' },
+  { value: 'large', label: DENSITY_LABEL.large, title: '整体放大到 112.5%' },
+  { value: 'larger', label: DENSITY_LABEL.larger, title: '整体放大到 125%' },
 ];
 
 /** 空字符串等于没检测到，不让它渲染成一行空白 */
@@ -34,11 +41,23 @@ function nonEmpty(value: string | null): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+/**
+ * 任务清单路径。app_env 的返回集被 CONTRACT.md 第 3 节钉死、没有 tasksPath 字段，
+ * 而默认位置就是配置路径旁边那个 agent-hub-tasks.json（Rust 侧 paths.rs 的 tasks_path()），
+ * 所以从 configPath 换最后一个路径段派生。设了 AGENT_HUB_TASKS_PATH 环境变量时
+ * 真实位置以该变量为准，界面上显示的是默认位置（行的 hint 里写明这一点）。
+ */
+function tasksPathFrom(configPath: string): string {
+  return configPath.replace(/[^/\\]+$/, 'agent-hub-tasks.json');
+}
+
 export default function SettingsView() {
   const theme = useNav((state) => state.theme);
   const setTheme = useNav((state) => state.setTheme);
   const sidebarCollapsed = useNav((state) => state.sidebarCollapsed);
   const toggleSidebar = useNav((state) => state.toggleSidebar);
+  const density = useUi((state) => state.density);
+  const setDensity = useUi((state) => state.setDensity);
 
   const env = useApp((state) => state.env);
   const envLoading = useApp((state) => state.loading.env === true);
@@ -87,12 +106,20 @@ export default function SettingsView() {
         }
       >
         <div className={styles.fields}>
-          <Field label="主题" hint="跟随系统时由 macOS 的外观设置决定深浅色。">
+          <Field label="主题" hint="跟随系统时由 Windows 的外观设置决定深浅色；标题栏右侧的太阳/月亮图标可以一键快切。">
             <SegmentedControl
               options={THEME_OPTIONS}
               value={theme}
               onChange={setTheme}
               aria-label="主题"
+            />
+          </Field>
+          <Field label="界面大小" hint="整体缩放界面：图标、文字、控件一起变大，立即生效。">
+            <SegmentedControl
+              options={DENSITY_OPTIONS}
+              value={density}
+              onChange={setDensity}
+              aria-label="界面大小"
             />
           </Field>
           <Field label="侧栏" hint="折叠后只留图标，Ctrl+B 也能切换。">
@@ -134,6 +161,11 @@ export default function SettingsView() {
               path={env.logsDir}
               hint="用量与错误 journal 都在这个目录下，用量视图与诊断视图读的就是它们。"
             />
+            <PathRow
+              label="任务清单路径"
+              path={tasksPathFrom(env.configPath)}
+              hint="计划任务清单：任务视图的增删改都写在这里。设了 AGENT_HUB_TASKS_PATH 环境变量时真实位置以它为准，这里显示的是默认位置。"
+            />
           </div>
         )}
       </Card>
@@ -156,7 +188,7 @@ export default function SettingsView() {
               label="平台"
               value={nonEmpty(env.platform)}
               mono
-              missingImpact="读不到平台名，界面仍按 macOS 的规则渲染，可能与实际不符。"
+              missingImpact="读不到平台名，界面仍按 Windows 的规则渲染，可能与实际不符。"
             />
             <EnvRow
               label="应用版本"
@@ -203,13 +235,16 @@ export default function SettingsView() {
           <li className={styles.aboutItem}>不做协议转换、不做转发——它不是第二个网关。</li>
           <li className={styles.aboutItem}>不发任何遥测、不连任何外部域名。</li>
           <li className={styles.aboutItem}>
-            CC Switch 数据库只读打开，写操作只落在 claude1-config.json 与 claude-hub.json。
+            CC Switch 数据库只读打开，写操作只落在 claude1-config.json、claude-hub.json 与 agent-hub-tasks.json。
           </li>
           <li className={styles.aboutItem}>
             凭证在 Rust 侧就被剥离，界面上只会看到「已配置 / 未配置」，也不提供复制凭证的入口。
           </li>
           <li className={styles.aboutItem}>
             账号池首版只读；用量只呈现已经记过账的数据，没有价格表就不估算金额。
+          </li>
+          <li className={styles.aboutItem}>
+            对话视图当前是演示实现：会话与回复都来自内置演示数据，不接任何真实后端。
           </li>
           <li className={styles.aboutItem}>没有自动更新、没有托盘常驻、没有 deep link。</li>
         </ul>

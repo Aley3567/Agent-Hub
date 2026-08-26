@@ -248,7 +248,11 @@ export default function ChannelDetail({
                   })}
                 </ul>
                 <p className={styles.hint}>
-                  窗口内 {formatCount(win.turns)} 个回合，其中 {formatCount(win.degradedTurns)} 个带降级。
+                  <span>窗口内 </span>
+                  <span className={styles.mono}>{formatCount(win.turns)}</span>
+                  <span> 个回合，其中 </span>
+                  <span className={styles.mono}>{formatCount(win.degradedTurns)}</span>
+                  <span> 个带降级。</span>
                 </p>
               </>
             )}

@@ -54,14 +54,22 @@
 }
 
 /* 一键填充结果：逐条说明写了什么、跳过了什么、为什么 */
+/* 视图层的独立面板（不在 Card 内），外轮廓走 --border-default（DESIGN.md 2.2.1） */
+/* 入场取 --dur-normal：DESIGN.md 2.5 时长语义表把「面板 / 抽屉 / 对话框入场」划在这一档，
+   这块面板是点完「一键填充」之后才出现的结果面板，让「刚刚写了什么」被看见。
+   关键帧复用 global.css 的 view-enter，不自写——2.5「关键帧清单」是白名单，并且明写
+   「src/views/** 下不许出现 @keyframes」；写成 global(view-enter) 是因为 CSS Modules
+   会把裸关键帧名哈希成本文件私有名，引用不到 global.css 里那个。
+   reduced-motion 下被通配的 animation: none 关掉，面板直接就位。 */
 .report {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: var(--sp-3) var(--sp-4);
   background: var(--bg-surface);
+  animation: global(view-enter) var(--dur-normal) var(--ease-out) both;
 }
 
 .reportHead {

@@ -1,0 +1,89 @@
+/* 对话视图骨架（DESIGN.md 4.5）：横幅 + 左栏会话列表 + 右栏消息流 + 底部 composer。
+   本视图满宽且自身接管滚动——高度由 index.tsx 按壳层滚动容器的可视高写成固定值，
+   壳层内容区因此不滚，滚动只发生在 .listPane 与消息流两个独立容器里。
+   视图级尺寸 --chat-list-w 取自 tokens.css（DESIGN.md 2.4）。 */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+/* 演示数据横幅（强制）：--warn-muted 底 + --warn 字，单行细横幅（DESIGN.md 4.5） */
+.banner {
+  flex: none;
+  background: var(--warn-muted);
+  color: var(--warn);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  text-align: center;
+  padding: var(--sp-1) var(--sp-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 会话列表加载失败的原因原文（store 的 error.chat），就地显示不吞掉 */
+.error {
+  flex: none;
+  padding: var(--sp-2) var(--sp-6);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--danger);
+}
+
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* 左栏：固定宽 --chat-list-w，独立滚动容器之一 */
+.listPane {
+  flex: none;
+  width: var(--chat-list-w);
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 与消息流之间的兄弟分隔线，同外壳条带口径用 --border-subtle（DESIGN.md 2.2.1、4.5） */
+  border-right: 1px solid var(--border-subtle);
+}
+
+.chatPane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 选中会话还没有消息时的引导态：给下一步动作，不写「暂无对话」（DESIGN.md 4.5） */
+.emptyStream {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  padding: var(--sp-6);
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+}
+
+.emptyHint {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--text-tertiary);
+}

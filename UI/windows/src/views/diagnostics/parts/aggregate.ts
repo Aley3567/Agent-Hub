@@ -7,21 +7,15 @@
  *
  * 文案一律走 lookupDegrade，本文件不产出任何人话句子。
  */
-import type { StatusToneInput } from '../../../components';
 import { SEVERITY_ORDER, compareDegrade, lookupDegrade } from '../../../data/degradeCatalog';
 import type { DegradeEntry, DegradeSeverity } from '../../../data/degradeCatalog';
 import type { ErrorRow, UsageRow } from '../../../types/contract';
 
 /**
- * 严重度 → StatusDot 语义色（DESIGN.md 第 4.4 节写死）：
- * info 灰点、notice 青点、degraded 琥珀点、lossy 琥珀点（标题另外加粗）。
+ * 严重度 → StatusDot 语义色由 DESIGN.md 第 4.4 节写死，单点定义在 degradeCatalog；
+ * 这里转发保持既有 import 路径不变。
  */
-export const SEVERITY_TONE: Record<DegradeSeverity, StatusToneInput> = {
-  info: 'off',
-  notice: 'current',
-  degraded: 'degraded',
-  lossy: 'degraded',
-};
+export { SEVERITY_TONE } from '../../../data/degradeCatalog';
 
 /** 由严重到轻，供汇总条与筛选按固定顺序渲染 */
 export const SEVERITY_KEYS: DegradeSeverity[] = (['lossy', 'degraded', 'notice', 'info'] as DegradeSeverity[]).sort(

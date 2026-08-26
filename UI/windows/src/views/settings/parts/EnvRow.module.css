@@ -34,11 +34,15 @@
   line-height: var(--lh-13);
 }
 
-/* 平台名、版本号、python 版本都是技术标识，一律等宽（DESIGN.md 2.3） */
+/* 平台名、版本号、python 版本都是技术标识，一律等宽（DESIGN.md 2.3）。
+   DESIGN.md 2.3 点名了这处：「Select / Textarea / settings 的 EnvRow 的 .mono
+   只换字体族」——版本号是数值，mono 之外还得补 tabular-nums，否则 3.11 与 3.9
+   两行的点号位置会错开。 */
 .mono {
   font-family: var(--font-mono);
   font-size: var(--fs-12);
   line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
 }
 
 .plain {

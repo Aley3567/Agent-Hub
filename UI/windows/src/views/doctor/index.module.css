@@ -28,7 +28,7 @@
   gap: var(--sp-4);
   flex-wrap: wrap;
   padding: var(--sp-4);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
 }
@@ -46,18 +46,18 @@
   line-height: var(--lh-20);
   font-weight: var(--fw-semibold);
   color: var(--text-primary);
+  /* DESIGN.md 2.3 把「KPI 与统计大数字（--fs-20 / --fs-28）」列进定宽范围：
+     这句话里的三个计数会随重新体检变化，整数部分不许横向漂移 */
+  font-variant-numeric: tabular-nums;
 }
 
 .counters {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2) var(--sp-5);
-}
-
-.fixNote {
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
+  /* 「通过 N 项 / 警告 N 项 / 失败 N 项」三个计数并排，位数一变就会互相推挤；
+     StatusDot 自己只声明了 --font-ui，定宽得由这里给（DESIGN.md 2.3） */
+  font-variant-numeric: tabular-nums;
 }
 
 /* IPC 的中文原因原样显示（AGENTS.md：错误原样暴露） */
@@ -85,8 +85,9 @@
   min-width: 0;
 }
 
+/* 列表外框用 default；行间分隔线在 CheckRow 里，仍是 subtle */
 .list {
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   overflow: hidden;

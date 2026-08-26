@@ -1,23 +1,28 @@
 /*
  * 槽位行的五列栅格。
  *
- * 列宽在这里集中成局部 token，各处只引用变量，不再重复写数值。
- * 取值依据：effort 一列要容纳「未设置 / low / medium / high / xhigh」五段标签；
- * 模型一列按常见模型 id 长度取；其余按控件最小可读宽度取。
- * 合计 + 四道 --sp-3 间隙约 1004px，落在内容区最大宽 --content-max-w 扣掉
- * 内容区与卡片内边距之后的可用宽度内；窗口更窄时由外层容器横向滚动承担
- * （DESIGN.md 3 节：宽内容自己 overflow-x，body 永不横向滚动）。
+ * 列宽是弹性的：fr 比例沿用最初固定值的 140/192/208/260/156，宽窗口下的视觉比例与原来
+ * 一致；minmax 的下限是各列控件的最小可读宽度（effort 一列要容纳「未设置 / low / medium /
+ * high / xhigh」五段 SegmentedControl）。窗口变窄时列先按比例收缩到下限，再窄就由 HubCard
+ * 的 slotsScroll 横向滚动承担（DESIGN.md 3 节：宽内容自己 overflow-x，body 永不横向滚动）。
  */
 .item {
-  --col-slot: 140px;
-  --col-channel: 192px;
-  --col-model: 208px;
-  --col-effort: 260px;
-  --col-usage: 156px;
+  --col-slot-min: 96px;
+  --col-channel-min: 128px;
+  --col-model-min: 144px;
+  --col-effort-min: 200px;
+  --col-usage-min: 120px;
 
+  --col-slot: minmax(var(--col-slot-min), 140fr);
+  --col-channel: minmax(var(--col-channel-min), 192fr);
+  --col-model: minmax(var(--col-model-min), 208fr);
+  --col-effort: minmax(var(--col-effort-min), 260fr);
+  --col-usage: minmax(var(--col-usage-min), 156fr);
+
+  /* 各列下限之和 + 四道 --sp-3 间隙：窄于这个宽度不再压缩，交给外层容器横向滚动 */
   min-width: calc(
-    var(--col-slot) + var(--col-channel) + var(--col-model) + var(--col-effort) + var(--col-usage) + 4 *
-      var(--sp-3)
+    var(--col-slot-min) + var(--col-channel-min) + var(--col-model-min) + var(--col-effort-min) +
+      var(--col-usage-min) + 4 * var(--sp-3)
   );
   padding: var(--sp-3) 0;
 }
@@ -77,11 +82,17 @@
   line-height: var(--lh-12);
 }
 
+/* 「N 回合 · N tokens」两个数字随刷新变位数，属于 DESIGN.md 2.3「数字定宽是硬规则」点名的
+   token 计数与次数。global.css 的 body 已经声明了 tabular-nums、这里本来就继承得到；
+   补一份是对齐工程里所有换了 font-mono 的类都自带 tabular-nums 的惯例（2.3 那句
+   「看到 .mono 类不等于数字已定宽」说的就是这类漏项），也防住这个类哪天落到
+   button / input 上——`font: inherit` 会把 font-variant-numeric 重置回 normal。 */
 .usageMeta {
   color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: var(--fs-11);
   line-height: var(--lh-11);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 行下方的说明区：未绑定去向、配置错误、跨协议降级 */

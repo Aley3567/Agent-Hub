@@ -9,6 +9,7 @@
  */
 import { Badge, StatusDot, Table, Td, Th } from '../../../components';
 import type { BadgeTone, StatusToneInput } from '../../../components';
+import type { KeyboardEvent } from 'react';
 import { MISSING, formatTime, formatTokens } from '../../../lib';
 import type { UsageRow } from '../../../types/contract';
 import { SEVERITY_TONE } from '../../diagnostics/parts/aggregate';
@@ -42,6 +43,31 @@ function sourceView(source: string): { tone: StatusToneInput; text: string; titl
   return { tone: 'off', text: source, title: `journal 里的 source 是 ${source}，本视图没有对应口径说明` };
 }
 
+/**
+ * 表格内的 ↑↓ 行移动（键盘事件局部绑定）：焦点在某行里时，↓/↑ 移到相邻行的主操作
+ * （降级列按钮）上，没有降级码的行没有按钮、自动跳过；Enter 由按钮原生激活，
+ * 不需要额外绑定。
+ */
+function onBodyKeyDown(event: KeyboardEvent<HTMLTableSectionElement>) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const row = target.closest('tr[data-row]');
+  if (row === null) return;
+  const rows = Array.from(event.currentTarget.querySelectorAll('tr[data-row]'));
+  const index = rows.indexOf(row);
+  if (index < 0) return;
+  const step = event.key === 'ArrowDown' ? 1 : -1;
+  for (let i = index + step; i >= 0 && i < rows.length; i += step) {
+    const control = rows[i].querySelector('button');
+    if (control !== null) {
+      event.preventDefault();
+      control.focus();
+      return;
+    }
+  }
+}
+
 export function UsageTable({ rows, onInspectDegrade }: UsageTableProps) {
   return (
     <Table stickyHeader minWidth={1040} aria-label="最近用量明细">
@@ -59,12 +85,12 @@ export function UsageTable({ rows, onInspectDegrade }: UsageTableProps) {
           <Th>降级</Th>
         </tr>
       </thead>
-      <tbody>
+      <tbody onKeyDown={onBodyKeyDown}>
         {rows.map((row, index) => {
           const source = sourceView(row.source);
           const worst = worstSeverity(row.deg);
           return (
-            <tr key={`${row.ts}-${row.channel}-${row.model}-${index}`}>
+            <tr key={`${row.ts}-${row.channel}-${row.model}-${index}`} data-row="">
               <Td mono title={formatTime(row.ts)}>
                 {formatTime(row.ts)}
               </Td>

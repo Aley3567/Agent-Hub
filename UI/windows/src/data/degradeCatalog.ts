@@ -12,6 +12,7 @@
  *
  * 内容由编排者审定，不要在移植时改写措辞——两个平台工程必须逐字一致。
  */
+import type { StatusTone } from '../components';
 
 export type DegradeSeverity = 'info' | 'notice' | 'degraded' | 'lossy';
 
@@ -36,6 +37,18 @@ export const SEVERITY_LABEL: Record<DegradeSeverity, string> = {
   degraded: '降级',
   notice: '已换算',
   info: '提示',
+};
+
+/**
+ * 严重度 → StatusDot 语义色，DESIGN.md 第 4.4 节写死：
+ * info 灰点、notice 青点、degraded 琥珀点、lossy 琥珀点（标题另外加粗）。
+ * 单点定义在这里，channels 与 diagnostics 视图都从本文件取，不再各写一份。
+ */
+export const SEVERITY_TONE: Record<DegradeSeverity, StatusTone> = {
+  info: 'off',
+  notice: 'current',
+  degraded: 'degraded',
+  lossy: 'degraded',
 };
 
 export const DEGRADE_CATALOG: DegradeEntry[] = [
@@ -329,8 +342,9 @@ export function lookupDegrade(code: string): DegradeEntry {
   if (hit) return hit;
   return {
     code,
-    title: code.replace(/^HUB_DEGRADE_/, '').toLowerCase().replace(/_/g, ' '),
-    what: '这是一个还没收录进人话目录的降级码。',
+    // CONTRACT.md 第 5 节：未收录的码直接显示原码当标题，不转写成英文 slug
+    title: code,
+    what: '未收录的降级类型，请把这个码发给作者。',
     impact: '影响未知。协议桥选择了放行而不是报错，所以这一轮的结果应该是可用的。',
     action: '把这个码连同发生时间发给作者，补进目录。',
     severity: 'degraded',

@@ -1,0 +1,105 @@
+/* 锚点导航栏。sticky 偏移与宽度由视图侧 .rail 覆盖（它要知道吸顶工具条的高度），
+   这里只管内部排版。 */
+
+.label {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+  padding: 0 var(--sp-3);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 当前项沿用侧栏的选中语言（内缩圆角块 + --bg-selected 底 + accent 文字，DESIGN.md 2.4.1），
+   不另造选中标识，也不补竖条。 */
+.anchor {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  text-align: left;
+  cursor: pointer;
+  /* hover 纯变色 → --dur-instant（DESIGN.md 2.5 反向判据）；
+     属性写长写法：selected + hover 的叠加层靠 background-image，不能进过渡清单 */
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.anchor:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 按下比 hover 深一档，时长按 2.5 语义表走 --dur-fast */
+.anchor:active:not(:disabled) {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 选中：元素级时长切到 --dur-fast（chip/tab 选中档）。于是选中项被 hover 时的变色也走
+   140ms——DESIGN.md 2.4.1 叠加规则明确说这是元素级 transition 的必然结果，不算违规 */
+.current {
+  background-color: var(--bg-selected);
+  color: var(--accent-text);
+  transition-duration: var(--dur-fast);
+}
+
+/* selected + hover / active：选中标识恒亮，背景在 --bg-selected 上再叠一层（叠加规则第 1 条） */
+.current:hover:not(:disabled) {
+  background-color: var(--bg-selected);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
+  color: var(--accent-text);
+}
+
+.current:active:not(:disabled) {
+  background-color: var(--bg-selected);
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+  transition-duration: var(--dur-fast);
+}
+
+/* focus-visible 由 global.css 统一画（2px --accent + 2px offset），本文件不归零。
+   disabled 目前调用方不会传，五态仍给出明确定义 */
+.anchor:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+  transition: none;
+}
+
+.anchorText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  /* 小节条目计数（DESIGN.md 2.3） */
+  font-variant-numeric: tabular-nums;
+}
+
+.current .count {
+  color: var(--accent-text);
+}

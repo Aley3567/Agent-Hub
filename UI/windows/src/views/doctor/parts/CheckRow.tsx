@@ -4,9 +4,9 @@
  * 失败与警告项默认展开——原因和建议动作是这一页真正要读的东西，不该藏在一次点击后面。
  * detail 里混着本机路径与上游文本，渲染前过一遍前端兜底脱敏（CONTRACT.md 1.2）。
  */
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button, Icon, StatusDot, type StatusToneInput } from '../../../components';
-import { redactSecrets } from '../../../lib';
+import { cx, redactSecrets } from '../../../lib';
 import type { DoctorCheck, DoctorLevel } from '../../../types/contract';
 import styles from './CheckRow.module.css';
 
@@ -17,7 +17,7 @@ export const LEVEL_LABEL: Record<DoctorLevel, string> = {
   fail: '失败',
 };
 
-/** 状态点语义映射（DESIGN.md 4.1）：绿=正常、琥珀=需要注意、红=失败 */
+/** 状态点语义映射（DESIGN.md 4.1：绿=正常、琥珀=降级、红=失败），info 档在界面上按「警告」呈现 */
 export const LEVEL_TONE: Record<DoctorLevel, StatusToneInput> = {
   ok: 'ok',
   info: 'degraded',
@@ -45,6 +45,24 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
   const detail = redactSecrets(check.detail);
   const hasFix = check.fixAction !== null;
   const hasBody = detail !== '' || hasFix || fixError !== null;
+  const bodyOpen = hasBody && open;
+
+  /**
+   * 展开面板的入场（DESIGN.md 2.5 时长语义表：面板入场 = --dur-normal）。
+   * 面板是条件挂载的，transition 不会在挂载那一帧触发，所以先挂上 .bodyEnter 当起点，
+   * 挂载后隔一帧摘掉，让 CSS 把它过渡回基态。DESIGN.md 2.5 的关键帧白名单不许视图自己
+   * 新增关键帧，这是不越界又能让「刚展开的是这一块」被看见的办法。
+   * 起点只有 4px 位移与透明度，rAF 万一被推迟（页签隐藏）也只是晚一点淡入，不会丢内容。
+   */
+  const [entered, setEntered] = useState(false);
+  useEffect(() => {
+    if (!bodyOpen) {
+      setEntered(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(frame);
+  }, [bodyOpen]);
 
   const head = (
     <>
@@ -55,7 +73,12 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
         <code className={styles.id}>{check.id}</code>
         <span className={styles.level}>{LEVEL_LABEL[check.level]}</span>
         {hasBody ? (
-          <Icon name={open ? 'chevron-down' : 'chevron-right'} size={14} className={styles.chevron} />
+          // 一枚箭头旋转到位，不换图标名：旋转能被看见，换名是硬切（样式见 .chevron / .chevronOpen）
+          <Icon
+            name="chevron-right"
+            size={16}
+            className={cx(styles.chevron, open && styles.chevronOpen)}
+          />
         ) : null}
       </span>
     </>
@@ -77,8 +100,8 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
         <div className={styles.static}>{head}</div>
       )}
 
-      {hasBody && open ? (
-        <div className={styles.body} id={bodyId}>
+      {bodyOpen ? (
+        <div className={cx(styles.body, !entered && styles.bodyEnter)} id={bodyId}>
           {detail === '' ? null : <p className={styles.detail}>{detail}</p>}
 
           {hasFix ? (

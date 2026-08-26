@@ -29,7 +29,13 @@ import {
 import { SlotPicker } from './SlotPicker';
 import styles from './SlotRow.module.css';
 
-/** 成功反馈停留多久。轻量提示，不做 toast 队列 */
+/**
+ * 成功反馈停留多久。轻量提示，不做 toast 队列。
+ *
+ * 1600ms 是「提示在屏幕上待多久」，不是过渡时长：DESIGN.md 2.5 的 320ms 上限管的是过渡
+ * （transition / animation），停留时长既不是过渡也不是 indeterminate 循环，不在它管辖内，
+ * 所以别把它误当成一处超上限的动效改掉。反馈本身是条件渲染的挂载 / 卸载，没有过渡值可调。
+ */
 const SAVED_TTL = 1600;
 
 export interface SlotRowProps {

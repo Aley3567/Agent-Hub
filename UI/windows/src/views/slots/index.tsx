@@ -43,6 +43,7 @@ export default function SlotsView() {
   const setSlot = useApp((state) => state.setSlot);
   const offline = useApp((state) => state.offline);
   const loadingHubs = useApp((state) => state.loading.hubs === true);
+  const hubsLoaded = useApp((state) => state.loadedKeys.hubs === true);
   const loadingChannels = useApp((state) => state.loading.channels === true);
   const loadingUsage = useApp((state) => state.loading.usage === true);
   const hubsError = useApp((state) => state.error.hubs ?? null);
@@ -218,15 +219,19 @@ export default function SlotsView() {
       )}
 
       {hubs.length === 0 && !loadingHubs ? (
-        <EmptyState
-          icon="slots"
-          title="本机还没有可用的 hub 配置"
-          description="读不到 ~/.cc-switch/claude-hub.json，命名 hub 注册表也是空的，所以没有槽位可以绑定。"
-          action={{ label: '重新读取', icon: 'refresh', onClick: () => void reload() }}
-          hint={
-            <span className={styles.mono}>cp examples/claude-hub.example.json ~/.cc-switch/claude-hub.json</span>
-          }
-        />
+        // hubs 一次都没加载过时（首帧 loading 还没置真）不下「没有 hub」的结论，内容区留空；
+        // 加载失败时只留上方错误 alert，空态的「读不到文件」描述和 cp hint 会误导覆盖现有配置
+        hubsLoaded && hubsError === null ? (
+          <EmptyState
+            icon="slots"
+            title="本机还没有可用的 hub 配置"
+            description="读不到 ~/.cc-switch/claude-hub.json，命名 hub 注册表也是空的，所以没有槽位可以绑定。"
+            action={{ label: '重新读取', icon: 'refresh', onClick: () => void reload() }}
+            hint={
+              <span className={styles.mono}>cp examples/claude-hub.example.json ~/.cc-switch/claude-hub.json</span>
+            }
+          />
+        ) : null
       ) : (
         <div className={styles.hubs}>
           {visible.map((hub) => (

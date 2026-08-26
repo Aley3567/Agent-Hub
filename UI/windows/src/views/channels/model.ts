@@ -14,7 +14,6 @@
  *      在渲染前再过一遍 redactSecrets，这是 fail-closed 的第二道闸。
  */
 import type { BadgeTone, StatusTone } from '../../components';
-import type { DegradeSeverity } from '../../data/degradeCatalog';
 import { compareDegrade } from '../../data/degradeCatalog';
 import { redactSecrets } from '../../lib';
 import type {
@@ -290,13 +289,8 @@ export function matchesQuery(channel: Channel, query: string): boolean {
 
 export const WINDOW_SECONDS = 24 * 60 * 60;
 
-/** DESIGN.md 4.4 的严重度配色：info 灰、notice 青、degraded 与 lossy 琥珀 */
-export const SEVERITY_TONE: Record<DegradeSeverity, StatusTone> = {
-  info: 'off',
-  notice: 'current',
-  degraded: 'degraded',
-  lossy: 'degraded',
-};
+/** DESIGN.md 4.4 的严重度配色单点定义在 degradeCatalog，这里转发保持既有 import 路径不变 */
+export { SEVERITY_TONE } from '../../data/degradeCatalog';
 
 export interface DegradeCount {
   code: string;

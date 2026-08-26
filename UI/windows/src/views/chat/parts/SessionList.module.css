@@ -1,0 +1,74 @@
+/* 会话列表项：与侧栏导航同一套「内缩圆角块」语言（DESIGN.md 2.4.1 selected 行、3 节）。
+   各行 padding 的合计与侧栏一致：margin sp-2 + padding sp-3。 */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+}
+
+/* 内缩圆角块：左右各留 sp-2，选中底填满整个块 */
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  width: calc(100% - 2 * var(--sp-2));
+  margin: 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  text-align: left;
+  /* hover 只变背景色与文字色，走 --dur-instant（DESIGN.md 2.4.1 hover 行） */
+  transition:
+    background-color var(--dur-instant) var(--ease-in-out),
+    color var(--dur-instant) var(--ease-in-out);
+}
+
+/* 五态：hover / active 在此；selected 见 .itemActive；focus-visible 由
+   styles/global.css 的 :focus-visible 统一给（左右 sp-2 外边距保证焦点环不被裁）；
+   列表项没有 disabled 场景，不为它编只改颜色的规则 */
+.item:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 按下必须与 hover 视觉可分，时长走 --dur-fast */
+.item:active {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+.itemActive {
+  background-color: var(--bg-selected);
+  color: var(--accent-text);
+  /* 选中是一次决定：时长按 selected 行走 --dur-fast */
+  transition-duration: var(--dur-fast);
+}
+
+.itemTitle {
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  font-weight: var(--fw-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemActive .itemTitle {
+  color: var(--accent-text);
+  font-weight: var(--fw-semibold);
+}
+
+/* 副行「渠道名 · 相对时间」：技术标识走 mono，数字定宽（DESIGN.md 1 节第 3 条、2.3 节） */
+.itemMeta {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

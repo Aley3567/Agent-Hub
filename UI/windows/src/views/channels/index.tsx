@@ -9,7 +9,6 @@
  */
 import { useMemo, useState } from 'react';
 import {
-  Button,
   EmptyState,
   Icon,
   SearchInput,
@@ -17,6 +16,7 @@ import {
   Spinner,
   Switch,
   Table,
+  Td,
   Th,
   Toolbar,
   Tooltip,
@@ -34,16 +34,15 @@ import {
 } from './model';
 import styles from './index.module.css';
 
-/** 表头列数，展开行与分区行的 colSpan 要跟着它 */
+/** 表格总列数。展开的详情行与分区标题行都占「除末列以外」的全部列，末列留给 sticky 操作列 */
 const COLUMN_COUNT = 7;
-
-const DEFAULT_DB_PATH = '~/.cc-switch/cc-switch.db';
 
 export default function ChannelsView() {
   const channels = useApp((state) => state.channels);
   const recentUsage = useApp((state) => state.recentUsage);
   const dbPath = useApp((state) => state.env?.dbPath ?? null);
   const loading = useApp((state) => state.loading.channels === true);
+  const loaded = useApp((state) => state.loadedKeys.channels === true);
   const loadError = useApp((state) => state.error.channels ?? null);
   const usageError = useApp((state) => state.error.usage ?? null);
   const refresh = useApp((state) => state.refresh);
@@ -110,19 +109,10 @@ export default function ChannelsView() {
       {loading ? <div className="app-progress" role="progressbar" aria-label="正在读取渠道" /> : null}
 
       <Toolbar
+        className={styles.toolbar}
         divider
+        wrap={false}
         aria-label="渠道筛选"
-        right={
-          <Button
-            size="sm"
-            icon="refresh"
-            loading={loading}
-            onClick={() => void refresh('channels')}
-            title="重新读取 CC Switch 的 providers 表与本地覆盖"
-          >
-            刷新
-          </Button>
-        }
       >
         <SearchInput
           value={query}
@@ -131,6 +121,7 @@ export default function ChannelsView() {
           aria-label="按渠道名、别名或模型搜索"
         />
         <Select
+          wrapperClassName={styles.protocolSelect}
           selectSize="sm"
           mono
           aria-label="按协议格式筛选"
@@ -155,8 +146,9 @@ export default function ChannelsView() {
       {channels.length === 0 ? (
         <EmptyPlaceholder
           loading={loading}
+          loaded={loaded}
           loadError={loadError}
-          dbPath={dbPath ?? DEFAULT_DB_PATH}
+          dbPath={dbPath}
           onRetry={() => void refresh('channels')}
         />
       ) : listed.length === 0 ? (
@@ -167,7 +159,20 @@ export default function ChannelsView() {
           action={{ label: '清空筛选', icon: 'close', onClick: clearFilters }}
         />
       ) : (
-        <Table stickyHeader aria-label="渠道列表">
+        <Table className={styles.channelTable} stickyHeader aria-label="渠道列表">
+          {/* 七列宽度按 DESIGN.md 4.1.1「宽度预算」表声明；有 colgroup 时 Table 自动切
+              table-layout: fixed，240px 的模型列上限只有 fixed 下才是硬约束 */}
+          <colgroup>
+            <col className={styles.colStatus} />
+            <col className={styles.colChannel} />
+            <col className={styles.colProtocol} />
+            <col className={styles.colModel} />
+            <col className={styles.colContext} />
+            {/* 语义兼容性列占备注那一档预算，是整张表唯一的 flexible 列：不给宽，由它吸收
+                剩余宽度。给了宽 fixed 会把富余摊给每一列，模型列的 240px 上限就没了 */}
+            <col />
+            <col className={styles.colAction} />
+          </colgroup>
           <thead>
             <tr>
               <Th>状态</Th>
@@ -184,7 +189,7 @@ export default function ChannelsView() {
                   <span>语义兼容性</span>
                 </Tooltip>
               </Th>
-              <Th>动作</Th>
+              <Th stickyAction>动作</Th>
             </tr>
           </thead>
           <tbody>
@@ -204,7 +209,7 @@ export default function ChannelsView() {
           {hiddenMatches.length === 0 ? null : (
             <tbody>
               <tr className={styles.groupRow}>
-                <td className={styles.groupCell} colSpan={COLUMN_COUNT}>
+                <td className={styles.groupCell} colSpan={COLUMN_COUNT - 1}>
                   <button
                     type="button"
                     className={styles.groupToggle}
@@ -213,7 +218,10 @@ export default function ChannelsView() {
                     title={forcedOpen ? '其余渠道都被筛选条件排除了，隐藏分区保持展开' : undefined}
                     onClick={() => setHiddenOpen(!hiddenExpanded)}
                   >
-                    <Icon name={hiddenExpanded ? 'chevron-down' : 'chevron-right'} size={14} />
+                    {/* 方向靠 CSS 旋转而不是换图标名：图标名互换是硬切，拿不到 --dur-fast
+                        那一档「图标旋转翻转」的过渡（DESIGN.md 2.5 时长语义表）。
+                        chevron-right 转 90° 与 chevron-down 逐点相同，静态形态不变。 */}
+                    <Icon name="chevron-right" size={16} className={styles.groupChevron} />
                     <span>
                       已隐藏（<span className={styles.groupCount}>{hiddenMatches.length}</span>）
                     </span>
@@ -222,6 +230,9 @@ export default function ChannelsView() {
                     隐藏只是让 claude1 的普通列表不列出它们，别名与 id 仍然能启动。
                   </span>
                 </td>
+                {/* 末列补一个空的 sticky 单元格：这一行原来 colSpan 铺满七列，横滚时分区
+                    文字会从 sticky 操作列底下穿过去 */}
+                <Td stickyAction className={styles.groupActionCell} />
               </tr>
               {hiddenExpanded
                 ? hiddenMatches.map((channel) => (
@@ -245,7 +256,8 @@ export default function ChannelsView() {
       {listed.length === 0 ? null : (
         <div className={styles.notes}>
           <p className={styles.note}>
-            <span>「启动会话」会在新的终端窗口执行 </span>
+            {/* 动作列只放得下图标（132px 硬预算），这句话得替读者把图标和名字对上 */}
+            <span>动作列最左边的「启动会话」会在新的终端窗口执行 </span>
             <span className={styles.mono}>claude1 id:&lt;渠道 id&gt;</span>
             <span>，会话由终端里的 claude1 接管，桌面端不代管进程。</span>
           </p>
@@ -257,14 +269,17 @@ export default function ChannelsView() {
 
 interface EmptyPlaceholderProps {
   loading: boolean;
+  /** channels 是否至少加载过一次（成败都算）。首帧 loading 还没置真，靠它压住空态闪烁 */
+  loaded: boolean;
   loadError: string | null;
-  dbPath: string;
+  /** env 没给 dbPath 时是 null：不猜默认路径，只说没检测到 */
+  dbPath: string | null;
   onRetry: () => void;
 }
 
 /** 一个渠道都没有时的三种处境：还在读、读失败、真的没有。三种下一步不一样 */
-function EmptyPlaceholder({ loading, loadError, dbPath, onRetry }: EmptyPlaceholderProps) {
-  if (loading) {
+function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: EmptyPlaceholderProps) {
+  if (loading || !loaded) {
     return (
       <p className={styles.pending}>
         <Spinner label="正在读取 CC Switch 的渠道列表" />
@@ -278,7 +293,13 @@ function EmptyPlaceholder({ loading, loadError, dbPath, onRetry }: EmptyPlacehol
         title="没能读到渠道列表"
         description={loadError}
         action={{ label: '重试', icon: 'refresh', onClick: onRetry }}
-        hint={<span className={styles.mono}>{dbPath}</span>}
+        hint={
+          dbPath === null ? (
+            <span>数据库路径没有检测到，无法确认读的是哪个文件</span>
+          ) : (
+            <span className={styles.mono}>{dbPath}</span>
+          )
+        }
       />
     );
   }
@@ -289,9 +310,13 @@ function EmptyPlaceholder({ loading, loadError, dbPath, onRetry }: EmptyPlacehol
       description="数据库的 providers 表里没有 app_type='claude' 的记录。先在 CC Switch 里添加一个 Claude 渠道，再回到这里刷新。"
       action={{ label: '刷新', icon: 'refresh', onClick: onRetry }}
       hint={
-        <span>
-          只读打开：<span className={styles.mono}>{dbPath}</span>
-        </span>
+        dbPath === null ? (
+          <span>数据库路径没有检测到，请确认 CC Switch 已安装</span>
+        ) : (
+          <span>
+            只读打开：<span className={styles.mono}>{dbPath}</span>
+          </span>
+        )
       }
     />
   );

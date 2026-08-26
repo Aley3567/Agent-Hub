@@ -16,10 +16,79 @@
   line-height: var(--lh-13);
 }
 
+/* 首屏加载：两份流水都还没读到时给一个明确的加载态，不留白屏 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-10) 0;
+}
+
+/* 主栏 + 右侧锚点导航（REDESIGN-PROMPT 1.5：5.5 屏连续长页必须有锚点跳转） */
+.layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-6);
+}
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+
 .section {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
+  /* 锚点跳转落点：给吸顶工具条（51px）与小节头（约 68px）留位，别让小节顶到视口边 */
+  scroll-margin-top: calc(var(--sp-10) * 3);
+}
+
+/* sticky 小节头：长列表滚动时标题钉住，用户滚到中段也不失去方位。
+   底必须不透明（--bg-base）——半透明会让滚过去的列表行透出来。
+   top 偏移 = 吸顶工具条高（SearchInput 34 + 上下 padding 16 + 分隔线 1 = 51）+ 1px 余量；
+   密度缩放（body zoom）对所有 px 等比生效，这个偏移跟着走，不用另算。 */
+.sectionHead {
+  position: sticky;
+  top: calc(var(--sp-10) + var(--sp-3));
+  z-index: var(--z-sticky);
+  background: var(--bg-base);
+  padding: var(--sp-2) 0;
+}
+
+/* 锚点导航栏：钉在吸顶工具条下面，跟随滚动不挪位。
+   宽度是视图级尺寸，不进通用间距阶梯（同 --chat-list-w 的口径，DESIGN.md 2.4） */
+.rail {
+  --diag-rail-w: 132px;
+  position: sticky;
+  top: calc(var(--sp-10) + var(--sp-3) + var(--sp-3));
+  flex: 0 0 var(--diag-rail-w);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 窄窗口：导航收到顶部横排，主栏占满宽度 */
+@media (max-width: 860px) {
+  .layout {
+    flex-direction: column-reverse;
+  }
+
+  .rail {
+    position: static;
+    flex: none;
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .rail > ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
 }
 
 .list {
@@ -44,6 +113,8 @@
   font-family: var(--font-ui);
   font-size: var(--fs-12);
   line-height: var(--lh-12);
+  /* 「只看带过来的 N 个降级码」——码计数，DESIGN.md 2.3 */
+  font-variant-numeric: tabular-nums;
 }
 
 .occurrences {
@@ -59,4 +130,6 @@
   font-family: var(--font-ui);
   font-size: var(--fs-12);
   line-height: var(--lh-12);
+  /* 「还有 N 条出现记录没列出」——计数，DESIGN.md 2.3 */
+  font-variant-numeric: tabular-nums;
 }

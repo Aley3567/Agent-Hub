@@ -34,16 +34,19 @@
   gap: var(--sp-2);
 }
 
-/* 路径是技术标识，一律等宽；凹陷底让它看起来是可复制的值而不是正文 */
+/* 路径是技术标识，一律等宽；凹陷底让它看起来是可复制的值而不是正文。
+   这一格是独立的取值框（同输入框），外轮廓走 --border-default；行间那条分隔线才用 subtle。
+   路径里混着数字（用户名、版本号），tabular-nums 让它们定宽不跳（DESIGN.md 2.3 硬规则）。 */
 .path {
   padding: var(--sp-2) var(--sp-3);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-inset);
   color: var(--text-primary);
   font-family: var(--font-mono);
   font-size: var(--fs-12);
   line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 

@@ -23,19 +23,67 @@
   font-family: var(--font-ui);
   font-size: var(--fs-12);
   line-height: var(--lh-12);
+  /* 三条属性按语义分时长（DESIGN.md 2.5 时长语义表 + 反向判据）：
+       background-color 只在 hover 时变，必须 --dur-instant，慢下来就成拖影；
+       border-color 与 color 只由「选中」驱动（hover 不动这两个），chip 选中属于
+       --dur-fast，而选中是双向状态，所以曲线用 --ease-in-out。
+     属性写长写法 background-color，不写 background shorthand：真正在变的只有底色，
+     shorthand 会把 background-image 一起列进过渡清单，而下面 selected + hover 的叠加层
+     正是靠 background-image 做的。 */
   transition:
-    background var(--dur-instant) var(--ease-out),
-    border-color var(--dur-instant) var(--ease-out);
+    background-color var(--dur-instant) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-in-out),
+    color var(--dur-fast) var(--ease-in-out);
 }
 
-.chip:hover {
-  background: var(--bg-hover);
+.chip:hover:not(:disabled) {
+  background-color: var(--bg-hover);
 }
 
+/* 选中（aria-pressed=true）。focus-visible 由 global.css 统一画；
+   DESIGN.md 2.4.1 叠加规则第 2 条要求 selected + focus-visible 两者都画，
+   焦点环不顶替选中的标识，所以这里不动 outline。 */
 .active {
   border-color: var(--accent);
   background: var(--bg-selected);
   color: var(--text-primary);
+}
+
+/* selected + hover：DESIGN.md 2.4.1 叠加规则第 1 条要求「背景在 --bg-selected 之上
+   再叠 --bg-hover」。写在 .chip:hover 之后才压得住它——否则选中的 chip 一 hover 就把
+   选中底色换成了 hover 底色，等于选中态在指针下消失。
+   叠加靠一层 --bg-hover 的实色渐变盖在 --bg-selected 上，两个值都是既有 token，
+   没有自创色值。 */
+.active:hover:not(:disabled) {
+  background-color: var(--bg-selected);
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
+}
+
+/* 按下（未选中的 chip）：DESIGN.md 2.4.1 要求与 hover 可区分，时长按 2.5 语义表走
+   --dur-fast。两条按下规则必须排在 .active:hover 之后——鼠标按下时 hover 必然同时成立，
+   排在前面会被同特异性的 hover 规则压掉，按下就没有反馈了。 */
+.chip:active:not(:disabled) {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* selected + 按下：同一条叠加规则的另一半，把 --bg-active 叠在 --bg-selected 上，
+   选中底色不被按下动作抹掉 */
+.active:active:not(:disabled) {
+  background-color: var(--bg-selected);
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+  transition-duration: var(--dur-fast);
+}
+
+/* 目前调用方不会传 disabled，但五态要有明确定义：文字与描边一起退档，
+   不只靠颜色表意，指针回默认，且 hover / active 都被 :not(:disabled) 挡掉 */
+.chip:disabled {
+  border-color: var(--border-subtle);
+  color: var(--text-tertiary);
+  cursor: default;
+  /* DESIGN.md 2.4.1 disabled 一行的时长栏写的是「不过渡」：退档要立刻发生，
+     不然一个不能用的控件还在那里慢慢变灰 */
+  transition: none;
 }
 
 .label {

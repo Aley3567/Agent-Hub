@@ -1,10 +1,20 @@
 /* 展开行的详情面板。两栏靠百分比 flex 自适应，不写断点像素 */
 
+/* 入场：opacity 0→1 + 2px 上移，时长取 --dur-normal——DESIGN.md 2.5 的时长语义表把
+   「面板 / 抽屉 / 对话框入场」划在这一档，而这块面板是点开一行后展开的面板。
+   关键帧本身不新写：2.5「关键帧清单」是全工程 8 个的白名单，并且明写
+   「src/views/** 下不许出现 @keyframes」，所以这里复用 global.css 的 view-enter
+   （同形：opacity 0→1 + translateY(2px)→0，--dur-normal / --ease-out）。
+   必须写成 global(view-enter)：CSS Modules 默认把 animation 里的裸关键帧名也当本文件的
+   局部名哈希掉（实测 vite 会输出 _view-enter_xxxxx），那样就引用不到 global.css 里那个。
+   both 与工具类一致。reduced-motion 下被 global.css 的通配 animation: none 整体关掉，
+   面板直接就位——丢一次淡入不丢任何信息。 */
 .detail {
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
   padding: var(--sp-4) 0;
+  animation: global(view-enter) var(--dur-normal) var(--ease-out) both;
 }
 
 .error {

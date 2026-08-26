@@ -1,0 +1,33 @@
+/* 计划任务视图容器。数值全部取 tokens.css。 */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+/* IPC 的中文错误原文直接显示，不换成「加载失败」（AGENTS.md：错误原样暴露） */
+.error {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-8) 0;
+}
+
+/* 卡片列表：任务数量少、字段异构，纵向卡片比定宽列好扫（DESIGN.md 4.7） */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}

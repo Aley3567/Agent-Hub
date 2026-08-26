@@ -12,10 +12,12 @@
   gap: var(--sp-2);
   min-height: var(--row-h);
   padding: var(--sp-1) var(--sp-4) var(--sp-1) var(--sp-2);
+  /* 行 hover 只变背景色，按 DESIGN.md 2.5 的反向判据钉在 --dur-instant */
+  transition: background-color var(--dur-instant) var(--ease-out);
 }
 
 .header:hover {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover);
 }
 
 /* 展开开关只包住「指示箭头 + 严重度 + 人话标题」；
@@ -30,6 +32,24 @@
   border-radius: var(--radius-sm);
   color: inherit;
   text-align: left;
+  /* hover 的变色落在 .header 上（避免两层底色叠着）；这里的 80ms 是松手后的回落，
+     按下那一刻由下面那条规则换成 --dur-fast */
+  transition: background-color var(--dur-instant) var(--ease-out);
+}
+
+/* 按下：整行 hover 已经亮了 --bg-hover，按下必须再深一档才分得出来（DESIGN.md 2.4.1），
+   时长按 2.5 语义表走 --dur-fast */
+.toggle:active:not(:disabled) {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 展开与否由箭头图标 + aria-expanded 表达，这个按钮没有 selected 态。
+   focus-visible 由 global.css 统一画（2px --accent + 2px offset），本文件不归零。
+   disabled 目前调用方不会传，五态仍给出明确定义。 */
+.toggle:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
 }
 
 .chevron {
@@ -78,6 +98,26 @@
   font-family: var(--font-mono);
   font-size: var(--fs-11);
   line-height: var(--lh-11);
+  /* 「+N」是降级码计数（DESIGN.md 2.3） */
+  font-variant-numeric: tabular-nums;
+}
+
+/* 这颗徽章也是按钮（点了同样展开），之前一态都没有。
+   hover / active 用 DESIGN.md 2.4.1 规定的叠加做法：在自己的语义底色 --warn-muted 上
+   叠一层 --bg-hover / --bg-active，不换语义色、不自创色值。 */
+.extra:hover:not(:disabled) {
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
+}
+
+/* 叠加层是 background-image，CSS 不能过渡它，所以这两态是硬切、本规则不声明 transition：
+   写一条过渡不上任何属性的时长只是把数字凑上去，不是设计。 */
+.extra:active:not(:disabled) {
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+}
+
+.extra:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
 }
 
 .count {
@@ -101,6 +141,9 @@
   font-size: var(--fs-11);
   line-height: var(--lh-11);
   white-space: nowrap;
+  /* 这一栏摆的是时间戳与相对时间（「最近一次 12 分钟前」），属于 DESIGN.md 2.3
+     点名要定宽的一类；它右对齐，位数一跳整栏就会左右晃 */
+  font-variant-numeric: tabular-nums;
 }
 
 .panel {

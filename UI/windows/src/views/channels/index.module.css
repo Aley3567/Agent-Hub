@@ -7,6 +7,61 @@
   min-width: 0;
 }
 
+/* 筛选栏是独立面板，外轮廓用 default；表格里 sticky 操作列的分隔线仍是 subtle */
+.toolbar {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.protocolSelect {
+  width: 220px;
+  flex: 0 1 220px;
+}
+
+/* ---- 列宽 · DESIGN.md 4.1.1「宽度预算」表 ----
+   七列宽度一律由 <colgroup> 声明（配 Table 的 table-layout: fixed），值取 --table-col-* token，
+   这里不写 px。语义兼容性（占备注那一档预算）列刻意不给宽：4.1.1「列宽策略」只准留一个
+   flexible 列吸收剩余宽度。给它也写上宽度反而有害——七列合计小于表宽时 fixed 会把富余按
+   比例摊给每一列，模型列被撑过 240px，上限就失效了。 */
+
+/* 六个定宽列 + 备注取 min 160 合计 970px：容器比它窄就交给 Table 自带的横滚，不把列挤扁。
+   备注列的内容宽上限落在 ChannelRow.module.css 的 .compatInner 上（<col> 只认 width，
+   不认 min/max-width，所以 --table-col-note-max 约束不了列宽本身）。.compatCell 只负责
+   overflow: hidden。 */
+.channelTable {
+  min-width: calc(
+    var(--table-col-status) + var(--table-col-channel) + var(--table-col-protocol) +
+      var(--table-col-model-max) + var(--table-col-context) + var(--table-col-note-min) +
+      var(--table-col-action)
+  );
+}
+
+.colStatus {
+  width: var(--table-col-status);
+}
+
+.colChannel {
+  width: var(--table-col-channel);
+}
+
+.colProtocol {
+  width: var(--table-col-protocol);
+}
+
+.colModel {
+  width: var(--table-col-model-max);
+}
+
+.colContext {
+  width: var(--table-col-context);
+}
+
+.colAction {
+  width: var(--table-col-action);
+}
+
 /* 读取失败时把 store 里的中文原因原样摆出来，不换成「加载失败」 */
 .error {
   border: 1px solid var(--danger);
@@ -36,6 +91,28 @@
   background: var(--bg-surface);
 }
 
+/* 分区标题行原来是一个 colSpan=7 的单元格，右端正好铺到 sticky 操作列的位置上，而这一行
+   自己没有 sticky 单元格：横滚时分区文字会从操作列底下穿过去。所以让它只占前六列，末列
+   补一个空的 sticky 单元格。--bg-surface 本身是不透明色（#17181e / #fbfbfc），问题不在
+   alpha 而在缺了这个单元格。
+   底色改成分区行自己的 --bg-surface，免得操作列在这一行上变成一条 --bg-base 的暗带；
+   原语的 .stickyAction 自己声明了 --sticky-action-bg，所以这里用 td.xxx（0,1,1）压过它
+   （0,1,0），不去赌两个 CSS Modules 文件的打包先后。 */
+td.groupActionCell {
+  --sticky-action-bg: var(--bg-surface);
+}
+
+/* 隐藏分区的折叠开关。五态按 DESIGN.md 2.4.1「交互五态」逐条落地：
+   hover 只变色，走 --dur-instant——2.5 的时长语义表把「hover 的背景色 / 文字色变化」
+   钉在 80ms，反向判据那段还写明改成 140ms / 220ms 算凑数；
+   active 叠 --bg-active 并把时长换到 --dur-fast（语义表「按钮按下」那一档），
+   2.4.1 的 active 行要求它与 hover 视觉可区分，所以按下多一层背景而不只是变深文字；
+   展开态由 aria-expanded 表达：它不是 2.4.1 说的「当前项」，因此不画 accent 竖条，
+   只把标题提到 --text-primary，方向交给 chevron 的 90° 旋转；
+   focus-visible 与全局同一套 token（global.css 已有 :focus-visible 兜底，这里就近再声明
+   一次，免得以后给本控件加 outline 相关样式时把它盖掉——2.4.1：绝不 outline: none）；
+   disabled 只在「其余渠道全被筛掉、分区被迫展开」时出现，除了 --text-tertiary 与
+   cursor: default，按钮的 title 会说明为什么点不动，不靠颜色单独表意。 */
 .groupToggle {
   display: inline-flex;
   align-items: center;
@@ -47,7 +124,9 @@
   font-size: var(--fs-12);
   line-height: var(--lh-12);
   font-weight: var(--fw-medium);
-  transition: background-color var(--dur-instant) var(--ease-out);
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
 }
 
 .groupToggle:hover:not(:disabled) {
@@ -55,9 +134,41 @@
   color: var(--text-primary);
 }
 
+.groupToggle:active:not(:disabled) {
+  background: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 展开中：标题提一级，与「收起状态的次级标题」区分开。加 :not(:disabled) 是为了让
+   被迫展开（forcedOpen）那种情形仍然读作不可点，而不是读作一个高亮的可点标题 */
+.groupToggle[aria-expanded='true']:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.groupToggle:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .groupToggle:disabled {
   cursor: default;
   color: var(--text-tertiary);
+}
+
+/* 折叠箭头。原来是 chevron-right / chevron-down 两个图标名互换——那是硬切，拿不到过渡；
+   改成单一 chevron-right 加 90° 旋转，时长语义表把「图标旋转翻转」划给 --dur-fast。
+   静态形态与改造前逐点一致：chevron-right 的 M9.6 5.4l6.8 6.6-6.8 6.6 绕 (12,12) 顺时针
+   转 90°，三个点正好落在 chevron-down 的 M5.4 9.6L12 16.4l6.6-6.8 上。
+   reduced-motion 下 transform 过渡按 global.css 的属性白名单被丢掉，箭头直接就位，
+   不丢「展开了没有」这个状态。
+   曲线用 --ease-in-out：展开/收起是双向状态，按 DESIGN.md 2.5「双向状态（hover 进出、
+   开关来回）用 var(--ease-in-out)」，与 doctor/parts/CheckRow.module.css 的 .chevron 同档。 */
+.groupChevron {
+  transition: transform var(--dur-fast) var(--ease-in-out);
+}
+
+.groupToggle[aria-expanded='true'] .groupChevron {
+  transform: rotate(90deg);
 }
 
 .groupCount {

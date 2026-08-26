@@ -16,6 +16,37 @@
   color: var(--text-tertiary);
 }
 
+/* 选择器 + 复制按钮：Card 副标题行用 inline-flex（不撑满整行） */
+.refRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 成员标识单元格：复用 Table 原语 .truncate 的 max-width:0 挤压技巧，让列宽由表格算法分配，
+   但 overflow 不落在 td 上——否则 IconButton 的 focus 环会被裁掉（DESIGN.md 2.4.1）。
+   截断改由内侧 .refText 承担。 */
+.refTd {
+  max-width: 0;
+}
+
+.refCell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 单元格里的截断落在这一层：长标识吃省略号，复制按钮始终完整露出 */
+.refText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* 渠道名是标识符，一律等宽（DESIGN.md 1 节第 3 条） */
 .channelName {
   font-family: var(--font-mono);
@@ -77,10 +108,20 @@
   font-size: var(--fs-12);
   line-height: var(--lh-12);
   color: var(--text-secondary);
+  /* 冷却秒数（默认冷却 / 冷却上限）也走这个类，秒数是数值，跟着定宽。
+     DESIGN.md 2.3 的原话是「mono 与 tabular-nums 是两件事，都要给」：
+     等宽只保证字形不糊，定宽才保证位数变了不跳。 */
+  font-variant-numeric: tabular-nums;
 }
 
 .muted {
   color: var(--text-tertiary);
+}
+
+/* 相对时间（「12 分钟前」）：一列里位数从 1 位变 2 位不许让整列左右跳。
+   只加定宽、不带颜色，需要退档的地方与 .muted 叠着用（DESIGN.md 2.3 时间戳一条）。 */
+.when {
+  font-variant-numeric: tabular-nums;
 }
 
 /* 成员列表为空：claude1 会直接拒绝加载这个池，属于配置坏了，用 danger 语义说清 */
