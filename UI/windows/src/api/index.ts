@@ -22,6 +22,8 @@ import type {
   AccountPool,
   AppEnv,
   Channel,
+  ChatMessage,
+  ChatSession,
   DoctorCheck,
   Effort,
   ErrorRow,
@@ -29,18 +31,29 @@ import type {
   HubConfig,
   LaunchResult,
   LaunchTarget,
+  NewScheduledTask,
+  PluginItem,
+  ScheduledTask,
   SlotName,
   UsageRow,
   UsageSummary,
 } from '../types/contract';
 import {
   MOCK_CHANNELS,
+  MOCK_CHAT_SESSIONS,
   MOCK_DOCTOR,
   MOCK_ENV,
   MOCK_ERRORS,
   MOCK_HUBS,
+  MOCK_PLUGINS,
   MOCK_POOLS,
+  MOCK_TASKS,
   MOCK_USAGE,
+  mockCreateTask,
+  mockDeleteTask,
+  mockSendChatMessage,
+  mockSetPluginEnabled,
+  mockUpdateTask,
   mockUsageSummary,
 } from './mock';
 
@@ -186,4 +199,53 @@ export function openPath(path: string): Promise<void> {
 
 export function revealInFolder(path: string): Promise<void> {
   return write('reveal_in_folder', { path }, '在 Finder 中显示');
+}
+
+// ---------------------------------------------------------------------------
+// 对话、插件与计划任务
+// ---------------------------------------------------------------------------
+//
+// 这一组与上面「离线拒绝写」的纪律不同：对话本轮恒为演示实现（Rust 侧也不连上游），
+// 任务与插件的开关是本轮新 surface——CONTRACT.md 第 4 节要求 mock 覆盖它们，
+// 所以离线模式下 mock 层就地改示例数据并回新值，让视图调试时能看到状态流转。
+// 「离线示例数据」徽章照亮，假数据不会冒充真实数据。
+
+export function listChatSessions(): Promise<ChatSession[]> {
+  return read('list_chat_sessions', {}, () => MOCK_CHAT_SESSIONS);
+}
+
+export function sendChatMessage(sessionId: string, content: string): Promise<ChatMessage> {
+  if (isOffline) return mockSendChatMessage(sessionId, content);
+  return invoke<ChatMessage>('send_chat_message', { sessionId, content });
+}
+
+export function listPlugins(): Promise<PluginItem[]> {
+  return read('list_plugins', {}, () => MOCK_PLUGINS);
+}
+
+export function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+  if (isOffline) return mockSetPluginEnabled(id, enabled);
+  return invoke<void>('set_plugin_enabled', { id, enabled });
+}
+
+export function listTasks(): Promise<ScheduledTask[]> {
+  return read('list_tasks', {}, () => MOCK_TASKS);
+}
+
+export function createTask(task: NewScheduledTask): Promise<ScheduledTask> {
+  if (isOffline) return mockCreateTask(task);
+  return invoke<ScheduledTask>('create_task', { task });
+}
+
+export function updateTask(
+  id: string,
+  patch: { enabled?: boolean; schedule?: string; name?: string },
+): Promise<ScheduledTask> {
+  if (isOffline) return mockUpdateTask(id, patch);
+  return invoke<ScheduledTask>('update_task', { id, patch });
+}
+
+export function deleteTask(id: string): Promise<void> {
+  if (isOffline) return mockDeleteTask(id);
+  return invoke<void>('delete_task', { id });
 }

@@ -16,32 +16,46 @@
 :root {
   color-scheme: dark;
 
-  /* --- 背景 --- */
-  --bg-base: #131316;
-  --bg-surface: #1a1a1e;
-  --bg-elevated: #212127;
-  --bg-inset: #0f0f11;
-  --bg-hover: rgba(255, 255, 255, 0.045);
-  --bg-active: rgba(255, 255, 255, 0.075);
-  --bg-selected: rgba(78, 201, 212, 0.12);
+  /* --- 背景：四层拉开反差，带极轻冷蓝倾向，避免纯灰的"平" --- */
+  --bg-base: #101116;
+  --bg-surface: #17181e;
+  --bg-elevated: #1f212a;
+  --bg-inset: #0b0c10;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-active: rgba(255, 255, 255, 0.08);
+  --bg-selected: rgba(62, 214, 227, 0.20);
+  --bg-selected-table: rgba(62, 214, 227, 0.08);
+  /* DESIGN.md 4.1.1「sticky 操作列」第 1 条：上一行叠在 --bg-base 上的不透明等价色。
+     sticky 列不能用半透明底，横滚时会透出滚过去的单元格文字。
+     逐通道 c = a·前景 + (1−a)·背景：R .08·62+.92·16=19.68→20、G .08·214+.92·17=32.76→33、
+     B .08·227+.92·22=38.40→38，即 #142126。深色底两侧同值（5 节没把深色层级列为差异），
+     所以这里的等价色也两侧同值。 */
+  --bg-selected-table-solid: #142126;
 
   /* --- 描边 --- */
-  --border-subtle: #26262c;
-  --border-default: #32323a;
-  --border-strong: #45454f;
+  --border-subtle: #232530;
+  --border-default: #2e313d;
+  --border-strong: #414654;
 
   /* --- 文字 --- */
   --text-primary: #ececf1;
-  --text-secondary: #a1a1aa;
-  --text-tertiary: #6e6e78;
+  --text-secondary: #a9abb6;
+  /* #787a85 对 surface 仅 4.15、对 base 4.42，双双低于 DESIGN.md 1 节的 4.5:1 硬规则。
+     12px 不能豁免——WCAG 的豁免线是 18.66px bold / 24px regular。抬到 #828490 后
+     实测 surface 4.77 / base 5.07。 */
+  --text-tertiary: #828490;
   --text-inverse: #131316;
 
-  /* --- accent：青，主行动色 --- */
-  --accent: #4ec9d4;
-  --accent-hover: #6ad9e3;
-  --accent-press: #3fb4bf;
-  --accent-muted: rgba(78, 201, 212, 0.14);
-  --accent-text: #7fdbe4;
+  /* --- accent：青，主行动色。亮饱和，不再低调 --- */
+  --accent: #3ed6e3;
+  --accent-hover: #6fe7ef;
+  --accent-press: #2fc0cc;
+  --accent-muted: rgba(62, 214, 227, 0.18);
+  --accent-text: #8fe6ee;
+  /* 品牌渐变（青→蓝，取自 BrandMark 的青→蓝段）：主按钮与强调面用 */
+  --accent-gradient: linear-gradient(135deg, #3ed6e3 0%, #3f8cff 100%);
+  /* accent 色外发光阴影，给 primary 这类主行动一点体量感 */
+  --accent-glow: rgba(62, 214, 227, 0.30);
 
   /* --- violet：思考 / reasoning / effort --- */
   --violet: #b57bee;
@@ -58,10 +72,10 @@
   /* --- 派生值（深色）---
      --sidebar-bg：DESIGN.md 5 节平台差异表 Windows 行「背景材质」要求 Win11 Mica，
      不可用时退回实色且明确不做 blur 兜底（性能差）。所以 Sidebar 用实色
-     --bg-surface #1a1a1e，靠与 --bg-base 的层次差分隔，既不叠半透明也不加 backdrop-filter。
+     --bg-surface #17181e，靠与 --bg-base 的层次差分隔，既不叠半透明也不加 backdrop-filter。
      --chart-area：DESIGN.md 4.2 TimeSeries 的「accent 8% 填充」。 */
-  --sidebar-bg: #1a1a1e;
-  --chart-area: rgba(78, 201, 212, 0.08);
+  --sidebar-bg: #17181e;
+  --chart-area: rgba(62, 214, 227, 0.08);
 
   /* ======================================================================
      以下 token 与主题无关，只在裸 :root 定义一次
@@ -123,20 +137,26 @@
   --z-palette: 300;
   --z-toast: 400;
 
-  /* --- 动效 · DESIGN.md 2.5 的基准值 × 0.85（5 节平台差异表 Windows 行：
-     Windows 惯例更快）。换算结果直接写死：80→68、140→119、220→187，
-     过渡上限随之从 220ms 降到 187ms。 --- */
+  /* --- 动效 · DESIGN.md 2.5 的基准值 × 0.85（5 节平台差异表 Windows 行「动效时长」：
+     过渡四档全部 ×0.85，Windows 惯例更快）。换算结果直接写死：80→68、140→119、
+     220→187、320→272。四档是「语义映射」而不是快慢刻度盘，选值前先读
+     DESIGN.md 2.5 的时长语义表。 --- */
   --dur-instant: 68ms;
   --dur-fast: 119ms;
   --dur-normal: 187ms;
+  /* 过渡上限。只给命令面板入场与首屏内容浮现两类，不要扩散到别处 */
+  --dur-slow: 272ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
-  /* 顶部加载进度线的循环周期。DESIGN.md 2.5 的 220ms 上限约束的是「过渡」，
-     不定时长的 indeterminate 指示器不是过渡，故单列一个 token 而非写死魔法值。
-     同理，平台差异表的 × 0.85 只作用于过渡类 token，循环指示器两侧同值。 */
+
+  /* 以下三个不是过渡时长，不受过渡上限约束（DESIGN.md 2.5「上限与例外」）。
+     顶部加载进度线、Spinner 与对话视图流式光标都是 indeterminate 指示器——表达
+     「还在进行」而不是「A 变成了 B」，所以循环周期可以长过上限；单列 token 而非写死魔法值。
+     5 节平台差异表的 ×0.85 只作用于过渡四档，循环周期两侧同值，不缩放——
+     它们不是过渡，缩了只会让循环更抢眼。 */
   --dur-progress-loop: 1100ms;
-  /* 对话视图流式/思考态光标 caret-pulse 的呼吸周期 · DESIGN.md 2.5 / 4.5。
-     与 --dur-progress-loop 同例：indeterminate 循环周期两侧同值，× 0.85 只作用于过渡四档 */
+  --dur-spin-loop: 720ms;
+  /* 对话视图流式/思考态光标 caret-pulse 的呼吸周期 · DESIGN.md 2.5 / 4.5 */
   --dur-caret-loop: 1100ms;
 
   /* ======================================================================
@@ -156,10 +176,10 @@
   --win-close-press-bg: rgba(196, 43, 28, 0.9);
   --win-close-hover-fg: #ffffff;
 
-  /* 骨架 · DESIGN.md 3 节 */
-  --sidebar-w: 220px;
+  /* 骨架 · DESIGN.md 3 节（侧栏宽与状态栏高不在 5 节差异表里，两侧同值） */
+  --sidebar-w: 232px;
   --sidebar-w-collapsed: 56px;
-  --statusbar-h: 28px;
+  --statusbar-h: 30px;
   --content-max-w: 1120px;
   /* 选中项左侧 2px accent 竖条 */
   --accent-bar-w: 2px;
@@ -169,14 +189,15 @@
   /* 控件 · DESIGN.md 4.1，尺寸按 5 节平台差异表 Windows 行的控件密度收紧：
      按钮高各减 2px（28→26、32→30）、表格行高 36→34。
      --icon-btn-size 是例外，保持 28px：DESIGN.md 4.1 与 6 节把它同时钉在 28×28，
-     再减就跌破最小点击区，那是可达性底线而不是密度参数。 */
+     再减就跌破最小点击区，那是可达性底线而不是密度参数。
+     --dot-size / --icon-size 不在密度行里，两侧同值。 */
   --control-h-sm: 26px;
   --control-h-md: 30px;
   --icon-btn-size: 28px;
   --badge-h: 18px;
   --row-h: 34px;
-  --dot-size: 6px;
-  --icon-size: 16px;
+  --dot-size: 7px;
+  --icon-size: 20px;
   --stroke-w: 1.5;
   /* 表头大写字距 */
   --table-head-tracking: 0.04em;
@@ -199,6 +220,37 @@
   --chart-bar-radius: 2px;
   --chart-donut-w: 8px;
   --chart-sparkline-h: 24px;
+
+  /* --- 表格列宽 · DESIGN.md 4.1.1「宽度预算」表 ---
+     1440px 窗口可用宽 1160px（1440 − 侧栏 232 − 内容区 padding 48）。
+     固定六列合计 810px，备注列 min 160 → 970 / max 320 → 1130，两种都不横滚。
+     七列总和是硬预算，上限 1130：要加宽某列必须从别的列匀出来。
+     由 <colgroup> 声明，配 table-layout: fixed，不靠内容撑。 */
+
+  /* 状态列（StatusDot + 一行文字），定宽 */
+  --table-col-status: 88px;
+  /* 渠道名列（名称 + 别名），定宽 */
+  --table-col-channel: 150px;
+  /* 协议格式列（anthropic / openai_chat / openai_responses / unknown），定宽。
+     160 是按最长值反推的下限：openai_responses 16 字符 × 12px mono 的 0.6em advance
+     = 115.2px，加 Badge 左右 padding 16（--sp-2 ×2）与 td 左右 padding 24（--sp-3 ×2）
+     = 155.2px。原值 96px 只放得下 7.8 个字符，连最常见的 anthropic 都会被硬裁——
+     那是 table-layout: fixed 之后才暴露的，改 fixed 前列宽由内容撑开所以看不出来。
+     加宽的 64px 从备注列上限匀（320→256），七列总和仍是 1130。 */
+  --table-col-protocol: 160px;
+  /* 模型名列上限。超出走中截断保住尾部日期戳，禁用 text-overflow: ellipsis —— DESIGN.md
+     4.1.1「模型名列」：砍尾部等于把两个不同模型显示成同一个 */
+  --table-col-model-max: 240px;
+  /* 上下文窗口列（右对齐 mono 数字），定宽 */
+  --table-col-context: 104px;
+  /* 备注列是整张表唯一的 flexible 列，两行截断 · DESIGN.md 4.1.1「备注列」 */
+  --table-col-note-min: 160px;
+  --table-col-note-max: 256px;
+  /* 动作列（sticky 在右侧），定宽 */
+  --table-col-action: 132px;
+  /* sticky 操作列左侧向左的渐变遮罩宽度，表明「左边还有内容没看完」
+     · DESIGN.md 4.1.1「sticky 操作列」第 3 条 */
+  --table-sticky-fade-w: 24px;
 }
 
 /* ==========================================================================
@@ -208,13 +260,21 @@
   :root:not([data-theme="dark"]) {
     color-scheme: light;
 
+    /* 浅色层级按 5 节平台差异表 Windows 行走 Fluent/Mica 的平台层级，
+       不跟随 macOS 的专属覆盖；accent、语义色、文字色不在差异表里，两侧同值 */
     --bg-base: #ffffff;
     --bg-surface: #f7f7f8;
     --bg-elevated: #ffffff;
     --bg-inset: #f0f0f2;
     --bg-hover: rgba(0, 0, 0, 0.04);
     --bg-active: rgba(0, 0, 0, 0.07);
-    --bg-selected: rgba(12, 140, 150, 0.10);
+    --bg-selected: rgba(10, 157, 176, 0.11);
+    --bg-selected-table: rgba(10, 157, 176, 0.07);
+    /* 不透明等价色 · DESIGN.md 4.1.1。严格按 Windows 自己的浅色底 #ffffff 算应是
+       #eef8f9，但该 token 不在 5 节浅色层级的差异范围内（层级指背景四层与边框三档），
+       两侧保持同值 #e3eef1；差值约 11/255，肉眼不可辨，且表格实际多落在
+       --bg-surface #f7f7f8 上，偏差更小。 */
+    --bg-selected-table-solid: #e3eef1;
 
     --border-subtle: #e8e8ea;
     --border-default: #d8d8dc;
@@ -222,14 +282,16 @@
 
     --text-primary: #18181b;
     --text-secondary: #55555f;
-    --text-tertiary: #7a7a85;
+    --text-tertiary: #6c6e78;
     --text-inverse: #ffffff;
 
-    --accent: #0c8c96;
-    --accent-hover: #0a7d86;
-    --accent-press: #086a72;
-    --accent-muted: rgba(12, 140, 150, 0.10);
-    --accent-text: #076e77;
+    --accent: #0a9db0;
+    --accent-hover: #088a9c;
+    --accent-press: #067584;
+    --accent-muted: rgba(10, 157, 176, 0.14);
+    --accent-text: #06707f;
+    --accent-gradient: linear-gradient(135deg, #0a9db0 0%, #2563eb 100%);
+    --accent-glow: rgba(10, 157, 176, 0.28);
 
     --violet: #7c4dbf;
     --violet-muted: rgba(124, 77, 191, 0.10);
@@ -241,10 +303,11 @@
     --danger: #cf222e;
     --danger-muted: rgba(207, 34, 46, 0.10);
 
-    /* 派生值（浅色）：与深色同构——Sidebar 底就是本主题的 --bg-surface #f7f7f8 实色；
-       图表面积是本主题 accent 的 8%。不引入新色相，只换主题内已有的色。 */
+    /* 派生值（浅色）：与深色同构——Sidebar 底就是本主题的 --bg-surface #f7f7f8 实色
+       （Mica 退路不做 blur，见深色段注释）；图表面积是本主题 accent 的 8%。
+       不引入新色相，只换主题内已有的色。 */
     --sidebar-bg: #f7f7f8;
-    --chart-area: rgba(12, 140, 150, 0.08);
+    --chart-area: rgba(10, 157, 176, 0.08);
   }
 }
 
@@ -261,7 +324,10 @@
   --bg-inset: #f0f0f2;
   --bg-hover: rgba(0, 0, 0, 0.04);
   --bg-active: rgba(0, 0, 0, 0.07);
-  --bg-selected: rgba(12, 140, 150, 0.10);
+  --bg-selected: rgba(10, 157, 176, 0.11);
+  --bg-selected-table: rgba(10, 157, 176, 0.07);
+  /* 与系统态逐字一致，取值理由见上 · DESIGN.md 4.1.1 */
+  --bg-selected-table-solid: #e3eef1;
 
   --border-subtle: #e8e8ea;
   --border-default: #d8d8dc;
@@ -269,14 +335,16 @@
 
   --text-primary: #18181b;
   --text-secondary: #55555f;
-  --text-tertiary: #7a7a85;
+  --text-tertiary: #6c6e78;
   --text-inverse: #ffffff;
 
-  --accent: #0c8c96;
-  --accent-hover: #0a7d86;
-  --accent-press: #086a72;
-  --accent-muted: rgba(12, 140, 150, 0.10);
-  --accent-text: #076e77;
+  --accent: #0a9db0;
+  --accent-hover: #088a9c;
+  --accent-press: #067584;
+  --accent-muted: rgba(10, 157, 176, 0.14);
+  --accent-text: #06707f;
+  --accent-gradient: linear-gradient(135deg, #0a9db0 0%, #2563eb 100%);
+  --accent-glow: rgba(10, 157, 176, 0.28);
 
   --violet: #7c4dbf;
   --violet-muted: rgba(124, 77, 191, 0.10);
@@ -289,5 +357,5 @@
   --danger-muted: rgba(207, 34, 46, 0.10);
 
   --sidebar-bg: #f7f7f8;
-  --chart-area: rgba(12, 140, 150, 0.08);
+  --chart-area: rgba(10, 157, 176, 0.08);
 }

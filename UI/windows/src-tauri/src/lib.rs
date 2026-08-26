@@ -4,6 +4,8 @@
 //! （AGENTS.md：错误原样暴露，不伪装成功）。
 
 mod channels;
+mod chat;
+mod cron;
 mod db;
 mod doctor;
 mod env;
@@ -12,8 +14,10 @@ mod hubs;
 mod journal;
 mod launch;
 mod paths;
+mod plugins;
 mod pools;
 mod redact;
+mod tasks;
 
 use std::os::windows::process::CommandExt;
 use std::path::Path;
@@ -146,6 +150,50 @@ fn doctor_fix_subagent_pins() -> Result<Vec<doctor::DoctorCheck>, String> {
 }
 
 // ---------------------------------------------------------------------------
+// 对话、插件与计划任务
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+fn list_chat_sessions() -> Result<Vec<chat::ChatSession>, String> {
+    chat::list_chat_sessions()
+}
+
+#[tauri::command]
+fn send_chat_message(session_id: String, content: String) -> Result<chat::ChatMessage, String> {
+    chat::send_chat_message(&session_id, &content)
+}
+
+#[tauri::command]
+fn list_plugins() -> Result<Vec<plugins::PluginItem>, String> {
+    plugins::list_plugins()
+}
+
+#[tauri::command]
+fn set_plugin_enabled(id: String, enabled: bool) -> Result<(), String> {
+    plugins::set_plugin_enabled(&id, enabled)
+}
+
+#[tauri::command]
+fn list_tasks() -> Result<Vec<tasks::ScheduledTask>, String> {
+    tasks::list_tasks()
+}
+
+#[tauri::command]
+fn create_task(task: tasks::NewScheduledTask) -> Result<tasks::ScheduledTask, String> {
+    tasks::create_task(task)
+}
+
+#[tauri::command]
+fn update_task(id: String, patch: tasks::TaskPatch) -> Result<tasks::ScheduledTask, String> {
+    tasks::update_task(&id, patch)
+}
+
+#[tauri::command]
+fn delete_task(id: String) -> Result<(), String> {
+    tasks::delete_task(&id)
+}
+
+// ---------------------------------------------------------------------------
 // 启动、环境与打开路径
 // ---------------------------------------------------------------------------
 
@@ -244,6 +292,14 @@ pub fn run() {
             list_account_pools,
             run_doctor,
             doctor_fix_subagent_pins,
+            list_chat_sessions,
+            send_chat_message,
+            list_plugins,
+            set_plugin_enabled,
+            list_tasks,
+            create_task,
+            update_task,
+            delete_task,
             launch,
             app_env,
             open_path,

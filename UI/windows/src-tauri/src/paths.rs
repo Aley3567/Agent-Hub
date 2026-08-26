@@ -86,6 +86,14 @@ pub fn pricing_path() -> Result<PathBuf, String> {
     Ok(cc_switch_dir()?.join("model-pricing.json"))
 }
 
+/// 桌面端自有的计划任务清单（`ScheduledTask[]`），唯一新增的可写文件。
+pub fn tasks_path() -> Result<PathBuf, String> {
+    match env_path("AGENT_HUB_TASKS_PATH") {
+        Some(path) => Ok(path),
+        None => Ok(cc_switch_dir()?.join("agent-hub-tasks.json")),
+    }
+}
+
 pub fn logs_dir() -> Result<PathBuf, String> {
     Ok(cc_switch_dir()?.join("logs"))
 }

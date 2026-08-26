@@ -200,6 +200,76 @@ export interface DegradeEntry {
   severity: DegradeSeverity;
 }
 
+/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content）；
+    本轮为演示数据，后端 seam 在 IPC 层，未来直连 claude-hub 时签名与形状不变 */
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  /** 文本内容；进 IPC 前按 §1.2 过一遍凭证剥离 */
+  content: string;
+  /** unix 秒 */
+  ts: number;
+}
+
+/** 对话会话。本轮只做 UI 骨架 + 演示数据，不接真实后端 */
+export interface ChatSession {
+  id: string;
+  title: string;
+  /** 关联 Channel.id，未绑定渠道为 null */
+  channelId: string | null;
+  model: string;
+  messages: ChatMessage[];
+  createdAt: number;    // unix 秒
+  updatedAt: number;    // unix 秒
+}
+
+/** Claude Code 配置扩展点（hooks / outputStyle / statusLine / permissions / mcp）。
+    边界：DB 只读 → 渠道级 settings_config 里的扩展点只读展示，不可写；
+    可写项（enabled 切换）只落到 `claude1-config.json` 的本地覆盖，绝不写 DB */
+export interface PluginItem {
+  id: string;
+  kind: 'hook' | 'outputStyle' | 'statusLine' | 'permissions' | 'mcp';
+  name: string;
+  /** 'global' = 全局配置；'channel' = 渠道级（来自 settings_config，只读） */
+  scope: 'global' | 'channel';
+  /** scope 为 'channel' 时是 Channel.id，否则为 null */
+  channelId: string | null;
+  enabled: boolean;
+  /** 一行人话说明这是什么 */
+  summary: string;
+  /** 展开的原始配置摘要（已按 §1.2 剥离凭证），无则 null */
+  detail: string | null;
+}
+
+/** 计划任务：定时启动会话 / 定时体检提醒。桌面端只管本地任务清单（CRUD + 展示），
+    持久化到 `agent-hub-tasks.json`；执行层本轮不做 */
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  kind: 'launch-channel' | 'launch-slot' | 'doctor-reminder';
+  /** 复用 LaunchTarget 的形状（子集）：launch-channel → {kind:'channel', channelId, model?}；
+      launch-slot → {kind:'slot', hubName?, slot, model?}；doctor-reminder 为 null */
+  target: LaunchTarget | null;
+  /** cron 五字段字符串（分 时 日 月 周），解析与计算都在 Rust 侧 */
+  schedule: string;
+  /** schedule 的中文人话，如「每工作日 09:00」，由 Rust 侧生成 */
+  scheduleText: string;
+  enabled: boolean;
+  /** unix 秒，未跑过为 null */
+  lastRunAt: number | null;
+  /** unix 秒，由 Rust 侧按 cron 计算返回，前端不自算；disabled 时为 null */
+  nextRunAt: number | null;
+  createdAt: number;    // unix 秒
+}
+
+/** create_task 的入参：id / 时间戳 / scheduleText / nextRunAt 都由 Rust 侧补全 */
+export interface NewScheduledTask {
+  name: string;
+  kind: ScheduledTask['kind'];
+  target: LaunchTarget | null;
+  schedule: string;
+  enabled: boolean;
+}
+
 /**
  * 以下类型不在 CONTRACT.md 第 2 节的代码块里，但第 3 节的 `app_env` 返回值与
  * 第 6.2 节的 Store 契约都引用它们，所以在这里补齐，字段与命令返回值逐一对应。

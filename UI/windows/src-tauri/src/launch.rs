@@ -18,17 +18,18 @@ use crate::db;
 use crate::hubs;
 use crate::redact;
 
-#[derive(Debug, Clone, Deserialize)]
+// Serialize：计划任务（tasks.rs）把 target 原样落盘进 agent-hub-tasks.json，需要双向 serde
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchTarget {
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hub_name: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 }
 
