@@ -168,6 +168,15 @@ class SwitchctlTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "usage_error")
         self.assertIn("switchctl: usage_error", stderr.getvalue())
 
+    def test_inspect_missing_argument_returns_usage_error(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["inspect"], stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_USAGE)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "usage_error")
+
     def test_provider_not_found_error(self) -> None:
         _init_test_db(self.db_path, version=16)
         service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
@@ -189,6 +198,33 @@ class SwitchctlTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertFalse(payload["ok"])
         self.assertEqual(payload["error"]["code"], "store_unavailable")
+
+    def test_store_incompatible_error(self) -> None:
+        _init_test_db(self.db_path, version=99)
+        service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["list"], service=service, stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "store_incompatible")
+
+    def test_corrupt_config_error_handling(self) -> None:
+        _init_test_db(self.db_path, version=16)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE providers SET settings_config = 'broken-json{' WHERE id = 'p-redaction-test'")
+        conn.commit()
+        conn.close()
+
+        service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["inspect", "p-redaction-test"], service=service, stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "provider_config_corrupt")
 
 
 if __name__ == "__main__":
