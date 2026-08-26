@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from claude_hub.ccswitch import (
     CCSwitchProviderStore,
     resolve_ccswitch_database_path,
+    stable_provider_id,
 )
 from claude_hub.domain import ProviderRef, StoreCapability
 from claude_hub.store import (
@@ -231,15 +232,18 @@ class CCSwitchStoreTests(unittest.TestCase):
         store = CCSwitchProviderStore(self.db_path)
         provider_list = store.list()
         self.assertEqual(len(provider_list), 2)
-        self.assertEqual(provider_list[0].provider_id, "p-1")
+        # Golden pin: the derivation algorithm must not drift silently.
+        self.assertEqual(stable_provider_id("p-1"), "607ea439bdc44fc6")
+        self.assertEqual(provider_list[0].provider_id, stable_provider_id("p-1"))
+        self.assertNotEqual(provider_list[0].provider_id, "p-1")
         self.assertEqual(provider_list[0].display_name, "Official Claude")
         self.assertTrue(provider_list[0].is_current)
-        self.assertEqual(provider_list[1].provider_id, "p-2")
+        self.assertEqual(provider_list[1].provider_id, stable_provider_id("p-2"))
         self.assertFalse(provider_list[1].is_current)
 
-        # Inspect p-1
+        # Inspect p-1 via its derived stable reference
         inspection = store.inspect(provider_list[0])
-        self.assertEqual(inspection.reference.provider_id, "p-1")
+        self.assertEqual(inspection.reference.provider_id, stable_provider_id("p-1"))
         self.assertEqual(inspection.models.default, "claude-3-5-sonnet")
         self.assertEqual(inspection.models.fast, "claude-3-5-haiku")
         self.assertTrue(inspection.is_current)
@@ -264,7 +268,7 @@ class CCSwitchStoreTests(unittest.TestCase):
         ]
         _init_test_db(self.db_path, version=16, providers=providers)
         store = CCSwitchProviderStore(self.db_path)
-        ref = ProviderRef(store="cc-switch", provider_id="p-bad")
+        ref = ProviderRef(store="cc-switch", provider_id=stable_provider_id("p-bad"))
         with self.assertRaises(ProviderConfigCorruptError):
             store.inspect(ref)
 
@@ -279,7 +283,7 @@ class CCSwitchStoreTests(unittest.TestCase):
         ]
         _init_test_db(self.db_path, version=16, providers=providers)
         store = CCSwitchProviderStore(self.db_path)
-        ref = ProviderRef(store="cc-switch", provider_id="p-huge")
+        ref = ProviderRef(store="cc-switch", provider_id=stable_provider_id("p-huge"))
         with self.assertRaises(ProviderConfigCorruptError):
             store.inspect(ref)
 

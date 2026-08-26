@@ -14,7 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from claude_hub import switchctl
-from claude_hub.ccswitch import CCSwitchProviderStore
+from claude_hub.ccswitch import CCSwitchProviderStore, stable_provider_id
 from claude_hub.credentials import InMemorySecretStore
 from claude_hub.domain import ModelMapping, ProtocolAdapter, StoreCapability
 from claude_hub.quick_setup import create_standalone_profile
@@ -193,34 +193,98 @@ class SwitchctlTests(unittest.TestCase):
         self.assertTrue(payload["ok"])
         providers = payload["data"]["providers"]
         self.assertEqual(len(providers), 1)
-        self.assertEqual(providers[0]["stableId"], "p-redaction-test")
+        self.assertEqual(
+            providers[0]["stableId"], stable_provider_id("p-redaction-test")
+        )
+        self.assertNotEqual(providers[0]["stableId"], "p-redaction-test")
         self.assertEqual(providers[0]["displayName"], "Safe Display Name")
         self.assertTrue(providers[0]["current"])
 
-        # Security check: secrets must NEVER be present in the raw output
+        # Security check: secrets and the raw provider id must NEVER be present
         self.assertNotIn("mock_cred_val", output_raw)
         self.assertNotIn("do_not_leak", output_raw)
         self.assertNotIn("intranet.example.corp", output_raw)
+        self.assertNotIn("p-redaction-test", output_raw)
 
     def test_inspect_command_and_security_redaction(self) -> None:
         _init_test_db(self.db_path, version=16)
         service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
         stdout = io.StringIO()
         stderr = io.StringIO()
-        code = switchctl.main(["inspect", "p-redaction-test"], service=service, stdout=stdout, stderr=stderr)
+        code = switchctl.main(
+            ["inspect", stable_provider_id("p-redaction-test")],
+            service=service,
+            stdout=stdout,
+            stderr=stderr,
+        )
         self.assertEqual(code, switchctl.EXIT_OK)
         output_raw = stdout.getvalue()
         payload = json.loads(output_raw)
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["data"]["stableId"], "p-redaction-test")
+        self.assertEqual(
+            payload["data"]["stableId"], stable_provider_id("p-redaction-test")
+        )
         self.assertEqual(payload["data"]["models"]["default"], "claude-3-5-sonnet")
         self.assertEqual(payload["data"]["schemaCapability"], "compatible")
 
-        # Security check: secrets must NEVER be present in the raw inspect output
+        # Security check: secrets and raw provider id must NEVER be present
         self.assertNotIn("mock_cred_val", output_raw)
         self.assertNotIn("do_not_leak", output_raw)
         self.assertNotIn("intranet.example.corp", output_raw)
         self.assertNotIn("mock_env_token_val", output_raw)
+        self.assertNotIn("p-redaction-test", output_raw)
+
+    def test_stable_id_does_not_expose_raw_uuid(self) -> None:
+        import uuid
+
+        raw_uuid = str(uuid.uuid4())
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(f"PRAGMA user_version = 16")
+        conn.execute(
+            """
+            CREATE TABLE providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                settings_config TEXT NOT NULL,
+                app_type TEXT NOT NULL,
+                sort_index INTEGER DEFAULT 0,
+                is_current INTEGER DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO providers (id, name, settings_config, app_type, sort_index, is_current)
+            VALUES (?, 'UUID Provider', ?, 'claude', 0, 1)
+            """,
+            (
+                raw_uuid,
+                json.dumps({"env": {"ANTHROPIC_MODEL": "claude-3-5-sonnet"}}),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(["list"], service=service, stdout=stdout, stderr=stderr)
+        self.assertEqual(code, switchctl.EXIT_OK)
+        list_raw = stdout.getvalue()
+        payload = json.loads(list_raw)
+        self.assertEqual(len(payload["data"]["providers"]), 1)
+        derived = payload["data"]["providers"][0]["stableId"]
+        self.assertNotEqual(derived, raw_uuid)
+        self.assertNotIn(raw_uuid, list_raw)
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            ["inspect", derived], service=service, stdout=stdout, stderr=stderr
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        self.assertEqual(json.loads(stdout.getvalue())["data"]["stableId"], derived)
+        self.assertNotIn(raw_uuid, stdout.getvalue())
 
     def test_mode_and_route_subcommands(self) -> None:
         _init_test_db(self.db_path, version=16)
@@ -438,7 +502,12 @@ class SwitchctlTests(unittest.TestCase):
         service = ProviderApplicationService(CCSwitchProviderStore(self.db_path))
         stdout = io.StringIO()
         stderr = io.StringIO()
-        code = switchctl.main(["inspect", "p-redaction-test"], service=service, stdout=stdout, stderr=stderr)
+        code = switchctl.main(
+            ["inspect", stable_provider_id("p-redaction-test")],
+            service=service,
+            stdout=stdout,
+            stderr=stderr,
+        )
         self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
         payload = json.loads(stdout.getvalue())
         self.assertFalse(payload["ok"])

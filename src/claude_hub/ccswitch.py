@@ -32,6 +32,7 @@ MAX_READ_SCHEMA_VERSION = 16
 WRITE_SCHEMA_VERSIONS = frozenset({16})
 CC_SWITCH_STORE_ID = "cc-switch"
 MAX_SETTINGS_CONFIG_BYTES = 4 * 1024 * 1024
+STABLE_PROVIDER_ID_LENGTH = 16
 
 _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "providers": frozenset(
@@ -45,6 +46,20 @@ _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
 }
+
+
+def stable_provider_id(raw_provider_id: str) -> str:
+    """Derive the public stable reference for one raw provider id.
+
+    Real CC Switch provider ids are raw UUIDs. The presentation boundary only
+    ever sees this one-way derivative, so agent-facing output cannot leak the
+    raw value.
+    """
+
+    digest = hashlib.sha256(
+        f"{CC_SWITCH_STORE_ID}\x00{raw_provider_id}".encode("utf-8")
+    ).hexdigest()
+    return digest[:STABLE_PROVIDER_ID_LENGTH]
 
 
 def resolve_ccswitch_database_path(
@@ -199,7 +214,7 @@ class CCSwitchProviderStore:
                     results.append(
                         ProviderRef(
                             store=CC_SWITCH_STORE_ID,
-                            provider_id=str(p_id),
+                            provider_id=stable_provider_id(str(p_id)),
                             display_name=str(p_name) if p_name else None,
                             is_current=bool(is_current),
                         )
@@ -230,12 +245,29 @@ class CCSwitchProviderStore:
             with _readonly_connection(path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
+                    "SELECT id FROM providers WHERE app_type = 'claude'"
+                )
+                raw_id = next(
+                    (
+                        str(candidate[0])
+                        for candidate in cursor.fetchall()
+                        if stable_provider_id(str(candidate[0]))
+                        == reference.provider_id
+                    ),
+                    None,
+                )
+                if raw_id is None:
+                    raise ProviderNotFoundError(
+                        f"Provider {reference.provider_id!r} not found"
+                    )
+
+                cursor.execute(
                     """
                     SELECT id, name, settings_config, is_current
                     FROM providers
                     WHERE app_type = 'claude' AND id = ?
                     """,
-                    (reference.provider_id,),
+                    (raw_id,),
                 )
                 row = cursor.fetchone()
                 if row is None:
@@ -293,7 +325,7 @@ class CCSwitchProviderStore:
 
                 ref = ProviderRef(
                     store=CC_SWITCH_STORE_ID,
-                    provider_id=str(p_id),
+                    provider_id=stable_provider_id(str(p_id)),
                     display_name=str(p_name) if p_name else None,
                     is_current=bool(is_current),
                 )
@@ -328,6 +360,8 @@ __all__ = [
     "MAX_READ_SCHEMA_VERSION",
     "MAX_SETTINGS_CONFIG_BYTES",
     "MIN_READ_SCHEMA_VERSION",
+    "STABLE_PROVIDER_ID_LENGTH",
     "WRITE_SCHEMA_VERSIONS",
     "resolve_ccswitch_database_path",
+    "stable_provider_id",
 ]
