@@ -18,6 +18,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "codex-provider-once.py"
+CODEX_WRAPPER = ROOT / "scripts" / "codex-wrapper.zsh"
 
 FAKE_API_KEY = "fake-key-9821"
 FAKE_ACCESS_TOKEN = "fake-tok-9821"
@@ -114,7 +115,7 @@ class ProfileBuildTest(unittest.TestCase):
         with loaded_launcher(isolated_env(self.home)) as module:
             yield module
 
-    def test_api_key_profile_uses_env_key_and_renames_section(self):
+    def test_api_key_profile_uses_shadow_auth_and_renames_section(self):
         with self.launcher() as module:
             profile = module.build_profile(
                 API_KEY_CONFIG, {"OPENAI_API_KEY": FAKE_API_KEY}
@@ -127,7 +128,7 @@ class ProfileBuildTest(unittest.TestCase):
         self.assertIn("codex1", parsed["model_providers"])
         self.assertNotIn("custom", parsed["model_providers"])
         section = parsed["model_providers"]["codex1"]
-        self.assertEqual(section["env_key"], "CODEX1_API_KEY")
+        self.assertNotIn("env_key", section)
         self.assertEqual(section["base_url"], "https://acme.example/v1")
         self.assertNotIn("experimental_bearer_token", section)
         # 顶层设置原样带进 profile。
@@ -142,7 +143,7 @@ class ProfileBuildTest(unittest.TestCase):
             )
         self.assertNotIn(FAKE_API_KEY, profile["toml"])
         self.assertNotIn("bearer-x1", profile["toml"])
-        self.assertEqual(profile["auth_payload"], {})
+        self.assertEqual(profile["auth_payload"], {"OPENAI_API_KEY": FAKE_API_KEY})
 
     def test_oauth_profile_keeps_auth_and_omits_env_key(self):
         auth = {
@@ -426,6 +427,102 @@ class ArgumentSplitTest(unittest.TestCase):
             hint, rest = module.split_args(["--full-auto"], self.providers)
         self.assertIsNone(hint)
         self.assertEqual(rest, ["--full-auto"])
+
+
+class LaunchAuthIsolationTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.real = self.home / ".codex"
+        self.real.mkdir(parents=True)
+        self.real_auth = '{"auth_mode":"chatgpt","tokens":{"access_token":"real"}}'
+        (self.real / "auth.json").write_text(self.real_auth, encoding="utf-8")
+        (self.real / "config.toml").write_text('model = "base"\n', encoding="utf-8")
+        write_fake_db(
+            self.home / ".cc-switch" / "cc-switch.db",
+            [
+                (
+                    "id-acme",
+                    "codex",
+                    "Acme Codex",
+                    settings_blob({"OPENAI_API_KEY": FAKE_API_KEY}, API_KEY_CONFIG),
+                    0,
+                )
+            ],
+        )
+
+    def test_main_gives_child_selected_shadow_auth_without_env_key(self):
+        captured: dict[str, object] = {}
+        with loaded_launcher(isolated_env(self.home)) as module:
+            def fake_run(command: list[str], *, env: dict[str, str]) -> int:
+                shadow = Path(env["CODEX_HOME"])
+                captured["command"] = command
+                captured["auth"] = json.loads((shadow / "auth.json").read_text())
+                captured["profile"] = tomllib.loads(
+                    (shadow / "codex1.config.toml").read_text()
+                )
+                captured["api_key_env"] = env.get("CODEX1_API_KEY")
+                return 0
+
+            with mock.patch.object(module, "codex_binary", return_value="/fake/codex"), \
+                 mock.patch.object(module, "_run_codex", side_effect=fake_run):
+                result = module.main(["Acme Codex", "exec", "hi"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(captured["command"], ["/fake/codex", "-p", "codex1", "exec", "hi"])
+        self.assertEqual(captured["auth"], {"OPENAI_API_KEY": FAKE_API_KEY})
+        self.assertNotIn(
+            "env_key", captured["profile"]["model_providers"]["codex1"]
+        )
+        self.assertIsNone(captured["api_key_env"])
+        self.assertEqual((self.real / "auth.json").read_text(), self.real_auth)
+
+
+class DirectCodexWrapperTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.addCleanup(self.tmp.cleanup)
+        self.home = self.root / "home"
+        (self.home / ".codex").mkdir(parents=True)
+        (self.home / ".codex" / "config.toml").write_text("model = 'x'\n")
+        (self.home / ".codex" / "auth.json").write_text("{}")
+        self.fake_codex = self.root / "fake-codex"
+        self.fake_codex.write_text(
+            "#!/bin/sh\nprintf '%s\\n' \"$CODEX_HOME\"\n",
+            encoding="utf-8",
+        )
+        self.fake_codex.chmod(0o755)
+
+    def run_wrapper(self, inherited_home: Path) -> subprocess.CompletedProcess[str]:
+        env = dict(os.environ)
+        env.update(
+            {
+                "HOME": str(self.home),
+                "CODEX_HOME": str(inherited_home),
+                "CODEX_WRAPPER_BIN": str(self.fake_codex),
+            }
+        )
+        return subprocess.run(
+            ["zsh", str(CODEX_WRAPPER)],
+            capture_output=True,
+            text=True,
+            env=env,
+            check=True,
+        )
+
+    def test_stale_inherited_codex_home_falls_back_to_real_home(self):
+        result = self.run_wrapper(self.root / "deleted-shadow")
+        self.assertEqual(result.stdout.strip(), str(self.home / ".codex"))
+
+    def test_valid_inherited_codex_home_is_preserved(self):
+        shadow = self.root / "shadow"
+        shadow.mkdir()
+        (shadow / "config.toml").write_text("model = 'shadow'\n")
+        (shadow / "auth.json").write_text("{}")
+        result = self.run_wrapper(shadow)
+        self.assertEqual(result.stdout.strip(), str(shadow))
 
 
 if __name__ == "__main__":

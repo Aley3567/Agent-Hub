@@ -276,9 +276,10 @@ def build_profile(config_text: str, auth: dict) -> dict:
         if not isinstance(key, str) or not key.strip():
             raise RuntimeError("渠道既不是 ChatGPT 登录态,也没有可用的 OPENAI_API_KEY")
         api_key = key
-        # env_key 在 0.148 里优先级最高:设了它就只认环境变量,
-        # 缺失时直接报错而不是悄悄回退到 auth.json。
-        section["env_key"] = API_KEY_ENV
+        # Codex CLI 0.148 的稳定认证入口仍是 auth.json.OPENAI_API_KEY。
+        # 影子 CODEX_HOME 会把这个值限制在本次子进程，避免污染真实登录态。
+        # 不使用 env_key：它不是所有 Codex 构建都支持，失败时会退回登录页。
+        section.pop("env_key", None)
     else:
         section.pop("env_key", None)
 
@@ -304,7 +305,11 @@ def build_profile(config_text: str, auth: dict) -> dict:
         "toml": render_toml(scalars, {f"model_providers.{PROFILE_NAME}": section}),
         "kind": kind,
         "api_key": api_key,
-        "auth_payload": dict(auth) if kind == "chatgpt" else {},
+        "auth_payload": (
+            dict(auth)
+            if kind == "chatgpt"
+            else {"OPENAI_API_KEY": api_key}
+        ),
         "base_url": section.get("base_url") if isinstance(section.get("base_url"), str) else "",
         "dropped_keys": dropped,
     }
@@ -555,10 +560,6 @@ def main(argv: list[str]) -> int:
         env.pop("CODEX_HOME", None)
         env.pop(API_KEY_ENV, None)
         env["CODEX_HOME"] = str(shadow)
-        if profile["api_key"]:
-            # 真实 key 只活在子进程环境里:不落盘、不进 argv、不进日志。
-            env[API_KEY_ENV] = profile["api_key"]
-
         label = _provider_labels(providers)[provider["id"]]
         target = profile["base_url"] or "(继承基础 config)"
         print(f"[codex1] 渠道: {label} | 认证: {profile['kind']} | base_url: {target}",

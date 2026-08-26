@@ -148,7 +148,7 @@ T0.0d ⚠️（Nebius 语义不兼容，已结论）、T0.0e ✅；**T0.1–T0.6
 
 ## S6 · codex 战线扩展（推后）
 
-**现状**：`codex1` 已落地可用（影子 `CODEX_HOME` + profile 层叠 + `env_key`，
+**现状**：`codex1` 已落地可用（影子 `CODEX_HOME` + profile 层叠 + 影子 `auth.json`，
 设计见 `codex1-design.md`），它**不是** hub：没有网关、协议转换、账号池、failover。
 
 **为什么推后**：扩展它是开新战线，而 claude-hub 仍在漏 token、仍有 60% 的失败未定性。
