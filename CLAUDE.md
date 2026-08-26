@@ -92,6 +92,8 @@
 
 - `cache-diagnosis-2026-08-19.md` — 缓存失效根因、完整证据链与**已排除的 8 种可能**
 - `error-attribution-diagnosis-2026-08-20.md` — 502/504 归因诊断
+- `sse-truncation-fix-2026-08-26.md` — SSE 思考期断流两层修复全过程：根因证据链、
+  客户端渲染实验账本、三副本部署拓扑、静默窗收紧依据；变更登记见 S19
 - `claude1-protocol-baseline-2026-08-16.md` — 协议层只读基线与薄弱点
 - `review-findings-2026-08-17.md` — 四路审查发现;R1–R6 已修,**剩余 R7/R8 已移交 work-queue S10,不要从本文拿活**
 
