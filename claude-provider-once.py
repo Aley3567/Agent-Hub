@@ -29,6 +29,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -6277,6 +6278,142 @@ def _bridge_log_tail(log_path: Path, limit: int = 4096) -> str:
     return f"，日志尾部: {tail}" if tail else ""
 
 
+def _bridge_lifecycle_log(log_path: Path, message: str) -> None:
+    """Record launcher-owned bridge lifecycle facts beside Hub output."""
+    try:
+        with _open_private_append(log_path) as log:
+            stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+            log.write(f"{stamp} protocol bridge {message}\n".encode("utf-8"))
+    except OSError:
+        pass
+
+
+def _start_protocol_bridge(
+    *,
+    port: int,
+    log_path: Path,
+    child_env: dict[str, str],
+    listener: socket.socket | None = None,
+    stop_event: threading.Event | None = None,
+) -> subprocess.Popen:
+    """Start and authenticate a bridge that owns the specified loopback port."""
+    listener = listener or _reserve_loopback_port(port)
+    with listener:
+        process = _spawn_hub_process(log_path, child_env, listener)
+        deadline = time.monotonic() + _hub_start_timeout()
+        while time.monotonic() < deadline:
+            if stop_event is not None and stop_event.is_set():
+                _stop_spawned_process(process)
+                raise RuntimeError("协议桥恢复已取消")
+            if hub_healthy(port, child_env["CLAUDE_HUB_LOCAL_TOKEN"]):
+                listener.close()
+                return process
+            return_code = process.poll()
+            if return_code is not None:
+                raise RuntimeError(
+                    f"协议桥提前退出（状态 {return_code}），"
+                    f"日志: {log_path}{_bridge_log_tail(log_path)}"
+                )
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+        _stop_spawned_process(process)
+        raise RuntimeError(
+            f"协议桥启动超时，日志: {log_path}{_bridge_log_tail(log_path)}"
+        )
+
+
+class _ProtocolBridgeSupervisor:
+    """Restore a transient bridge on its original port while Claude still runs."""
+
+    def __init__(
+        self,
+        *,
+        port: int,
+        log_path: Path,
+        child_env: dict[str, str],
+        initial_listener: socket.socket,
+    ):
+        self.port = port
+        self.log_path = log_path
+        self.child_env = child_env
+        self._lock = threading.Lock()
+        self._stopped = threading.Event()
+        self._process: subprocess.Popen | None = None
+        self._thread: threading.Thread | None = None
+        self._initial_listener: socket.socket | None = initial_listener
+
+    def start(self) -> None:
+        process = self._start_once()
+        with self._lock:
+            self._process = process
+        self._thread = threading.Thread(
+            target=self._watch,
+            name=f"claude1-bridge-{self.port}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _start_once(self) -> subprocess.Popen:
+        with self._lock:
+            listener = self._initial_listener
+            self._initial_listener = None
+        return _start_protocol_bridge(
+            port=self.port,
+            log_path=self.log_path,
+            child_env=self.child_env,
+            listener=listener,
+            stop_event=self._stopped,
+        )
+
+    def recover_if_needed(self) -> bool:
+        with self._lock:
+            process = self._process
+        if process is None or process.poll() is None or self._stopped.is_set():
+            return False
+        return_code = process.poll()
+        _bridge_lifecycle_log(
+            self.log_path,
+            f"exited unexpectedly (status {return_code}); restoring {self.port}",
+        )
+        delay = 0.25
+        while not self._stopped.is_set():
+            try:
+                replacement = self._start_once()
+            except (OSError, RuntimeError) as exc:
+                _bridge_lifecycle_log(
+                    self.log_path,
+                    f"restore failed ({type(exc).__name__}); retrying in {delay:.2f}s",
+                )
+                self._stopped.wait(delay)
+                delay = min(delay * 2, 5.0)
+                continue
+            with self._lock:
+                if self._stopped.is_set():
+                    _stop_spawned_process(replacement)
+                    return False
+                self._process = replacement
+            _bridge_lifecycle_log(self.log_path, f"restored on {self.port}")
+            return True
+        return False
+
+    def _watch(self) -> None:
+        while not self._stopped.wait(0.25):
+            self.recover_if_needed()
+
+    def close(self) -> None:
+        self._stopped.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+        with self._lock:
+            process = self._process
+            self._process = None
+            listener = self._initial_listener
+            self._initial_listener = None
+        if listener is not None:
+            listener.close()
+        if process is not None:
+            _stop_spawned_process(process)
+
+
 def launch_with_protocol_bridge(
     provider: dict,
     settings: dict,
@@ -6338,59 +6475,39 @@ def launch_with_protocol_bridge(
             json.dumps(config, ensure_ascii=False, separators=(",", ":")),
         )
 
-        with listener:
-            process = _spawn_hub_process(
-                log_path,
-                _bridge_child_env(
-                    config=config_path,
-                    log=log_path,
-                    port=port,
-                    local_token=local_token,
-                ),
-                listener,
+        bridge_env = _bridge_child_env(
+            config=config_path,
+            log=log_path,
+            port=port,
+            local_token=local_token,
+        )
+        supervisor = _ProtocolBridgeSupervisor(
+            port=port,
+            log_path=log_path,
+            child_env=bridge_env,
+            initial_listener=listener,
+        )
+        try:
+            supervisor.start()
+            bridged = json.loads(json.dumps(settings))
+            env = bridged.setdefault("env", {})
+            env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+            env["ANTHROPIC_AUTH_TOKEN"] = local_token
+            env.pop("ANTHROPIC_API_KEY", None)
+            env["NO_PROXY"] = "127.0.0.1,localhost"
+            env["no_proxy"] = "127.0.0.1,localhost"
+            reason = (
+                f"协议适配: Anthropic Messages ↔ {api_format}"
+                if api_format != "anthropic"
+                else f"传输路由: {transport['mode']}"
             )
-            try:
-                deadline = time.monotonic() + _hub_start_timeout()
-                while time.monotonic() < deadline:
-                    if hub_healthy(port, local_token):
-                        break
-                    return_code = process.poll()
-                    if return_code is not None:
-                        raise RuntimeError(
-                            f"协议桥提前退出（状态 {return_code}），"
-                            f"日志: {log_path}{_bridge_log_tail(log_path)}"
-                        )
-                    time.sleep(
-                        min(0.25, max(0.0, deadline - time.monotonic()))
-                    )
-                else:
-                    raise RuntimeError(
-                        f"协议桥启动超时，日志: {log_path}"
-                        f"{_bridge_log_tail(log_path)}"
-                    )
-
-                # The child now accepts on the inherited descriptor; retaining
-                # the parent duplicate would mask an unexpected child exit.
-                listener.close()
-                bridged = json.loads(json.dumps(settings))
-                env = bridged.setdefault("env", {})
-                env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-                env["ANTHROPIC_AUTH_TOKEN"] = local_token
-                env.pop("ANTHROPIC_API_KEY", None)
-                env["NO_PROXY"] = "127.0.0.1,localhost"
-                env["no_proxy"] = "127.0.0.1,localhost"
-                reason = (
-                    f"协议适配: Anthropic Messages ↔ {api_format}"
-                    if api_format != "anthropic"
-                    else f"传输路由: {transport['mode']}"
-                )
-                print(f"[claude1] {reason} (隔离端口 {port})")
-                # 桥已确认可用、即将真正启动时才计数，失败启动不入账。
-                record_use(str(provider["id"]))
-                record_backend(backend_kind, provider["name"])
-                return launch_with_settings(bridged, claude_args)
-            finally:
-                _stop_spawned_process(process)
+            print(f"[claude1] {reason} (隔离端口 {port})")
+            # 桥已确认可用、即将真正启动时才计数，失败启动不入账。
+            record_use(str(provider["id"]))
+            record_backend(backend_kind, provider["name"])
+            return launch_with_settings(bridged, claude_args)
+        finally:
+            supervisor.close()
 
 
 def _extract_hub_model(claude_args: list[str]) -> tuple[str | None, list[str]]:

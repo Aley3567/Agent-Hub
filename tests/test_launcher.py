@@ -3137,6 +3137,83 @@ class LauncherSafetyTests(unittest.TestCase):
                 # 日志尾部有界 4 KiB：更靠前的填充内容不得进入错误消息。
                 self.assertNotIn("x" * 5000, message)
 
+    def test_protocol_bridge_supervisor_restores_an_exited_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                port = free_local_port()
+                listener = launcher._reserve_loopback_port(port)
+                exited = mock.Mock()
+                exited.poll.return_value = -15
+                replacement = mock.Mock()
+                replacement.poll.return_value = None
+                supervisor = launcher._ProtocolBridgeSupervisor(
+                    port=port,
+                    log_path=Path(raw_home) / "bridge.log",
+                    child_env={"CLAUDE_HUB_LOCAL_TOKEN": "fixture-token"},
+                    initial_listener=listener,
+                )
+                supervisor._process = exited
+                try:
+                    with mock.patch.object(
+                        launcher,
+                        "_start_protocol_bridge",
+                        return_value=replacement,
+                    ) as start_bridge:
+                        self.assertTrue(supervisor.recover_if_needed())
+
+                    self.assertIs(supervisor._process, replacement)
+                    self.assertEqual(start_bridge.call_args.kwargs["port"], port)
+                    self.assertIs(start_bridge.call_args.kwargs["listener"], listener)
+                    self.assertIn(
+                        "exited unexpectedly (status -15); restoring",
+                        (Path(raw_home) / "bridge.log").read_text(encoding="utf-8"),
+                    )
+                finally:
+                    supervisor.close()
+                    listener.close()
+
+    def test_protocol_bridge_supervisor_reuses_the_port_after_a_real_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            env = self._bridge_fixture(raw_home)
+            script = Path(env["CLAUDE1_HUB_SCRIPT"])
+            write_executable(script, "#!/bin/sh\nexec sleep 30\n")
+            with loaded_launcher(env) as launcher:
+                port = free_local_port()
+                listener = launcher._reserve_loopback_port(port)
+                supervisor = launcher._ProtocolBridgeSupervisor(
+                    port=port,
+                    log_path=Path(raw_home) / "bridge.log",
+                    child_env={
+                        "CLAUDE_HUB_LOCAL_TOKEN": "fixture-token",
+                        "PATH": os.environ["PATH"],
+                    },
+                    initial_listener=listener,
+                )
+                try:
+                    with mock.patch.object(launcher, "hub_healthy", return_value=True):
+                        supervisor.start()
+                        first = supervisor._process
+                        assert first is not None
+                        first.terminate()
+                        first.wait(timeout=5)
+                        deadline = time.monotonic() + 3
+                        while time.monotonic() < deadline:
+                            replacement = supervisor._process
+                            if replacement is not None and replacement is not first:
+                                break
+                            time.sleep(0.05)
+                        else:
+                            self.fail("协议桥退出后未在原端口恢复")
+
+                    self.assertIsNot(replacement, first)
+                    self.assertIsNone(replacement.poll())
+                    self.assertIn(
+                        f"restored on {port}",
+                        (Path(raw_home) / "bridge.log").read_text(encoding="utf-8"),
+                    )
+                finally:
+                    supervisor.close()
+
     def test_protocol_bridge_errors_journal_outlives_the_temp_dir(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
