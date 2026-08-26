@@ -7044,13 +7044,14 @@ class ClaudeHubTests(unittest.TestCase):
             session=_FakeSession(upstream),
         )
 
+        downstream = _FakeDownstream(200)
         with mock.patch.object(
             hub.web,
             "StreamResponse",
-            return_value=_FakeDownstream(200),
+            return_value=downstream,
         ), mock.patch.object(hub, "log") as write_log:
-            with self.assertRaises(hub.UpstreamStreamAborted):
-                asyncio.run(hub.handle_messages(request))
+            response = asyncio.run(hub.handle_messages(request))
+        self.assertIs(response, downstream)
         rendered_log = "\n".join(
             call.args[0] for call in write_log.call_args_list
         )
@@ -7060,7 +7061,7 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertIn("downstream_bytes=31", rendered_log)
         self.assertIn("terminal=missing", rendered_log)
 
-    def test_sse_clean_eof_without_terminal_event_is_aborted(self):
+    def test_sse_clean_eof_without_terminal_event_is_reported_as_terminal_error(self):
         chunks = [
             b"event: message_start\ndata: {}\n\n",
             b"event: content_block_delta\ndata: {\"delta\":\"partial\"}\n\n",
@@ -7089,13 +7090,24 @@ class ClaudeHubTests(unittest.TestCase):
             "StreamResponse",
             return_value=downstream,
         ):
-            with self.assertRaises(hub.UpstreamStreamAborted):
-                asyncio.run(hub.handle_messages(request))
+            response = asyncio.run(hub.handle_messages(request))
 
+        # 缺终态的干净 EOF 不再裸 abort:已到达的字节原样交给客户端,
+        # 末尾补一个显式 error 事件,让客户端看到可读原因而不是笼统的
+        # "Connection lost mid-response";message 里保留 "mid-response"
+        # 字样,依赖该文本的客户端续跑 hook 不会失配。终态仍然是 error,
+        # 没有伪造 message_stop,失败不伪装成成功。
+        self.assertIs(response, downstream)
         self.assertEqual(len(session.calls), 1)
-        self.assertEqual(downstream.writes, chunks)
-        self.assertFalse(downstream.eof)
-        self.assertTrue(request.transport.aborted)
+        self.assertEqual(downstream.writes[: len(chunks)], chunks)
+        self.assertEqual(len(downstream.writes), len(chunks) + 1)
+        terminal_error = downstream.writes[-1].decode()
+        self.assertTrue(terminal_error.startswith("event: error"))
+        self.assertIn('"type":"api_error"', terminal_error)
+        self.assertIn("mid-response", terminal_error)
+        self.assertIn("message_stop", terminal_error)
+        self.assertFalse(request.transport.aborted)
+        self.assertTrue(downstream.eof)
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(row["exc"], "IncompleteSSE")
         self.assertEqual(
@@ -7876,7 +7888,14 @@ class ClaudeHubTests(unittest.TestCase):
                 self.assertEqual(upstream_calls, 1)
                 self.assertIn(b"partial", bytes(received))
                 self.assertIn(b"event: message_stop\n", bytes(received))
-                self.assertIsNotNone(transfer_error)
+                # 截断仍然失败,但不再以裸断连收场:连接干净关闭,
+                # 尾部是一个客户端可渲染、可 hook 的具名 api_error。
+                self.assertIsNone(transfer_error)
+                body = bytes(received)
+                self.assertIn(b"event: error\n", body)
+                self.assertIn(b'"type":"api_error"', body)
+                self.assertIn(b"mid-response", body)
+                self.assertIn(b"without message_stop or error", body)
             finally:
                 if client is not None:
                     await client.close()

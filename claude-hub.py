@@ -3801,6 +3801,48 @@ async def _forward_to_channel(
     raise AssertionError("replay loop must return or raise")
 
 
+async def _write_truncated_native_terminal(
+    request,
+    response,
+    downstream,
+    byte_count: int,
+) -> None:
+    """Close a truncated native SSE stream with an explicit error event.
+
+    The upstream's clean EOF without a terminal is a failure, and it stays a
+    failure: no message_stop is fabricated.  But a bare transport abort leaves
+    the client with an anonymous dropped connection, so the stream instead ends
+    with a named api_error the client can render and hook on.  The
+    "mid-response" wording is load-bearing; client-side continuation hooks
+    match on it.
+    """
+    terminal_error = sse_event(
+        "error",
+        {
+            "type": "error",
+            "error": {
+                "type": "api_error",
+                "message": (
+                    "hub: upstream ended the stream mid-response "
+                    "without message_stop or error after "
+                    f"{byte_count}B; the partial content above is "
+                    "real but incomplete"
+                ),
+            },
+        },
+    )
+    try:
+        await downstream.write(terminal_error)
+        await response.write_eof()
+    except (aiohttp.ClientError, OSError) as downstream_exc:
+        transport = request.transport
+        if transport is not None:
+            transport.abort()
+        raise UpstreamStreamAborted(
+            "downstream closed while reporting an incomplete upstream stream"
+        ) from downstream_exc
+
+
 async def _forward_to_channel_attempt(
     request: web.Request,
     *,
@@ -4130,7 +4172,8 @@ async def _forward_to_channel_attempt(
             if sse_tracker is not None and not sse_tracker.complete:
                 # A clean EOF without a terminal event is the upstream's own
                 # malformed answer rather than a stall, so replaying it would
-                # just repeat a deterministic failure. Hand over what arrived.
+                # just repeat a deterministic failure. Hand over what arrived
+                # and close with a named error event instead of a bare abort.
                 byte_count += await downstream.open()
                 log(
                     f"{log_prefix} upstream SSE ended without a valid "
@@ -4147,12 +4190,10 @@ async def _forward_to_channel_attempt(
                     exc_type="IncompleteSSE",
                     telemetry=stream_telemetry.snapshot(),
                 )
-                transport = request.transport
-                if transport is not None:
-                    transport.abort()
-                raise UpstreamStreamAborted(
-                    "upstream SSE ended without a valid message_stop or error"
+                await _write_truncated_native_terminal(
+                    request, response, downstream, byte_count
                 )
+                return response
 
             await response.write_eof()
             if usage_tracker is not None and sse_tracker.terminal_kind == "error":
