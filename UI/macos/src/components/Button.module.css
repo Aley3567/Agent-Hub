@@ -85,7 +85,8 @@
 
 .primary {
   background: var(--accent-gradient);
-  color: #ffffff;
+  /* accent 渐变上的文字走 --text-inverse token（深浅两主题同为 #ffffff），不写字面值 */
+  color: var(--text-inverse);
   box-shadow: 0 2px 10px var(--accent-glow);
 }
 

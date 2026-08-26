@@ -306,13 +306,17 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 | `fade` | `components/Dialog.module.css` | 对话框遮罩与面板淡入 | `--dur-normal` `--ease-out` | 无 |
 | `spin` | `components/Spinner.module.css` | 加载指示器旋转 | `--dur-spin-loop` `linear` `infinite` | 有（旋转） |
 | `view-enter` | `styles/global.css` | 视图切换入场：opacity 0→1 + `translateY(2px)`→0 | `--dur-normal` `--ease-out` | 有 |
+| `list-stagger-in` | `styles/global.css` | 列表项错峰入场：opacity 0→1 + `translateY(2px)`→0；容器挂 `.stagger`，逐项 20ms delay，8 项封顶 | `--dur-normal` `--ease-out` | 有 |
+| `value-flash` | `styles/global.css` | 数值变化高亮：`background-color` 从 `--accent-muted` 回到元素自身底色 | `--dur-normal` `--ease-out` | 无 |
+| `accent-bar-in` | `styles/global.css` | 选中态 accent 竖条入场：`scaleY(0)`→1 | `--dur-fast` `--ease-out` | 有（缩放） |
 
 **reduced-motion 的精细规则**
 
 `@media (prefers-reduced-motion: reduce)` 开启后，判据是**有没有位移**，不是「有没有动画」：
 
 1. **位移、缩放、旋转一律关掉。** 涉及 `transform` 的过渡与关键帧全部停用——上表最后一列
-   标「有」的四个（`palette-in`、`app-progress-slide`、`spin`、`view-enter`）在这个模式下
+   标「有」的六个（`palette-in`、`app-progress-slide`、`spin`、`view-enter`、
+   `list-stagger-in`、`accent-bar-in`）在这个模式下
    不许播放。宽高、`top/left`、`margin`
    这类会让元素挪位的过渡同样关掉。
 2. **不位移的透明度与颜色变化保留。** `opacity`、`color`、`background-color`、

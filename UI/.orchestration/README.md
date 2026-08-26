@@ -31,8 +31,8 @@ node --check /tmp/.c.mjs && rm -f /tmp/.c.mjs
 | 脚本 | agent | 状态 |
 |---|---|---|
 | `batch3-table.mjs` | 6 | 已跑完（`wf_6d30e8ac-65c`），22 项复核发现已全部处理 |
-| `batch4-motion.mjs` | 9 | Apply 之后被中断（`wf_12e65279-def`），**Verify 三路未跑** |
-| `batch4-verify.mjs` | 3 | 补跑第四批复核用。**下一步就跑它** |
+| `batch4-motion.mjs` | 9 | Apply 之后被中断（`wf_12e65279-def`），复核补跑时发现 3 个关键帧未落盘，已手工补齐 |
+| `batch4-verify.mjs` | 3 | 已补跑（2026-08-26 手工按三路清单执行），2 处 major 已修，见 REDESIGN-PROMPT.md 第 6 节 |
 | `batch5-ux.mjs` | 10 | 就绪未跑 |
 | `batch6-windows.mjs` | 12 | 就绪未跑 |
 

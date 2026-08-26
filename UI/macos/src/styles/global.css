@@ -244,6 +244,92 @@ table {
   animation: view-enter var(--dur-normal) var(--ease-out) both;
 }
 
+/* 列表项错峰入场。形状与 view-enter 相同（2px 上移 + 淡入），差别在调用方式：
+   容器挂 .stagger，直接子元素自动带上入场动画并逐项 +20ms delay。
+   上限 8 项的落地方式：:nth-child(-n+8) 逐项写 0~140ms，第 9 项起由
+   :nth-child(n+9) 统一钉在 140ms，长列表不会越拖越长。
+   delay 期间靠 fill-mode both 保持 from 态（透明），不会先闪现再入场。 */
+@keyframes list-stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger > * {
+  animation: list-stagger-in var(--dur-normal) var(--ease-out) both;
+}
+
+.stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.stagger > *:nth-child(2) {
+  animation-delay: 20ms;
+}
+
+.stagger > *:nth-child(3) {
+  animation-delay: 40ms;
+}
+
+.stagger > *:nth-child(4) {
+  animation-delay: 60ms;
+}
+
+.stagger > *:nth-child(5) {
+  animation-delay: 80ms;
+}
+
+.stagger > *:nth-child(6) {
+  animation-delay: 100ms;
+}
+
+.stagger > *:nth-child(7) {
+  animation-delay: 120ms;
+}
+
+/* 第 8 项与第 9 项起同档：140ms 是封顶值，不再递增 */
+.stagger > *:nth-child(8),
+.stagger > *:nth-child(n + 9) {
+  animation-delay: 140ms;
+}
+
+/* 数值变化时高亮闪一下。只写 from：终帧取元素自身的 background-color，
+   闪完自然回到原底色，不会在结束帧从透明硬跳回来。不位移，reduced-motion
+   下虽被通配 animation: none 关掉，但数值本身已变了，不丢信息。 */
+@keyframes value-flash {
+  from {
+    background-color: var(--accent-muted);
+  }
+}
+
+.value-flash,
+.valueFlash {
+  animation: value-flash var(--dur-normal) var(--ease-out);
+}
+
+/* 选中态 accent 竖条入场：从 0 长到全高。时长 --dur-fast——「chip/tab 选中」
+   那一档（DESIGN.md 2.5 时长语义表）。有缩放，reduced-motion 下被通配关掉，
+   竖条直接以全高呈现。调用方把类挂在条元素（或其伪元素宿主）上。 */
+@keyframes accent-bar-in {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.accent-bar-in,
+.accentBarIn {
+  transform-origin: center;
+  animation: accent-bar-in var(--dur-fast) var(--ease-out) both;
+}
+
 /* ==========================================================================
    尊重减少动效（DESIGN.md 2.5「reduced-motion 的精细规则」）
    判据是「有没有位移」，不是「有没有动画」。这段是可达性兜底，写反了比不写更糟，
@@ -254,8 +340,9 @@ table {
   *::before,
   *::after {
     /*
-     * 1) animation 保持通配 none：工程里 4 个带位移/旋转的关键帧
-     *    （palette-in、app-progress-slide、spin、view-enter）一次全关，且以后新增的、
+     * 1) animation 保持通配 none：工程里 6 个带位移/旋转/缩放的关键帧
+     *    （palette-in、app-progress-slide、spin、view-enter、list-stagger-in、
+     *    accent-bar-in）一次全关，且以后新增的、
      *    CSS Modules 哈希类名够不到的关键帧也默认被关掉。
      *    代价是 Dialog 的 fade 这类模块内的纯透明度动画一起关掉——
      *    可接受：丢一次淡入不丢任何信息（DESIGN.md 2.5 第 4 条）。

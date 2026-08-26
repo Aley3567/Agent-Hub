@@ -365,12 +365,37 @@ refreshView 数组口径、命令面板动作补全、SEVERITY_TONE 单点化、
      §5 的 tertiary `#72747e` 是**第一批漏改的残留**、浅色 `--sidebar-bg` 的 `.88` 无文档出处。
    - 记为缺口不动：`stickyHeader` **一直是空转**（`.scroll` 无 `max-height`，纵向可滚范围 0，
      3 处调用受害）。修它要改滚动结构、与 §3「唯一滚动容器」冲突，已写进 §4.1.1。
-4. **第四批（动效与精细度）** —— **改动已落盘，复核未跑**（workflow `ui-batch4-motion`
-   在 Apply 之后被 checkpoint 中断，Spec / Keyframes / Apply 四路完成，Verify 三路从未启动）。
+4. **第四批（动效与精细度）** —— **改动已落盘，三路复核已补跑并修复**（2026-08-26）。
    56 个文件被改，四项计数全部达标（见验收表）。编排者独立验过：`tsc` 干净、
    `token-drift` 0、`border-audit` 0 违规、`unittest` 800 OK。
-   **下一步第一件事：跑 `UI/.orchestration/batch4-verify.mjs` 补上三路复核。**
-   第三批的经验是复核能抓出 blocker，不要跳过。
+   **复核补跑记录**（workflow 运行时不可用，按 `batch4-verify.mjs` 三路 prompt 的
+   检查清单逐条手工执行，口径与脚本一致）：
+   - 计数与阈值：`--dur-fast` 29 / `--dur-normal` 14 / `--dur-slow` 2（320ms 已在裸
+     `:root`），阈值达标；**@keyframes 实测只有 5 个**（编排者备注称 8 个，但
+     `list-stagger-in` / `value-flash` / `accent-bar-in` 从未落盘——fix:keyframes
+     只交付了 view-enter 与 reduced-motion 改写），报 major，已补齐 3 个关键帧与
+     配套工具类（`.stagger` 容器 20ms 递增、8 项封顶 140ms；`.value-flash` 只写
+     from 帧回到自身底色；`.accent-bar-in` scaleY 入场），global.css 注释与
+     DESIGN.md 2.5 清单表同步改成真实的 8 个。cubic-bezier 全工程仅 tokens.css
+     两条定义；无 >320ms 硬编码时长（620/400ms 均在注释里）；`token-drift` 退出码 0。
+   - 语义合规：抽查全部 fast/normal 使用处，hover 纯变色均 `--dur-instant`、
+     active/selected 均 `--dur-fast`、入场/位移均 `--dur-normal`，无凑数；
+     五态（Button/IconButton/Switch/SegmentedControl/Select/侧栏导航项）齐备，
+     无 `outline: none`（仅注释提及）；usage/channels 数值列 tabular-nums 齐备；
+     禁止效果（overshoot/视差/非法循环）零命中。抓出 1 处 token 违规：
+     `Button.module.css` `.primary` 写字面 `#ffffff`，已有 `--text-inverse`
+     token（两主题同值），已改走 token。
+   - 回归与兜底：第三批成果逐项在（framed 外框、sticky 不透明底 + inset
+     box-shadow 分隔线、渐变遮罩 right:100%、MidTruncate、协议列 160/备注 256、
+     th.align-* 高特异性覆盖、PoolCard 与 diagnostics 副表 `framed={false}`）；
+     sticky 单元格无 background-color 过渡，无半透明中间态风险；reduced-motion
+     通配 `animation: none` + 属性白名单仍在，新增关键帧默认被覆盖；safari15
+     无 `:has()`/`@container`/`@property`，`-webkit-line-clamp` 均配
+     `-webkit-box`；CONTRACT 6.2 的 AppState/NavState 字段零增删。
+   - 复核后验证套件：`tsc` 干净、`token-drift` 0、`border-audit` 0 违规。
+     项目根 `unittest` 917 例中 4 例失败，全部位于 ccswitch/switchctl，成因是
+     `src/claude_hub/ccswitch.py` 的**他人未提交改动**（stable_provider_id 哈希派生）
+     与既有断言冲突，与本批 UI 改动无关。
 5. **第五批（UX 与文案）**：脚本就绪 `UI/.orchestration/batch5-ux.mjs`（10 agent）。
    诊断分段、命令面板**只补三项**、toast store、降级码文案、空态三件套。
 6. **第六批（windows 追平）**：脚本就绪 `UI/.orchestration/batch6-windows.mjs`（12 agent）。
