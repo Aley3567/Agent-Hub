@@ -107,9 +107,10 @@ class _NeverSession:
 
 
 class _FakeContent:
-    def __init__(self, chunks, fail_after=False):
+    def __init__(self, chunks, fail_after=False, timeout_after=False):
         self.chunks = list(chunks)
         self.fail_after = fail_after
+        self.timeout_after = timeout_after
         self.events = []
 
     async def iter_any(self):
@@ -119,13 +120,63 @@ class _FakeContent:
         if self.fail_after:
             self.events.append("raise")
             raise aiohttp.ClientPayloadError("fixture stream ended abruptly")
+        if self.timeout_after:
+            self.events.append("timeout")
+            raise asyncio.TimeoutError("fixture upstream read timed out")
 
 
 class _FakeUpstream:
-    def __init__(self, status, headers, chunks, fail_after=False):
+    def __init__(self, status, headers, chunks, fail_after=False, timeout_after=False):
         self.status = status
         self.headers = CIMultiDict(headers)
-        self.content = _FakeContent(chunks, fail_after=fail_after)
+        self.content = _FakeContent(
+            chunks, fail_after=fail_after, timeout_after=timeout_after
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, _exc_type, _exc, _traceback):
+        return False
+
+
+class _StallingContent:
+    """A stalled read that survives cancellation, like aiohttp's StreamReader.
+
+    The hub's hold watchdog abandons an in-flight wait when the deadline
+    trips; a real StreamReader keeps the stream alive so the next read simply
+    waits again, while a cancelled async generator would stay closed forever.
+    """
+
+    def __init__(self, chunks, *, stall_seconds, tail):
+        self.chunks = list(chunks)
+        self.stall_seconds = stall_seconds
+        self.tail = tail
+        self.stalled = False
+
+    def iter_any(self):
+        return self
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self.chunks:
+            return self.chunks.pop(0)
+        if self.stalled:
+            raise self.tail
+        self.stalled = True
+        await asyncio.sleep(self.stall_seconds)
+        raise self.tail
+
+
+class _StallingUpstream:
+    def __init__(self, status, headers, chunks, *, stall_seconds, tail):
+        self.status = status
+        self.headers = CIMultiDict(headers)
+        self.content = _StallingContent(
+            chunks, stall_seconds=stall_seconds, tail=tail
+        )
 
     async def __aenter__(self):
         return self
@@ -5931,6 +5982,96 @@ class ClaudeHubTests(unittest.TestCase):
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(row["exc"], "IncompleteSSE")
         self.assertNotIn("deg", row)
+
+    def test_post_commit_upstream_stall_ends_with_named_terminal(self):
+        # 已 commit 之后上游读停顿（sock_read 超时）：与 clean EOF 同责——
+        # 已交付内容如实交接，具名 error 帧收尾，而不是裸断客户端连接。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":1,"content_block":{"type":"text","text":""}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":1,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+        ]
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            chunks,
+            timeout_after=True,
+        )
+        session = _FakeSession(upstream)
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub.web, "StreamResponse", return_value=downstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        self.assertEqual(len(session.calls), 1)
+        rendered = b"".join(downstream.writes)
+        self.assertIn(b"text_delta", rendered)
+        self.assertIn(b"event: error", rendered)
+        self.assertIn(b"mid-response", rendered)
+        self.assertFalse(request.transport.aborted)
+        row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(row["exc"], "TimeoutError")
+        self.assertNotIn("deg", row)
+
+    def test_zero_byte_stall_still_trips_the_hold_deadline(self):
+        # 零字节静默：扣留死线是墙上时钟，不是 chunk 计数。上游一个字节都不发时，
+        # 事件驱动的死线检查永远等不到 chunk；死线必须照常到点提交转直通，随后
+        # 的传输停顿按具名错误收尾——而不是每次尝试都堵到 sock_read 再隐形重放。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        upstream = _StallingUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [],
+            stall_seconds=0.5,
+            tail=asyncio.TimeoutError("fixture upstream never produced"),
+        )
+        session = _FakeSession(upstream)
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub, "THINKING_HOLD_MAX_SECONDS", 0.2):
+            with mock.patch.object(
+                hub.web, "StreamResponse", return_value=downstream
+            ):
+                response = asyncio.run(
+                    asyncio.wait_for(hub.handle_messages(request), timeout=10)
+                )
+
+        self.assertIs(response, downstream)
+        self.assertEqual(len(session.calls), 1)
+        rendered = b"".join(downstream.writes)
+        self.assertIn(b"event: error", rendered)
+        self.assertFalse(request.transport.aborted)
+        rows = [
+            json.loads(line)
+            for line in self.errors_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["exc"], "TimeoutError")
 
     def test_account_pool_never_retries_a_stream_after_downstream_commit(self):
         self._write_account_pool_db()

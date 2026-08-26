@@ -2527,6 +2527,34 @@ class _DeferredDownstream:
         return len(chunk)
 
 
+async def _held_read_chunk(chunk_stream, hold_deadline: float | None):
+    """Read one upstream chunk, arming the hold deadline as a watchdog.
+
+    The hold window is a wall clock, but the stream loop's expiry check only
+    runs when a chunk arrives; a fully silent upstream would otherwise hold
+    the client until sock_read fires. Returns ``(chunk, False)``,
+    ``(None, False)`` at EOF, or ``(None, True)`` when the deadline tripped
+    with no chunk arriving. A read that fails on its own raises unchanged,
+    and an already-expired deadline arms no watchdog: the loop's expiry
+    check commits on the next chunk that does arrive.
+    """
+    remaining = None if hold_deadline is None else hold_deadline - time.monotonic()
+    if remaining is None or remaining <= 0:
+        try:
+            return await chunk_stream.__anext__(), False
+        except StopAsyncIteration:
+            return None, False
+    try:
+        chunk = await asyncio.wait_for(chunk_stream.__anext__(), timeout=remaining)
+        return chunk, False
+    except StopAsyncIteration:
+        return None, False
+    except asyncio.TimeoutError:
+        if time.monotonic() < hold_deadline:
+            raise  # a real read failure, not the watchdog
+        return None, True
+
+
 class _SSEUsageTracker:
     """轻量解析透传 SSE 里的 usage（message_start / message_delta），用于落盘统计。
 
@@ -3987,6 +4015,64 @@ async def _write_truncated_native_terminal(
         ) from downstream_exc
 
 
+async def _resolve_broken_native_stream(
+    *,
+    journal,
+    journal_account: str | None,
+    log_prefix: str,
+    byte_count: int,
+    telemetry,
+    exc: Exception,
+    downstream: _DeferredDownstream,
+    sse_tracker: "_SSETerminalTracker | None",
+    request,
+    response,
+) -> web.StreamResponse:
+    """Journal one attempt whose upstream connection broke and pick its ending.
+
+    A stall the client never saw is replayed invisibly; a read stall after
+    commit is the same client-visible truncation as a clean EOF and gets the
+    named terminal; anything else keeps the bare abort. This function either
+    raises (replayable/aborted) or returns the ended response.
+    """
+    _journal_broken_native_stream(
+        journal,
+        account_id=journal_account,
+        log_prefix=log_prefix,
+        byte_count=byte_count,
+        telemetry=telemetry,
+        exc=exc,
+    )
+    if not downstream.started and isinstance(
+        exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
+    ):
+        # The client never saw this attempt and the upstream broke
+        # at the transport rather than inside its own output, so a
+        # fresh connection can still answer differently and the
+        # transport must survive for it. Malformed output -- an SSE
+        # ordering violation, a corrupt compression member -- is the
+        # upstream's deterministic answer by the same reasoning the
+        # clean-EOF branch below applies, so it keeps falling
+        # through to the abort instead of buying three of them.
+        raise UpstreamStreamReplayable(
+            "upstream stalled before the downstream response started"
+        ) from exc
+    if sse_tracker is not None and isinstance(exc, asyncio.TimeoutError):
+        # A read stall after commit is the same client-visible truncation
+        # as the clean EOF the caller resolves below: hand over what arrived
+        # and close with the named error event, not a dropped connection.
+        await _write_truncated_native_terminal(
+            request, response, downstream, byte_count
+        )
+        return response
+    transport = request.transport
+    if transport is not None:
+        transport.abort()
+    raise UpstreamStreamAborted(
+        "upstream stream ended after downstream response started"
+    ) from exc
+
+
 async def _forward_to_channel_attempt(
     request: web.Request,
     *,
@@ -4248,7 +4334,20 @@ async def _forward_to_channel_attempt(
             # real upstream reason even on the byte-transparent native path.
             json_buf = bytearray() if not streamed else None
             try:
-                async for chunk in upstream.content.iter_any():
+                chunk_stream = upstream.content.iter_any()
+                while True:
+                    chunk, hold_tripped = await _held_read_chunk(
+                        chunk_stream, hold_deadline
+                    )
+                    if hold_tripped:
+                        # The deadline tripped with no chunk arriving: commit
+                        # and stream live, as the event-driven check below
+                        # does for a late-arriving chunk.
+                        byte_count += await downstream.open()
+                        hold_deadline = None
+                        continue
+                    if chunk is None:
+                        break
                     stream_telemetry.observe(chunk)
                     if sse_tracker is not None:
                         for decoded in sse_decoder.feed(chunk):
@@ -4276,6 +4375,9 @@ async def _forward_to_channel_attempt(
                     json_buf = _append_bounded_json_buffer(json_buf, chunk)
                     if sse_tracker is not None and sse_tracker.commit_started:
                         byte_count += await downstream.open()
+                        # Committed: the hold window no longer applies, so
+                        # stop bounding reads by its deadline.
+                        hold_deadline = None
                     byte_count += await downstream.write(chunk)
                 if sse_tracker is not None:
                     sse_decoder.finish()
@@ -4288,34 +4390,18 @@ async def _forward_to_channel_attempt(
                 zlib.error,
                 ProtocolTransformError,
             ) as exc:
-                _journal_broken_native_stream(
-                    journal,
-                    account_id=journal_account,
+                return await _resolve_broken_native_stream(
+                    journal=journal,
+                    journal_account=journal_account,
                     log_prefix=log_prefix,
                     byte_count=byte_count,
                     telemetry=stream_telemetry,
                     exc=exc,
+                    downstream=downstream,
+                    sse_tracker=sse_tracker,
+                    request=request,
+                    response=response,
                 )
-                if not downstream.started and isinstance(
-                    exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
-                ):
-                    # The client never saw this attempt and the upstream broke
-                    # at the transport rather than inside its own output, so a
-                    # fresh connection can still answer differently and the
-                    # transport must survive for it. Malformed output -- an SSE
-                    # ordering violation, a corrupt compression member -- is the
-                    # upstream's deterministic answer by the same reasoning the
-                    # clean-EOF branch below applies, so it keeps falling
-                    # through to the abort instead of buying three of them.
-                    raise UpstreamStreamReplayable(
-                        "upstream stalled before the downstream response started"
-                    ) from exc
-                transport = request.transport
-                if transport is not None:
-                    transport.abort()
-                raise UpstreamStreamAborted(
-                    "upstream stream ended after downstream response started"
-                ) from exc
 
             if sse_tracker is not None and not sse_tracker.complete:
                 replayable, byte_count = await _resolve_incomplete_native_sse(
