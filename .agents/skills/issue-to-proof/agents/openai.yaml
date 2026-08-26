@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue to Proof"
+  short_description: "将疑难或复发 issue 从症状推进到运行态证据闭环"
+  default_prompt: "Use $issue-to-proof to diagnose this issue, implement the causal fix, and report the proof and remaining uncertainty."

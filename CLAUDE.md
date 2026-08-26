@@ -6,6 +6,23 @@
 
 **验证**:`python3 -m unittest discover -s tests -p 'test_*.py'`。
 
+## Issue 修复
+
+非显然、复发、跨路径、间歇性或仅在真实运行态出现的问题,必须使用项目 skill
+`/issue-to-proof` 从症状推进到因果修复与证据闭环。原因已被现有失败测试直接证明的机械故障
+可走短路径。详细流程只维护在 skill 中,不要复制回本文;外部环境问题未完成同环境验证时,
+状态只能写「代码完成,运行态未验证」,不能写「已修复」。
+
+## 版本控制与 module 归属
+
+工作树混有多个 issue、产品线或同文件异类 hunk 时,使用 `/change-to-commit` 先建立行为级
+变更账本,再精确暂存与验证;未分类期间禁止 `git add .`、全量 stash、`git clean` 和会覆盖
+工作树的 reset/checkout。提交表达一个行为与证据,不是为了把 status 清空。
+
+根 Python 文件是当前运行时,协议语义只由 `claude-hub.py` / `claude1_protocol.py` 所有;
+`crates/agent-hub/` 是 Rust 管理面;`UI/macos/` 与 `UI/windows/` 独立验证;
+`gateway/` 在产品身份明确前视为独立 Go 实验,不得静默成为第二套 canonical 协议实现。
+
 ## 总规则:默认放行,例外才拒
 
 本仓库协议桥历史上 fail-closed 过头:上游流中途换 id、响应多个新字段、SSE 来个自定义事件、tool 参数不是 object,一律拒绝——上游的任何方言都变成用户可见的"id/response 不兼容"。
