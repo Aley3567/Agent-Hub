@@ -2203,6 +2203,51 @@ class LauncherSafetyTests(unittest.TestCase):
 
         self.assertEqual(settings["env"]["NO_PROXY"], "localhost")
 
+    def test_provider_without_transport_does_not_add_api_host_to_no_proxy(self) -> None:
+        provider = {
+            "id": "auto",
+            "name": "Auto Provider",
+            "settings_config": json.dumps(
+                {
+                    "env": {
+                        "ANTHROPIC_BASE_URL": "https://api.example.com/v1",
+                        "ANTHROPIC_AUTH_TOKEN": "fixture-token",
+                        "NO_PROXY": "localhost",
+                    }
+                }
+            ),
+            "meta": "{}",
+            "provider_type": None,
+        }
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                settings = launcher.build_settings(provider)
+
+        self.assertEqual(settings["env"]["NO_PROXY"], "localhost")
+
+    def test_explicit_direct_adds_api_host_to_no_proxy(self) -> None:
+        provider = {
+            "id": "direct",
+            "name": "Direct Provider",
+            "settings_config": json.dumps(
+                {
+                    "transport": {"mode": "direct", "proxies": []},
+                    "env": {
+                        "ANTHROPIC_BASE_URL": "https://api.example.com/v1",
+                        "ANTHROPIC_AUTH_TOKEN": "fixture-token",
+                        "NO_PROXY": "localhost",
+                    },
+                }
+            ),
+            "meta": "{}",
+            "provider_type": None,
+        }
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                settings = launcher.build_settings(provider)
+
+        self.assertEqual(settings["env"]["NO_PROXY"], "localhost,api.example.com")
+
     def test_anyrouter_observer_leaves_legacy_hook_shapes_untouched(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             home = Path(raw_home)

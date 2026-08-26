@@ -82,6 +82,10 @@ from claude1_transport import (
 SERVICE_NAME = "claude-hub"
 PROTOCOL_VERSION = 1
 VERSION = "0.1.0"
+TRANSPORT_REJECTION_STATUSES = frozenset({403, 451})
+TRANSPORT_CONFIGURATION_HINT = (
+    "该渠道可能需要代理，请在渠道配置 transport"
+)
 HEALTH_PAYLOAD = {
     "ok": True,
     "service": SERVICE_NAME,
@@ -2725,7 +2729,9 @@ async def _post_with_account_failover(
                 "timeout": timeout,
                 "allow_redirects": False,
             },
-            retry_response=lambda response: response.status == 403,
+            retry_response=lambda response: (
+                response.status in TRANSPORT_REJECTION_STATUSES
+            ),
         ) as opened:
             upstream = opened.response
             retryable = upstream.status in (401, 403, 429)
@@ -3054,10 +3060,9 @@ async def _handle_transformed_messages(
                     # One shared evidence extraction feeds the downstream
                     # shell, the log line and the response header, so every
                     # surface shows the same sanitized upstream reason.
-                    evidence_code, evidence_message = upstream_error_evidence(
-                        decoded
+                    evidence_code, evidence_message, body = _prepare_upstream_error(
+                        decoded, upstream.status
                     )
-                    body = transform_error(decoded, upstream.status)
                     detail = ""
                     if evidence_code:
                         detail = f" ({evidence_code})"
@@ -3624,6 +3629,43 @@ def _decode_upstream_error(raw: bytes) -> tuple[object, str | None, str | None]:
     return decoded, code, message
 
 
+def _with_transport_configuration_hint(
+    status: int, message: str | None
+) -> str | None:
+    """Make a final network-policy rejection actionable without guessing success."""
+    if status != 451:
+        return message
+    if message and TRANSPORT_CONFIGURATION_HINT in message:
+        return message
+    if message:
+        return f"{message}；{TRANSPORT_CONFIGURATION_HINT}"
+    return TRANSPORT_CONFIGURATION_HINT
+
+
+def _transform_upstream_error_with_hint(
+    decoded: object, status: int
+) -> dict:
+    body = transform_error(decoded, status)
+    error = body.get("error")
+    if isinstance(error, dict):
+        message = error.get("message")
+        if isinstance(message, str):
+            error["message"] = _with_transport_configuration_hint(status, message)
+    return body
+
+
+def _prepare_upstream_error(
+    decoded: object, status: int
+) -> tuple[str | None, str | None, dict]:
+    """Build the shared safe evidence and downstream error shell."""
+    code, message = upstream_error_evidence(decoded)
+    return (
+        code,
+        _with_transport_configuration_hint(status, message),
+        _transform_upstream_error_with_hint(decoded, status),
+    )
+
+
 async def _native_upstream_error_response(
     upstream: aiohttp.ClientResponse,
     *,
@@ -3635,7 +3677,7 @@ async def _native_upstream_error_response(
     degrade_codes: tuple[str, ...],
     log_prefix: str,
 ) -> web.Response:
-    """Re-dress a native 405 as an Anthropic error envelope.
+    """Re-dress an actionable native rejection as an Anthropic error envelope.
 
     Native providers do not consistently return an Anthropic error envelope: a
     405 is commonly empty or HTML, which leaves Claude Code with only
@@ -3646,6 +3688,9 @@ async def _native_upstream_error_response(
     """
     raw = await _read_decoded_upstream_body(upstream)
     decoded, evidence_code, evidence_message = _decode_upstream_error(raw)
+    evidence_message = _with_transport_configuration_hint(
+        upstream.status, evidence_message
+    )
     detail = f" ({evidence_code})" if evidence_code else ""
     if evidence_message:
         detail += f": {evidence_message}"
@@ -3675,7 +3720,7 @@ async def _native_upstream_error_response(
     if allow:
         headers["allow"] = allow
     return web.json_response(
-        transform_error(decoded, upstream.status),
+        _transform_upstream_error_with_hint(decoded, upstream.status),
         status=upstream.status,
         headers=headers,
     )
@@ -3924,7 +3969,7 @@ async def _forward_to_channel_attempt(
                     estimate=estimate,
                 )
 
-            if upstream.status == 405:
+            if upstream.status in (405, 451):
                 return await _native_upstream_error_response(
                     upstream,
                     journal=journal,

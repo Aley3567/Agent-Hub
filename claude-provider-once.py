@@ -934,10 +934,22 @@ def build_settings(provider: dict) -> dict:
     except ValueError as exc:
         name = str(provider.get("name") or provider.get("id") or "<unknown>")
         raise RuntimeError(f"provider {name} 的 URL 无效") from exc
+    transport = cfg.get("transport")
+    explicit_direct = (
+        isinstance(transport, dict) and transport.get("mode") == "direct"
+    )
     explicit_proxy = any(
         k.upper() in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY") for k in env
     )
-    if host and explicit_proxy:
+    if host and explicit_direct:
+        # Direct is an explicit routing choice. Keep ambient proxy settings from
+        # changing it when Claude Code takes the native fast path.
+        for key in ("NO_PROXY", "no_proxy"):
+            parts = [p.strip() for p in env.get(key, "").split(",") if p.strip()]
+            if all(part.casefold() != host.casefold() for part in parts):
+                parts.append(host)
+            env[key] = ",".join(parts)
+    elif host and explicit_proxy:
         # Provider explicitly routes through a proxy (e.g. anyrouter.top needs
         # the Clash node because Cloudflare refuses direct TLS from CN). Keep
         # the API host OUT of NO_PROXY or the bypass would silently defeat it.
@@ -951,12 +963,6 @@ def build_settings(provider: dict) -> dict:
                 env[key] = ",".join(parts)
             else:
                 env.pop(key, None)
-    elif host:
-        for key in ("NO_PROXY", "no_proxy"):
-            parts = [p.strip() for p in env.get(key, "").split(",") if p.strip()]
-            if all(part.casefold() != host.casefold() for part in parts):
-                parts.append(host)
-            env[key] = ",".join(parts)
     # claude1 本地覆盖（~/.cc-switch/claude1-config.json，绝不写 CC Switch
     # 数据库）：model 覆盖写入 ANTHROPIC_MODEL，其余 DEFAULT_* 槽位不动；
     # effort 覆盖走与 Hub 槽位相同的 effortLevel 字段。两者只影响本次会话。

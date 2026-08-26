@@ -38,10 +38,11 @@ BASELINE = {
 # claude-hub.py's number no longer belongs to _forward_to_channel: two cuts took
 # it 549 -> 437 and _handle_transformed_messages now holds the ceiling.  Binding
 # that path's turn identity through _TurnJournal (the same abstraction the native
-# path already used) took it 467 -> 465.
+# path already used) took it 467 -> 465; shared upstream-error preparation took
+# the transformed path to 464.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 465,
+    "claude-hub.py": 464,
     "claude-provider-once.py": 313,
     "claude1_account_pool.py": 124,
 }

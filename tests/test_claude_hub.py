@@ -5632,6 +5632,60 @@ class ClaudeHubTests(unittest.TestCase):
         # 空 code 不是证据,不该写进 journal 冒充上游代码。
         self.assertNotIn("code", row)
 
+    def test_auto_transport_retries_network_rejection_through_proxy(self):
+        self._write_config(
+            transport={
+                "mode": "auto",
+                "proxies": ["http://127.0.0.1:7897"],
+            }
+        )
+        session = _SequencedFakeSession(
+            [
+                _FakeUpstream(
+                    451,
+                    {"Content-Type": "text/html"},
+                    [b"<title>network request rejected</title>"],
+                ),
+                _FakeUpstream(
+                    200,
+                    {"Content-Type": "application/json"},
+                    [b'{"usage":{"input_tokens":1,"output_tokens":1}}'],
+                ),
+            ]
+        )
+        request = self._request(
+            {"model": "fast,custom-model", "messages": []},
+            session=session,
+        )
+
+        with mock.patch.object(hub.web, "StreamResponse", _FakeDownstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            [call[1]["proxy"] for call in session.calls],
+            [None, "http://127.0.0.1:7897"],
+        )
+
+    def test_final_network_rejection_includes_transport_hint(self):
+        self._write_config(transport={"mode": "direct", "proxies": []})
+        upstream = _FakeUpstream(
+            451,
+            {"Content-Type": "text/html"},
+            [b"<title>network request rejected</title>"],
+        )
+        request = self._request(
+            {"model": "fast,custom-model", "messages": []},
+            session=_FakeSession(upstream),
+        )
+
+        response = asyncio.run(hub.handle_messages(request))
+
+        self.assertEqual(response.status, 451)
+        self.assertIn("transport", response.text)
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertIn("transport", row["message"])
+
     def test_stream_abort_is_journaled_so_mid_response_stays_findable(self):
         # 用户看到的 "mid-response" 就是这条路径。首字节前的断流现在会被重放
         # 吃掉,预算耗尽后答复 504;但每一次断流仍要在 journal 里留下是哪个渠道、
