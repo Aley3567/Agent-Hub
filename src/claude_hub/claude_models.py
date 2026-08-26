@@ -92,7 +92,12 @@ class ClaudeModelAdapter:
                     break
             projected[slot] = value
 
-        return ModelMapping(**projected)
+        try:
+            return ModelMapping(**projected)
+        except (TypeError, ValueError) as exc:
+            raise ClaudeModelDocumentError(
+                f"model mapping has invalid values: {exc}"
+            ) from exc
 
     def unknown_fields(self, document: Mapping[str, Any]) -> UnknownFieldSummary:
         if not isinstance(document, Mapping):

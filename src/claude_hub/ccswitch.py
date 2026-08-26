@@ -211,14 +211,20 @@ class CCSwitchProviderStore:
                 results: list[ProviderRef] = []
                 for row in rows:
                     p_id, p_name, is_current = row
-                    results.append(
-                        ProviderRef(
+                    try:
+                        ref = ProviderRef(
                             store=CC_SWITCH_STORE_ID,
                             provider_id=stable_provider_id(str(p_id)),
                             display_name=str(p_name) if p_name else None,
                             is_current=bool(is_current),
                         )
-                    )
+                    except (TypeError, ValueError) as exc:
+                        # A single malformed provider record must not escape as a
+                        # bare ValueError into an unrelated error envelope.
+                        raise ProviderConfigCorruptError(
+                            f"CC Switch provider record has invalid public fields: {exc}"
+                        ) from exc
+                    results.append(ref)
                 return tuple(results)
         except sqlite3.OperationalError as exc:
             raise ProviderStoreUnavailableError(

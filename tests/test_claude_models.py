@@ -52,6 +52,13 @@ class ClaudeModelsTests(unittest.TestCase):
         models = self.adapter.project(doc)
         self.assertEqual(models.configured_slots, ())
 
+    def test_project_invalid_model_value_raises_typed_error(self) -> None:
+        # A model value that fails public-identifier validation must surface as
+        # the adapter's typed error, not a bare ValueError.
+        doc = {"env": {"ANTHROPIC_MODEL": "https://rogue-proxy.example"}}
+        with self.assertRaises(ClaudeModelDocumentError):
+            self.adapter.project(doc)
+
     def test_project_invalid_document_raises(self) -> None:
         with self.assertRaises(ClaudeModelDocumentError):
             self.adapter.project("not-a-dict")  # type: ignore

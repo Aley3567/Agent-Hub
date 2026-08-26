@@ -287,6 +287,26 @@ class CCSwitchStoreTests(unittest.TestCase):
         with self.assertRaises(ProviderConfigCorruptError):
             store.inspect(ref)
 
+    def test_list_raises_corrupt_on_invalid_public_field(self) -> None:
+        providers = [
+            {
+                "id": "ok-1",
+                "name": "Good Provider",
+                "settings_config": json.dumps({"env": {}}),
+                "is_current": 0,
+            },
+            {
+                "id": "bad-1",
+                "name": "https://malformed.example/provider",
+                "settings_config": json.dumps({"env": {}}),
+                "is_current": 0,
+            },
+        ]
+        _init_test_db(self.db_path, version=16, providers=providers)
+        store = CCSwitchProviderStore(self.db_path)
+        with self.assertRaises(ProviderConfigCorruptError):
+            store.list()
+
     def test_list_raises_when_store_absent(self) -> None:
         store = CCSwitchProviderStore(Path(self.temp_dir.name) / "non-existent.db")
         with self.assertRaises(ProviderStoreUnavailableError):
