@@ -1066,7 +1066,7 @@ class RequestCapabilityContractTests(unittest.TestCase):
                 )
 
     def test_redacted_thinking_roundtrips_only_with_responses_provenance(self) -> None:
-        anthropic = protocol.transform_response(
+        anthropic = protocol.prepare_response(
             {
                 "id": "resp_opaque",
                 "model": "responses-model",
@@ -1081,7 +1081,7 @@ class RequestCapabilityContractTests(unittest.TestCase):
                 "usage": {"input_tokens": 1, "output_tokens": 1},
             },
             "openai_responses",
-        )
+        ).payload
         redacted = anthropic["content"][0]
         self.assertEqual(redacted["type"], "redacted_thinking")
         self.assertNotEqual(redacted["data"], "real-responses-opaque-value")
@@ -2048,7 +2048,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
 
     def test_refusal_and_content_filter_map_to_refusal_stop_semantics(self) -> None:
-        chat = protocol.transform_response(
+        chat = protocol.prepare_response(
             {
                 "id": "chat_refusal",
                 "model": "chat-model",
@@ -2061,8 +2061,8 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                 "usage": {"prompt_tokens": 2, "completion_tokens": 1},
             },
             "openai_chat",
-        )
-        responses = protocol.transform_response(
+        ).payload
+        responses = protocol.prepare_response(
             {
                 "id": "resp_refusal",
                 "model": "responses-model",
@@ -2076,7 +2076,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                 "usage": {"input_tokens": 2, "output_tokens": 1},
             },
             "openai_responses",
-        )
+        ).payload
 
         for body in (chat, responses):
             self.assertEqual(body["stop_reason"], "refusal")
@@ -2084,7 +2084,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
 
     def test_unknown_upstream_stop_reason_is_rejected_instead_of_becoming_end_turn(self) -> None:
         with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            protocol.transform_response(
+            protocol.prepare_response(
                 {
                     "choices": [
                         {

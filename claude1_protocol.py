@@ -28,7 +28,6 @@ from claude1_protocol_types import (
     ContentBlockIR,
     ConversionPlan,
     MessageIR,
-    OutputIR,
     PreparedRequest,
     ProtocolRequestError,
     ProtocolTransformError,
@@ -2646,8 +2645,8 @@ def prepare_request(
 ) -> PreparedRequest:
     """Parse, plan and encode one Anthropic Messages request.
 
-    ``transform_request`` remains the compatibility facade; callers that need
-    observable degradation metadata use this richer seam.
+    Observable degradation metadata rides on the returned
+    ``PreparedRequest.plan``.
     """
 
     if compatibility_mode not in {"visible_lossy", "strict"}:
@@ -2697,22 +2696,6 @@ def prepare_request(
     else:  # pragma: no cover - registry availability is checked above.
         raise AssertionError(api_format)
     return PreparedRequest(profile.endpoint, body, plan)
-
-
-def transform_request(
-    payload: dict,
-    api_format: str,
-    *,
-    provider_type: str | None = None,
-    native_system_role_mode: str = "promote",
-) -> tuple[str, dict]:
-    prepared = prepare_request(
-        payload,
-        api_format,
-        provider_type=provider_type,
-        native_system_role_mode=native_system_role_mode,
-    )
-    return prepared.endpoint, prepared.payload
 
 
 def _stream_identifier(*values: object) -> str | None:
@@ -3755,23 +3738,23 @@ def responses_to_anthropic(
 class ResponseAdapter:
     api_format: str
 
-    def decode(self, output: OutputIR, plan: ConversionPlan) -> PreparedResponse:
+    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
         raise NotImplementedError
 
 
 class ChatResponseAdapter(ResponseAdapter):
     api_format = "openai_chat"
 
-    def decode(self, output: OutputIR, plan: ConversionPlan) -> PreparedResponse:
-        payload, receipt = chat_to_anthropic(output.source, plan=plan)
+    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
+        payload, receipt = chat_to_anthropic(body, plan=plan)
         return PreparedResponse(payload, plan, receipt)
 
 
 class ResponsesResponseAdapter(ResponseAdapter):
     api_format = "openai_responses"
 
-    def decode(self, output: OutputIR, plan: ConversionPlan) -> PreparedResponse:
-        payload, receipt = responses_to_anthropic(output.source, plan=plan)
+    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
+        payload, receipt = responses_to_anthropic(body, plan=plan)
         return PreparedResponse(payload, plan, receipt)
 
 
@@ -3809,11 +3792,7 @@ def prepare_response(body: dict, api_format: str) -> PreparedResponse:
             f"no response adapter is registered for {api_format!r}",
             code="HUB_ADAPTER_UNAVAILABLE",
         )
-    return adapter.decode(OutputIR(copy.deepcopy(body), api_format), plan)
-
-
-def transform_response(body: dict, api_format: str) -> dict:
-    return prepare_response(body, api_format).payload
+    return adapter.decode(copy.deepcopy(body), plan)
 
 
 # Credential-shaped fragments must never survive into downstream error text,

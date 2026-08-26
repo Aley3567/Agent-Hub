@@ -56,8 +56,6 @@ from claude1_protocol import (
     sanitize_error_text,
     sse_event,
     transform_error,
-    transform_request,
-    transform_response,
     upstream_error_evidence,
 )
 from claude1_account_pool import (
@@ -4980,11 +4978,12 @@ async def cli_check(target: str | None) -> None:
             "max_tokens": 1,
             "messages": [{"role": "user", "content": "hi"}],
         }
-        endpoint, upstream_payload = transform_request(
+        prepared = prepare_request(
             probe,
             api_format,
             provider_type=provider.get("provider_type"),
         )
+        endpoint, upstream_payload = prepared.endpoint, prepared.payload
         if api_format == "anthropic":
             headers = CIMultiDict(
                 {

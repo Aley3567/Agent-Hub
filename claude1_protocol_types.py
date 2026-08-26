@@ -109,12 +109,6 @@ class PreparedRequest:
 
 
 @dataclass(frozen=True)
-class OutputIR:
-    source: dict
-    api_format: str
-
-
-@dataclass(frozen=True)
 class ContentBlockIR:
     kind: str
     value: dict

@@ -150,13 +150,13 @@ class RequestTransformTests(unittest.TestCase):
             "messages": [{"role": "user", "content": "hello"}],
         }
 
-        _, streaming = protocol.transform_request(
+        streaming = protocol.prepare_request(
             {**base, "stream": True}, "openai_chat"
-        )
-        _, non_streaming = protocol.transform_request(base, "openai_chat")
-        _, anthropic = protocol.transform_request(
+        ).payload
+        non_streaming = protocol.prepare_request(base, "openai_chat").payload
+        anthropic = protocol.prepare_request(
             {**base, "stream": True}, "anthropic"
-        )
+        ).payload
 
         self.assertEqual(
             streaming.get("stream_options"), {"include_usage": True}
@@ -173,8 +173,8 @@ class RequestTransformTests(unittest.TestCase):
             ],
         }
 
-        _, chat = protocol.transform_request(payload, "openai_chat")
-        _, responses = protocol.transform_request(payload, "openai_responses")
+        chat = protocol.prepare_request(payload, "openai_chat").payload
+        responses = protocol.prepare_request(payload, "openai_responses").payload
 
         self.assertEqual(
             chat["messages"][:2],
@@ -228,7 +228,7 @@ class RequestTransformTests(unittest.TestCase):
             for kind, payload in (("orphan", orphan), ("duplicate", duplicate)):
                 with self.subTest(api_format=api_format, kind=kind):
                     with self.assertRaises(protocol.ProtocolRequestError) as caught:
-                        protocol.transform_request(payload, api_format)
+                        protocol.prepare_request(payload, api_format)
                     exc = caught.exception
                     self.assertEqual(exc.code, "HUB_INVALID_TOOL_CAUSALITY")
                     self.assertEqual(exc.http_status, 400)
@@ -236,7 +236,7 @@ class RequestTransformTests(unittest.TestCase):
                     self.assertTrue(exc.path)
 
     def test_chat_request_preserves_tools_and_tool_results(self) -> None:
-        endpoint, body = protocol.transform_request(
+        prepared = protocol.prepare_request(
             {
                 "model": "gpt-5-test",
                 "max_tokens": 100,
@@ -279,6 +279,7 @@ class RequestTransformTests(unittest.TestCase):
             },
             "openai_chat",
         )
+        endpoint, body = prepared.endpoint, prepared.payload
         self.assertEqual(endpoint, "/v1/chat/completions")
         self.assertEqual(body["max_completion_tokens"], 100)
         self.assertEqual(body["messages"][0]["role"], "system")
@@ -295,7 +296,7 @@ class RequestTransformTests(unittest.TestCase):
         for api_format in ("openai_chat", "openai_responses"):
             with self.subTest(api_format=api_format):
                 with self.assertRaises(protocol.ProtocolRequestError) as caught:
-                    protocol.transform_request(payload, api_format)
+                    protocol.prepare_request(payload, api_format)
                 exc = caught.exception
                 self.assertEqual(exc.code, "HUB_INVALID_CONTENT_BLOCK")
                 self.assertEqual(exc.http_status, 400)
@@ -316,8 +317,8 @@ class RequestTransformTests(unittest.TestCase):
                 }
             ],
         }
-        _, chat = protocol.transform_request(payload, "openai_chat")
-        _, responses = protocol.transform_request(payload, "openai_responses")
+        chat = protocol.prepare_request(payload, "openai_chat").payload
+        responses = protocol.prepare_request(payload, "openai_responses").payload
         self.assertEqual(
             chat["messages"][0]["content"],
             [{"type": "image_url", "image_url": {"url": "https://example.test/a.png"}}],
@@ -328,7 +329,7 @@ class RequestTransformTests(unittest.TestCase):
         )
 
     def test_codex_responses_request_includes_encrypted_reasoning(self) -> None:
-        endpoint, body = protocol.transform_request(
+        prepared = protocol.prepare_request(
             {
                 "model": "codex-test",
                 "messages": [{"role": "user", "content": "hello"}],
@@ -337,6 +338,7 @@ class RequestTransformTests(unittest.TestCase):
             "openai_responses",
             provider_type="codex_oauth",
         )
+        endpoint, body = prepared.endpoint, prepared.payload
         self.assertEqual(endpoint, "/v1/responses")
         self.assertFalse(body["store"])
         self.assertEqual(body["reasoning"]["effort"], "high")
@@ -348,13 +350,13 @@ class RequestTransformTests(unittest.TestCase):
             "messages": [{"role": "user", "content": "hello"}],
             "output_config": {"effort": "xhigh"},
         }
-        _, chat = protocol.transform_request(payload, "openai_chat")
-        _, responses = protocol.transform_request(payload, "openai_responses")
+        chat = protocol.prepare_request(payload, "openai_chat").payload
+        responses = protocol.prepare_request(payload, "openai_responses").payload
         self.assertEqual(chat["reasoning_effort"], "xhigh")
         self.assertEqual(responses["reasoning"], {"effort": "xhigh", "summary": "auto"})
 
     def test_chat_request_keeps_thinking_only_assistant_turn(self) -> None:
-        _, body = protocol.transform_request(
+        body = protocol.prepare_request(
             {
                 "model": "reasoning-model",
                 "messages": [
@@ -365,25 +367,25 @@ class RequestTransformTests(unittest.TestCase):
                 ],
             },
             "openai_chat",
-        )
+        ).payload
         self.assertEqual(
             body["messages"],
             [{"role": "assistant", "content": None, "reasoning_content": "work"}],
         )
 
     def test_chat_request_maps_xhigh_thinking_to_reasoning_effort(self) -> None:
-        _, body = protocol.transform_request(
+        body = protocol.prepare_request(
             {
                 "model": "reasoning-model",
                 "messages": [{"role": "user", "content": "hello"}],
                 "thinking": {"type": "adaptive", "effort": "xhigh"},
             },
             "openai_chat",
-        )
+        ).payload
         self.assertEqual(body["reasoning_effort"], "xhigh")
 
     def test_chat_request_places_tool_results_before_later_user_text(self) -> None:
-        _, body = protocol.transform_request(
+        body = protocol.prepare_request(
             {
                 "model": "chat-model",
                 "messages": [
@@ -412,13 +414,13 @@ class RequestTransformTests(unittest.TestCase):
                 ],
             },
             "openai_chat",
-        )
+        ).payload
         self.assertEqual([message["role"] for message in body["messages"]], ["assistant", "tool", "user"])
         self.assertEqual(body["messages"][1]["tool_call_id"], "call_1")
         self.assertEqual(body["messages"][2]["content"], "continue")
 
     def test_responses_request_preserves_interleaved_function_call_order(self) -> None:
-        _, body = protocol.transform_request(
+        body = protocol.prepare_request(
             {
                 "model": "responses-model",
                 "messages": [
@@ -438,7 +440,7 @@ class RequestTransformTests(unittest.TestCase):
                 ],
             },
             "openai_responses",
-        )
+        ).payload
         self.assertEqual(
             body["input"],
             [
@@ -530,7 +532,7 @@ class ResponseTransformTests(unittest.TestCase):
         )
 
     def test_chat_tool_call_becomes_anthropic_tool_use(self) -> None:
-        body = protocol.transform_response(
+        body = protocol.prepare_response(
             {
                 "id": "chat_1",
                 "model": "model-test",
@@ -554,7 +556,7 @@ class ResponseTransformTests(unittest.TestCase):
                 "usage": {"prompt_tokens": 7, "completion_tokens": 3},
             },
             "openai_chat",
-        )
+        ).payload
         self.assertEqual(body["stop_reason"], "tool_use")
         self.assertEqual(body["content"][0]["type"], "tool_use")
         self.assertEqual(body["content"][0]["input"], {"q": "x"})
@@ -634,7 +636,7 @@ class ResponseTransformTests(unittest.TestCase):
         self.assertEqual(body["error"]["type"], "rate_limit_error")
 
     def test_responses_response_becomes_anthropic_message(self) -> None:
-        body = protocol.transform_response(
+        body = protocol.prepare_response(
             {
                 "id": "resp_1",
                 "model": "responses-model",
@@ -658,7 +660,7 @@ class ResponseTransformTests(unittest.TestCase):
                 "usage": {"input_tokens": 4, "output_tokens": 2},
             },
             "openai_responses",
-        )
+        ).payload
         self.assertEqual(body["id"], "resp_1")
         self.assertEqual(
             body["content"],
@@ -672,7 +674,7 @@ class ResponseTransformTests(unittest.TestCase):
         self.assertEqual(body["usage"]["input_tokens"], 4)
 
     def test_responses_accepts_numeric_string_usage_and_input_tool_arguments(self) -> None:
-        body = protocol.transform_response(
+        body = protocol.prepare_response(
             {
                 "status": "completed",
                 "output": [
@@ -686,7 +688,7 @@ class ResponseTransformTests(unittest.TestCase):
                 "usage": {"input_tokens": "4", "output_tokens": "2"},
             },
             "openai_responses",
-        )
+        ).payload
         self.assertEqual(body["content"][0]["input"], {"q": "x"})
         self.assertEqual(body["usage"]["input_tokens"], 4)
         self.assertEqual(body["usage"]["output_tokens"], 2)
@@ -727,7 +729,7 @@ class ResponseTransformTests(unittest.TestCase):
     def test_responses_error_and_identity_still_fail_closed(self) -> None:
         # 放行只针对未知元数据。错误体和 id/model 形状仍然是拒绝档。
         with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            protocol.transform_response(
+            protocol.prepare_response(
                 {
                     "status": "completed",
                     "completed_at": 1787152560,
@@ -740,7 +742,7 @@ class ResponseTransformTests(unittest.TestCase):
         self.assertEqual(raised.exception.path, "$.error")
 
         with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            protocol.transform_response(
+            protocol.prepare_response(
                 {
                     "id": "",
                     "status": "completed",
@@ -1164,7 +1166,7 @@ class StreamingTransformTests(unittest.TestCase):
                 with self.subTest(payload=payload, api_format=api_format), self.assertRaises(
                     protocol.ProtocolTransformError
                 ):
-                    protocol.transform_request(payload, api_format)
+                    protocol.prepare_request(payload, api_format)
 
     def test_all_anthropic_messages_require_user_or_assistant_role(self) -> None:
         payload = {
@@ -1175,7 +1177,7 @@ class StreamingTransformTests(unittest.TestCase):
             with self.subTest(api_format=api_format), self.assertRaisesRegex(
                 protocol.ProtocolTransformError, "roles"
             ):
-                protocol.transform_request(payload, api_format)
+                protocol.prepare_request(payload, api_format)
 
     def test_chat_terminal_accepts_usage_tail_and_rejects_late_content(self) -> None:
         bridge = protocol.AnthropicStreamBridge("openai_chat")
@@ -1745,7 +1747,7 @@ class UsageReceiptTests(unittest.TestCase):
         self.assertEqual(receipt.input_tokens, 620)
 
     def test_complete_conversion_omits_unobserved_usage_counters(self) -> None:
-        body = protocol.transform_response(
+        body = protocol.prepare_response(
             {
                 "id": "chatcmpl-1",
                 "model": "gpt-test",
@@ -1758,7 +1760,7 @@ class UsageReceiptTests(unittest.TestCase):
                 ],
             },
             "openai_chat",
-        )
+        ).payload
         # 上游没报 base usage：schema 完整性要求发 0，但 provenance
         # 降级必须可观测（记账侧据此剥掉这些字段）。
         self.assertEqual(body["usage"]["input_tokens"], 0)
@@ -1779,7 +1781,7 @@ class UsageReceiptTests(unittest.TestCase):
         )
 
     def test_responses_conversion_omits_unobserved_usage_counters(self) -> None:
-        body = protocol.transform_response(
+        body = protocol.prepare_response(
             {
                 "id": "resp_2",
                 "model": "responses-model",
@@ -1792,7 +1794,7 @@ class UsageReceiptTests(unittest.TestCase):
                 ],
             },
             "openai_responses",
-        )
+        ).payload
         # Responses 上游同样：0 + provenance 降级可观测。
         self.assertEqual(body["usage"]["input_tokens"], 0)
         self.assertEqual(body["usage"]["output_tokens"], 0)

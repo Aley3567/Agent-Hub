@@ -90,19 +90,10 @@ def resolve_startup_route(
     return StartupRoute(mode=mode, first_screen=first_screen_for_mode(mode))
 
 
-# Aliases for convenience
-resolve_mode = resolve_runtime_mode
-resolve_first_screen = first_screen_for_mode
-resolve_route = resolve_startup_route
-
-
 __all__ = [
     "FirstScreen",
     "StartupRoute",
     "first_screen_for_mode",
-    "resolve_first_screen",
-    "resolve_mode",
-    "resolve_route",
     "resolve_runtime_mode",
     "resolve_startup_route",
 ]
