@@ -36,6 +36,7 @@ from .standalone import (
     StandaloneProfileStore,
     StandaloneStoreCorruptError,
     StandaloneStoreError,
+    StandaloneStoreSecurityError,
     standalone_data_dir,
 )
 from .store import (
@@ -59,7 +60,7 @@ _HELP_USAGE = (
     "switchctl mode [--store standalone]",
     "switchctl route [--store standalone]",
     "switchctl profile list",
-    "switchctl profile create --name <name> --base-url <url> [--adapter <adapter>] [--models <json>] --secret <key>",
+    "switchctl profile create --name <name> --base-url <url> [--adapter <adapter>] [--models <json>] [--secret <key> | --secret-stdin]",
     "switchctl profile inspect <id>",
     "switchctl profile delete <id> [--keep-secret]",
     "switchctl profile audit-orphans",
@@ -74,6 +75,13 @@ _COMMAND_USAGE = {
     "profile": "switchctl profile <list|create|inspect|delete|audit-orphans>",
     "launch": "switchctl launch <profile-id>",
 }
+
+
+class _EnvelopeArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that raises ValueError instead of calling sys.exit."""
+
+    def error(self, message: str) -> None:
+        raise ValueError(message)
 
 
 def build_default_service() -> ProviderApplicationService:
@@ -140,6 +148,8 @@ def _handle_profile_command(
     args: tuple[str, ...],
     profile_store: StandaloneProfileStore,
     secret_store: SecretStore,
+    *,
+    stdin: TextIO | None = None,
 ) -> dict[str, object]:
     if not args:
         raise ValueError("missing profile subcommand")
@@ -178,15 +188,24 @@ def _handle_profile_command(
         }
 
     if subcmd == "create":
-        # Parse flags: --name, --base-url, --secret, [--adapter], [--models]
-        parser = argparse.ArgumentParser(prog="switchctl profile create")
+        parser = _EnvelopeArgumentParser(prog="switchctl profile create", add_help=False)
         parser.add_argument("--name", required=True)
         parser.add_argument("--base-url", required=True)
-        parser.add_argument("--secret", required=True)
+        parser.add_argument("--secret", default=None)
+        parser.add_argument("--secret-stdin", action="store_true", default=False)
         parser.add_argument("--adapter", default="anthropic")
         parser.add_argument("--models", default=None)
 
         parsed_args = parser.parse_args(args[1:])
+
+        secret_value = parsed_args.secret
+        if parsed_args.secret_stdin or secret_value == "-":
+            in_stream = sys.stdin if stdin is None else stdin
+            secret_value = in_stream.read().strip()
+
+        if not secret_value:
+            raise ValueError("secret is required (pass via --secret or --secret-stdin)")
+
         models_obj = None
         if parsed_args.models:
             try:
@@ -200,7 +219,7 @@ def _handle_profile_command(
             secret_store,
             name=parsed_args.name,
             base_url=parsed_args.base_url,
-            secret=parsed_args.secret,
+            secret=secret_value,
             adapter=ProtocolAdapter(parsed_args.adapter.lower()),
             models=models_obj,
         )
@@ -238,6 +257,7 @@ def main(
     service: ProviderApplicationService | None = None,
     profile_store: StandaloneProfileStore | None = None,
     secret_store: SecretStore | None = None,
+    stdin: TextIO | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
     standalone_exists: bool = False,
@@ -354,7 +374,12 @@ def main(
                 },
             }
         elif command == "profile":
-            data = _handle_profile_command(profile_args, prof_store, sec_store)
+            data = _handle_profile_command(
+                profile_args,
+                prof_store,
+                sec_store,
+                stdin=stdin,
+            )
         elif command == "launch":
             if launch_id is None:
                 raise ValueError("launch profile id is missing")
@@ -409,6 +434,14 @@ def main(
             output,
             diagnostics,
             code="secret_store_error",
+            message=str(exc),
+        )
+        return EXIT_RUNTIME_ERROR
+    except StandaloneStoreSecurityError as exc:
+        _write_error(
+            output,
+            diagnostics,
+            code="store_security_error",
             message=str(exc),
         )
         return EXIT_RUNTIME_ERROR

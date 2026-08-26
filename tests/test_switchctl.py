@@ -255,6 +255,51 @@ class SwitchctlTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertTrue(payload["data"]["deleted"])
 
+    def test_profile_create_via_stdin(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        stdin = io.StringIO("mock_stdin_secret_token_val_5678\n")  # secret-guard: allow generic-secret-assignment
+        code = switchctl.main(
+            [
+                "profile",
+                "create",
+                "--name",
+                "Stdin Profile",
+                "--base-url",
+                "https://api.stdin.com/v1",
+                "--secret-stdin",
+            ],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["data"]["name"], "Stdin Profile")
+
+    def test_profile_create_missing_args_returns_json_envelope(self) -> None:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            [
+                "profile",
+                "create",
+                "--name",
+                "Incomplete",
+            ],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_RUNTIME_ERROR)
+        payload = json.loads(stdout.getvalue())
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "runtime_error")
+
     def test_usage_error_on_unknown_subcommand(self) -> None:
         stdout = io.StringIO()
         stderr = io.StringIO()

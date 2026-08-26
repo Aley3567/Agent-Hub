@@ -11,10 +11,16 @@ import os
 import stat
 import tempfile
 from collections.abc import Mapping
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 from uuid import UUID
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore
 
 from .domain import ModelMapping, ProtocolAdapter, StandaloneProfile
 
@@ -115,6 +121,8 @@ class StandaloneProfileStore:
         return self._store_path
 
     def _ensure_secure_dir(self) -> None:
+        if self._data_dir.is_symlink():
+            raise StandaloneStoreSecurityError("Data directory must not be a symbolic link")
         if not self._data_dir.exists():
             self._data_dir.mkdir(parents=True, mode=0o700, exist_ok=True)
             try:
@@ -122,7 +130,38 @@ class StandaloneProfileStore:
             except OSError:
                 pass
 
+    @contextmanager
+    def _lock(self) -> Iterator[None]:
+        """Cross-process exclusive file lock guarding mutations."""
+        self._ensure_secure_dir()
+        lock_file = self._data_dir / ".profiles.lock"
+        try:
+            lock_fd = os.open(lock_file, os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError:
+            yield
+            return
+
+        try:
+            if fcntl is not None and hasattr(fcntl, "flock"):
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                except OSError:
+                    pass
+            yield
+        finally:
+            if fcntl is not None and hasattr(fcntl, "flock"):
+                try:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
+
     def _load_document(self) -> dict[str, Any]:
+        if self._store_path.is_symlink():
+            raise StandaloneStoreSecurityError("Store file must not be a symbolic link")
         if not self._store_path.exists():
             return {"schemaVersion": SCHEMA_VERSION, "profiles": {}}
 
@@ -261,61 +300,64 @@ class StandaloneProfileStore:
         return len(self.list()) > 0
 
     def create(self, profile: StandaloneProfile) -> StandaloneProfile:
-        """Atomically create a new standalone profile."""
+        """Atomically create a new standalone profile under exclusive lock."""
         if not isinstance(profile, StandaloneProfile):
             raise TypeError("profile must be a StandaloneProfile")
 
-        doc = self._load_document()
-        profiles_dict = doc.setdefault("profiles", {})
-        key = str(profile.profile_id)
+        with self._lock():
+            doc = self._load_document()
+            profiles_dict = doc.setdefault("profiles", {})
+            key = str(profile.profile_id)
 
-        if key in profiles_dict:
-            raise StandaloneProfileExistsError(f"Profile {key!r} already exists")
+            if key in profiles_dict:
+                raise StandaloneProfileExistsError(f"Profile {key!r} already exists")
 
-        # Ensure no name conflict
-        for existing_raw in profiles_dict.values():
-            if existing_raw.get("name", "").strip().casefold() == profile.name.casefold():
-                raise StandaloneProfileConflictError(
-                    f"A profile with name {profile.name!r} already exists"
-                )
+            # Ensure no name conflict
+            for existing_raw in profiles_dict.values():
+                if existing_raw.get("name", "").strip().casefold() == profile.name.casefold():
+                    raise StandaloneProfileConflictError(
+                        f"A profile with name {profile.name!r} already exists"
+                    )
 
-        profiles_dict[key] = self._serialize_profile(profile)
-        self._write_document(doc)
-        return profile
+            profiles_dict[key] = self._serialize_profile(profile)
+            self._write_document(doc)
+            return profile
 
     def update(self, profile: StandaloneProfile) -> StandaloneProfile:
-        """Atomically update an existing standalone profile."""
+        """Atomically update an existing standalone profile under exclusive lock."""
         if not isinstance(profile, StandaloneProfile):
             raise TypeError("profile must be a StandaloneProfile")
 
-        doc = self._load_document()
-        profiles_dict = doc.setdefault("profiles", {})
-        key = str(profile.profile_id)
+        with self._lock():
+            doc = self._load_document()
+            profiles_dict = doc.setdefault("profiles", {})
+            key = str(profile.profile_id)
 
-        if key not in profiles_dict:
-            raise StandaloneProfileNotFoundError(f"Profile {key!r} not found")
+            if key not in profiles_dict:
+                raise StandaloneProfileNotFoundError(f"Profile {key!r} not found")
 
-        existing = self._deserialize_profile(profiles_dict[key])
-        if profile.created_at != existing.created_at:
-            raise StandaloneProfileConflictError("created_at cannot be altered")
-        if profile.secret_ref != existing.secret_ref:
-            raise StandaloneProfileConflictError("secret_ref cannot be altered directly")
+            existing = self._deserialize_profile(profiles_dict[key])
+            if profile.created_at != existing.created_at:
+                raise StandaloneProfileConflictError("created_at cannot be altered")
+            if profile.secret_ref != existing.secret_ref:
+                raise StandaloneProfileConflictError("secret_ref cannot be altered directly")
 
-        profiles_dict[key] = self._serialize_profile(profile)
-        self._write_document(doc)
-        return profile
+            profiles_dict[key] = self._serialize_profile(profile)
+            self._write_document(doc)
+            return profile
 
     def delete(self, profile_id: UUID | str) -> bool:
-        """Atomically delete a profile by UUID."""
+        """Atomically delete a profile by UUID under exclusive lock."""
         key = str(UUID(str(profile_id)))
-        doc = self._load_document()
-        profiles_dict = doc.get("profiles", {})
-        if key not in profiles_dict:
-            raise StandaloneProfileNotFoundError(f"Profile {key!r} not found")
+        with self._lock():
+            doc = self._load_document()
+            profiles_dict = doc.get("profiles", {})
+            if key not in profiles_dict:
+                raise StandaloneProfileNotFoundError(f"Profile {key!r} not found")
 
-        del profiles_dict[key]
-        self._write_document(doc)
-        return True
+            del profiles_dict[key]
+            self._write_document(doc)
+            return True
 
 
 __all__ = [

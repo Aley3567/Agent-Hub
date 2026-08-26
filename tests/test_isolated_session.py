@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import stat
 import sys
 import unittest
@@ -78,6 +79,30 @@ class IsolatedSessionTests(unittest.TestCase):
         # After exiting context manager, session dir MUST be deleted
         self.assertIsNotNone(session_path)
         self.assertFalse(session_path.exists())
+
+    def test_session_cleanup_on_simulated_signal(self) -> None:
+        now = datetime.now(timezone.utc)
+        descriptor = LaunchDescriptor(
+            descriptor_id=uuid4(),
+            profile_id=uuid4(),
+            base_url="https://api.isolated.com/v1",
+            adapter=ProtocolAdapter.ANTHROPIC,
+            models=ModelMapping(default="claude-3-5-sonnet"),
+            secret_ref=uuid4(),
+            created_at=now,
+            expires_at=now + timedelta(seconds=60),
+            consumed=True,
+        )
+
+        session = IsolatedClaudeSession(descriptor, secret="test_key_val_8888")  # secret-guard: allow generic-secret-assignment
+        session_env = session.__enter__()
+        session_path = session_env.session_dir
+        self.assertTrue(session_path.exists())
+
+        # Simulate SIGTERM cleanup
+        session.cleanup()
+        self.assertFalse(session_path.exists())
+        self.assertFalse(session.is_active)
 
 
 if __name__ == "__main__":

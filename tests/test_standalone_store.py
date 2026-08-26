@@ -21,6 +21,8 @@ from claude_hub.standalone import (
     StandaloneProfileNotFoundError,
     StandaloneProfileStore,
     StandaloneStoreCorruptError,
+    StandaloneStoreError,
+    StandaloneStoreSecurityError,
     UnsupportedStandaloneSchemaError,
     standalone_data_dir,
 )
@@ -226,6 +228,16 @@ class StandaloneStoreTests(unittest.TestCase):
         with self.assertRaises(UnsupportedStandaloneSchemaError):
             self.store.list()
 
+    def test_symlink_store_file_rejected(self) -> None:
+        self.store.store_path.parent.mkdir(parents=True, exist_ok=True)
+        real_target = self.data_dir / "target.json"
+        real_target.write_text("{}", encoding="utf-8")
+        os.symlink(real_target, self.store.store_path)
+
+        with self.assertRaises(StandaloneStoreError):
+            self.store.list()
+
 
 if __name__ == "__main__":
     unittest.main()
+

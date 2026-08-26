@@ -6,6 +6,7 @@ import atexit
 import json
 import os
 import shutil
+import signal
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,11 +28,18 @@ class IsolatedClaudeSession:
     """Context manager for temporary, isolated Claude Code session settings.
 
     Creates an ephemeral directory (0700) with a session-scoped settings.json (0600),
-    setting CLAUDE_CONFIG_DIR to the isolated directory. On exit or abnormal termination,
-    all session files are purged, leaving no traces in global user configuration.
+    setting CLAUDE_CONFIG_DIR to the isolated directory. On exit, SIGTERM/SIGINT, or abnormal
+    termination, all session files are purged, leaving no traces in global user configuration.
     """
 
-    __slots__ = ("_descriptor", "_secret", "_session_dir", "_closed")
+    __slots__ = (
+        "_descriptor",
+        "_secret",
+        "_session_dir",
+        "_closed",
+        "_prev_sigint",
+        "_prev_sigterm",
+    )
 
     def __init__(
         self,
@@ -48,6 +56,8 @@ class IsolatedClaudeSession:
         self._secret = secret
         self._session_dir: Path | None = None
         self._closed = False
+        self._prev_sigint = None
+        self._prev_sigterm = None
 
     @property
     def is_active(self) -> bool:
@@ -79,6 +89,39 @@ class IsolatedClaudeSession:
             "permissions": {"allow": []},
         }
 
+    def _signal_handler(self, signum: int, frame: Any) -> None:
+        self.cleanup()
+        prev = self._prev_sigint if signum == signal.SIGINT else self._prev_sigterm
+        if callable(prev):
+            prev(signum, frame)
+        else:
+            sys_exit = getattr(signal, "SIG_DFL", None)
+            if prev == sys_exit or prev is None:
+                os._exit(128 + signum)
+
+    def _register_signal_handlers(self) -> None:
+        try:
+            self._prev_sigint = signal.signal(signal.SIGINT, self._signal_handler)
+        except (ValueError, OSError, AttributeError):
+            pass
+        try:
+            if hasattr(signal, "SIGTERM"):
+                self._prev_sigterm = signal.signal(signal.SIGTERM, self._signal_handler)
+        except (ValueError, OSError, AttributeError):
+            pass
+
+    def _restore_signal_handlers(self) -> None:
+        try:
+            if self._prev_sigint is not None:
+                signal.signal(signal.SIGINT, self._prev_sigint)
+        except (ValueError, OSError, AttributeError):
+            pass
+        try:
+            if self._prev_sigterm is not None and hasattr(signal, "SIGTERM"):
+                signal.signal(signal.SIGTERM, self._prev_sigterm)
+        except (ValueError, OSError, AttributeError):
+            pass
+
     def __enter__(self) -> IsolatedSessionEnvironment:
         # Create ephemeral directory with strict 0700 permissions
         temp_dir = tempfile.mkdtemp(prefix="claude-hub-session-")
@@ -88,8 +131,9 @@ class IsolatedClaudeSession:
         except OSError:
             pass
 
-        # Register emergency cleanup
+        # Register emergency cleanup hooks
         atexit.register(self.cleanup)
+        self._register_signal_handlers()
 
         # Write settings.json with strict 0600 permissions
         settings_file = self._session_dir / "settings.json"
@@ -119,6 +163,7 @@ class IsolatedClaudeSession:
 
     def cleanup(self) -> None:
         """Purge the isolated session directory and its contents."""
+        self._restore_signal_handlers()
         if self._session_dir is not None and self._session_dir.exists():
             try:
                 shutil.rmtree(self._session_dir, ignore_errors=True)
