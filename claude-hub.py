@@ -158,8 +158,8 @@ STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
 THINKING_HOLD_BUFFER_BYTES = 1024 * 1024
 THINKING_HOLD_MAX_SECONDS = 45.0
 # Keep this well below the upstream sock_read timeout (600s, set where the
-# client session is built): _held_read_chunk tells its watchdog trip apart
-# from a real read timeout by wall clock alone.
+# client session is built): the read watchdog inside _DeferredDownstream tells
+# its hold trip apart from a real read timeout by wall clock alone.
 HUB_DEGRADE_STREAM_REPLAYED = "HUB_DEGRADE_STREAM_REPLAYED"
 
 HOP_BY_HOP = {
@@ -2488,6 +2488,11 @@ class _DeferredDownstream:
     one byte, a stalled upstream can no longer be replayed on a fresh
     connection. Buffering until then keeps the replay open, and the metadata
     frames that arrive before real content are small enough to hold.
+
+    The replay window is bounded in bytes and seconds, and this class owns
+    both bounds. Every commit path -- watchdog trip, event-driven expiry,
+    tracker-driven first content, the buffer cap inside ``write``, a resolver
+    hand-over -- goes through ``open()``, which disarms the deadline itself.
     """
 
     def __init__(
@@ -2495,16 +2500,37 @@ class _DeferredDownstream:
         response: web.StreamResponse,
         request: web.Request,
         hold_limit: int = STREAM_REPLAY_BUFFER_BYTES,
+        hold_seconds: float | None = None,
     ) -> None:
         self._response = response
         self._request = request
         self._pending: list[bytes] = []
         self._pending_bytes = 0
         self._hold_limit = hold_limit
+        self._hold_deadline = (
+            time.monotonic() + hold_seconds if hold_seconds is not None else None
+        )
         self.started = False
 
+    @property
+    def hold_expired(self) -> bool:
+        """Whether the protected thinking window outlived its deadline.
+
+        False once the stream has committed, whatever cleared the deadline.
+        """
+        return (
+            self._hold_deadline is not None
+            and time.monotonic() > self._hold_deadline
+        )
+
     async def open(self) -> int:
-        """Commit the response, flushing whatever was buffered so far."""
+        """Commit the response, flushing whatever was buffered so far.
+
+        This is the single commit transition, so it is also where the hold
+        deadline disarms: a committed stream no longer bounds its reads,
+        by construction rather than by caller discipline.
+        """
+        self._hold_deadline = None
         if self.started:
             return 0
         await self._response.prepare(self._request)
@@ -2529,37 +2555,36 @@ class _DeferredDownstream:
         await self._response.write(chunk)
         return len(chunk)
 
+    async def read_chunk(self, chunk_stream) -> tuple[bytes | None, bool]:
+        """Read one upstream chunk, arming the hold deadline as a watchdog.
 
-async def _held_read_chunk(
-    chunk_stream, hold_deadline: float | None
-) -> tuple[bytes | None, bool]:
-    """Read one upstream chunk, arming the hold deadline as a watchdog.
-
-    The hold window is a wall clock, but the stream loop's expiry check only
-    runs when a chunk arrives; a fully silent upstream would otherwise hold
-    the client until sock_read fires. Returns ``(chunk, False)``,
-    ``(None, False)`` at EOF, or ``(None, True)`` when the deadline tripped
-    with no chunk arriving -- an already-expired deadline included: it trips
-    immediately rather than waiting once more on a silent stream. A read
-    that fails on its own raises unchanged.
-    """
-    if hold_deadline is None:
+        The hold window is a wall clock, but the stream loop's expiry check only
+        runs when a chunk arrives; a fully silent upstream would otherwise hold
+        the client until sock_read fires. Returns ``(chunk, False)``,
+        ``(None, False)`` at EOF, or ``(None, True)`` when the deadline tripped
+        with no chunk arriving -- an already-expired deadline included: it trips
+        immediately rather than waiting once more on a silent stream. A read
+        that fails on its own raises unchanged.
+        """
+        if self._hold_deadline is None:
+            try:
+                return await chunk_stream.__anext__(), False
+            except StopAsyncIteration:
+                return None, False
+        remaining = self._hold_deadline - time.monotonic()
+        if remaining <= 0:
+            return None, True
         try:
-            return await chunk_stream.__anext__(), False
+            chunk = await asyncio.wait_for(
+                chunk_stream.__anext__(), timeout=remaining
+            )
+            return chunk, False
         except StopAsyncIteration:
             return None, False
-    remaining = hold_deadline - time.monotonic()
-    if remaining <= 0:
-        return None, True
-    try:
-        chunk = await asyncio.wait_for(chunk_stream.__anext__(), timeout=remaining)
-        return chunk, False
-    except StopAsyncIteration:
-        return None, False
-    except asyncio.TimeoutError:
-        if time.monotonic() < hold_deadline:
-            raise  # a real read failure, not the watchdog
-        return None, True
+        except asyncio.TimeoutError:
+            if time.monotonic() < self._hold_deadline:
+                raise  # a real read failure, not the watchdog
+            return None, True
 
 
 class _SSEUsageTracker:
@@ -4326,13 +4351,13 @@ async def _forward_to_channel_attempt(
             # Thinking-only prefaces get a wider hold: a gateway that dies in
             # that phase is the one failure a fresh attempt can hide entirely.
             downstream = _DeferredDownstream(
-                response, request, hold_limit=THINKING_HOLD_BUFFER_BYTES
+                response,
+                request,
+                hold_limit=THINKING_HOLD_BUFFER_BYTES,
+                hold_seconds=THINKING_HOLD_MAX_SECONDS if streamed else None,
             )
             if not streamed:
                 await downstream.open()
-            hold_deadline = (
-                time.monotonic() + THINKING_HOLD_MAX_SECONDS if streamed else None
-            )
             byte_count = 0
             stream_telemetry = StreamTelemetry(started_at=started)
             sse_tracker = _SSETerminalTracker() if streamed else None
@@ -4343,15 +4368,14 @@ async def _forward_to_channel_attempt(
             try:
                 chunk_stream = upstream.content.iter_any()
                 while True:
-                    chunk, hold_tripped = await _held_read_chunk(
-                        chunk_stream, hold_deadline
+                    chunk, hold_tripped = await downstream.read_chunk(
+                        chunk_stream
                     )
                     if hold_tripped:
                         # The deadline tripped with no chunk arriving: commit
                         # and stream live, as the event-driven check below
                         # does for a late-arriving chunk.
                         byte_count += await downstream.open()
-                        hold_deadline = None
                         continue
                     if chunk is None:
                         break
@@ -4366,16 +4390,14 @@ async def _forward_to_channel_attempt(
                                     code="HUB_SSE_ORDER_VIOLATION",
                                 )
                             if (
-                                hold_deadline is not None
-                                and not sse_tracker.commit_started
-                                and time.monotonic() > hold_deadline
+                                not sse_tracker.commit_started
+                                and downstream.hold_expired
                             ):
                                 # The thinking phase outlived the protected
                                 # window: stream live from here and let any
                                 # truncation surface to the client, because a
                                 # replay would no longer be invisible anyway.
                                 byte_count += await downstream.open()
-                                hold_deadline = None
                             # Keep one highly compressible response from
                             # monopolizing the local gateway event loop.
                             await asyncio.sleep(0)
@@ -4383,11 +4405,6 @@ async def _forward_to_channel_attempt(
                     if sse_tracker is not None and sse_tracker.commit_started:
                         byte_count += await downstream.open()
                     byte_count += await downstream.write(chunk)
-                    if downstream.started:
-                        # Committed -- by the tracker above or by the buffer
-                        # cap inside write(): the hold window no longer
-                        # applies, so stop bounding reads by its deadline.
-                        hold_deadline = None
                 if sse_tracker is not None:
                     sse_decoder.finish()
                     sse_tracker.finish()

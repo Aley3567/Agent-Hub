@@ -234,6 +234,47 @@ class _FakeTransport:
         self.aborted = True
 
 
+class _NeverYield:
+    """A chunk source that never yields and never raises."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.sleep(3600)
+
+
+class _EmptySource:
+    """A chunk source already at EOF."""
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        raise StopAsyncIteration
+
+
+class _StallThenRaise:
+    """A chunk source that stalls, then raises its own failure."""
+
+    def __init__(self, stall_seconds):
+        self.stall_seconds = stall_seconds
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.sleep(self.stall_seconds)
+        raise asyncio.TimeoutError("real read timeout, not the watchdog")
+
+
+class _BareRequest:
+    """The request surface _DeferredDownstream touches: prepare's target."""
+
+    def __init__(self):
+        self.transport = _FakeTransport()
+
+
 class ClaudeHubTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -3526,6 +3567,56 @@ class ClaudeHubTests(unittest.TestCase):
         # Committed, so the stall is final: no second upstream connection.
         self.assertEqual(len(session.calls), 1)
         self.assertEqual(downstream.writes, prelude)
+
+    def test_deferred_downstream_commit_disarms_the_hold(self):
+        # 「已 commit 的流不再约束其读」是 _DeferredDownstream 的结构
+        # invariant：open() 是唯一提交转移，也是死线唯一缴械点。无论从
+        # 哪条路径提交——看门狗、tracker、字节上限——之后的 read_chunk
+        # 都不再带时限，hold_expired 也永远为假。334f52d 修的缺口
+        # （已过期死线在下一轮读之前没被检查）从此不可能再现：过期
+        # 死线在 read_chunk 里立即跳闸，而不是再等一个 chunk。
+        downstream = hub._DeferredDownstream(
+            _FakeDownstream(200),
+            _BareRequest(),
+            hold_limit=1024,
+            hold_seconds=-1.0,  # born expired
+        )
+
+        # A born-expired deadline trips immediately rather than waiting.
+        chunk, tripped = asyncio.run(downstream.read_chunk(_NeverYield()))
+        self.assertIsNone(chunk)
+        self.assertTrue(tripped)
+
+        # Committing -- the transition the watchdog trip just asked for --
+        # disarms the deadline and flushes nothing (nothing was buffered).
+        self.assertEqual(asyncio.run(downstream.open()), 0)
+        self.assertTrue(downstream.started)
+        self.assertFalse(downstream.hold_expired)
+
+        # The committed stream no longer bounds its reads: read_chunk waits
+        # unbounded on the stream itself, so a stalled read raises only the
+        # stream's own failure.
+        with self.assertRaises(asyncio.TimeoutError):
+            asyncio.run(
+                asyncio.wait_for(
+                    downstream.read_chunk(_StallThenRaise(0.05)), timeout=0.3
+                )
+            )
+
+        # The buffer-cap commit path disarms too: write past the hold limit
+        # commits, and the same read is no longer deadline-bounded.
+        capped = hub._DeferredDownstream(
+            _FakeDownstream(200),
+            _BareRequest(),
+            hold_limit=1,
+            hold_seconds=-1.0,
+        )
+        self.assertGreater(asyncio.run(capped.write(b"abcd")), 0)
+        self.assertTrue(capped.started)
+        self.assertFalse(capped.hold_expired)
+        chunk, tripped = asyncio.run(capped.read_chunk(_EmptySource()))
+        self.assertIsNone(chunk)  # EOF, not a watchdog trip
+        self.assertFalse(tripped)
 
     def test_transformed_stream_clean_eof_without_terminal_returns_sse_error(self):
         self._set_provider_endpoint(
