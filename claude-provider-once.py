@@ -1021,6 +1021,16 @@ MODEL_SLOT_TIERS = ("OPUS", "SONNET", "HAIKU", "FABLE")
 SUBAGENT_MODEL_KEY = "CLAUDE_CODE_SUBAGENT_MODEL"
 
 
+def _channel_provider_label(channels: dict, alias: str) -> str:
+    """Name the provider serving ``alias``, falling back to the alias itself."""
+    channel = channels.get(alias)
+    if isinstance(channel, dict):
+        provider = channel.get("provider")
+        if isinstance(provider, str) and provider.strip():
+            return provider.strip()
+    return alias
+
+
 def _seal_model_slots(env: dict[str, str]) -> None:
     """Seal provider model slots against user-settings leftovers.
 
@@ -6610,7 +6620,13 @@ def exec_hub(
         alias, _, upstream_model = selector.partition(",")
         settings_env[model_key] = selector
         settings_env[f"{model_key}_NAME"] = upstream_model
-        settings_env[f"{model_key}_DESCRIPTION"] = f"Claude-Hub · {alias}"
+        # /model shows this description beside the model name, so it has to name
+        # the provider actually serving the slot. The alias is a Hub-internal
+        # slot name, and ones like "fable" collide with Anthropic's tier words;
+        # it only stands in for a channel that names no provider.
+        settings_env[f"{model_key}_DESCRIPTION"] = (
+            f"Claude-Hub · {_channel_provider_label(channels, alias)}"
+        )
         # Capabilities describe what a custom model slot can run. The persisted
         # effort controls only this session's starting level, not the /model UI.
         settings_env[f"{model_key}_SUPPORTED_CAPABILITIES"] = (

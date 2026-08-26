@@ -2083,6 +2083,26 @@ class LauncherSafetyTests(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"], "")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_SUPPORTED_CAPABILITIES"], "")
 
+    def test_channel_provider_label_prefers_provider_over_alias(self) -> None:
+        channels = {
+            "fable": {"provider": "Provider Alpha", "models": ["k3-256k"]},
+            "padded": {"provider": "  Provider Beta  ", "models": ["glm-5.2"]},
+            "direct": {"base_url": "https://upstream.invalid", "models": ["bare"]},
+            "blank": {"provider": "   ", "models": ["bare"]},
+        }
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                label = launcher._channel_provider_label
+                # /model has to name the provider serving the slot; the alias is
+                # a Hub-internal slot name and "fable" even collides with an
+                # Anthropic tier word.
+                self.assertEqual(label(channels, "fable"), "Provider Alpha")
+                self.assertEqual(label(channels, "padded"), "Provider Beta")
+                # Nothing to name: the alias is all that is left.
+                self.assertEqual(label(channels, "direct"), "direct")
+                self.assertEqual(label(channels, "blank"), "blank")
+                self.assertEqual(label(channels, "absent"), "absent")
+
     def test_claude_child_env_repairs_only_unrecognized_models(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
