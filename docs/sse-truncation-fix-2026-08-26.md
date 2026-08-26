@@ -34,6 +34,7 @@
 | ② | 流中合成 `event:error` 帧 | 误导性「empty or malformed response」+ 自动重试一次 | 不能当通用失败终局用 |
 | ③ | 干净 EOF 无终态 | **静默空回 exit 0，数据丢失不可见** | 最劣形态，必须保证走不到客户端 |
 | 补 | 裸 RST | 可见的 mid-response 报错 | 失败可见但体验差 |
+| ④ | 上游静默 75s 后恢复发流（真 CC） | 等满 78.7s 无超时无报错，字节一到照常收货 | CC 对长静默耐受远超预期；注释心跳对渲染无帮助，方案被数据否决 |
 
 ## 四、修复设计（两层）
 
@@ -74,6 +75,12 @@ S13 记录的「双向分叉」实为三向分叉。本次同步方向：①→�
   - B（真客户端）：真 CC `-p 'hi'` 输出完整回答 exit 0，对故障零感知；
   - C（反向防伪装）：正文期持续截断场景下客户端仍收到可见失败——
     失败路径没有被关掉。
+- 部署后体感跟进：扣留期零字节静默被用户感知为「卡」。实验④证明 CC 耐受
+  75s 纯静默，心跳方案否决（发出即永久失去重放资格且不改变渲染）；改为
+  把保护窗 120s→45s（`92e2c04`），并在活桥上实测：60s 静默场景 45s 到期
+  降级放行、后续字节实时透传、尾部具名 error 兜底、无伪造 message_stop。
+  （排坑记录：一次 shell 管道让红套件混过 commit——rg 吞掉退出码；实际
+  失败是文档索引两守护，与缩窗无关。）
 - 过程中排掉的三个假象：假上游未读请求体触发 RST 自斩响应流；flaky 分支
   漏发终态帧；一次「真 CC 成功」实为 settings.json 抢占路由（须用
   `--settings` overlay 才能覆盖 ANTHROPIC_BASE_URL=127.0.0.1:15721）。
@@ -85,8 +92,11 @@ S13 记录的「双向分叉」实为三向分叉。本次同步方向：①→�
 | Desktop/claude-hub main | `477a0b4` | 具名 error 终局（接手并发会话工作并验证） |
 | Desktop/claude-hub main | `4adab02` | thinking 扣留 + 静默重放 |
 | Desktop/claude-hub main | `ef3f31a` | S19 卡部署状态回写 |
+| Desktop/claude-hub main | `afabbb3` | 本证据文档归档 |
+| Desktop/claude-hub main | `92e2c04` / `fd75fec` | 保护窗 120s→45s；补 CLAUDE.md 索引与首屏失效条件（守护测试抓漏） |
 | claude1-personal personal | `f4614bc` / `6a33e49` | 两层修复 cherry-pick（冲突解决含恢复被静默丢弃的 journal/log_prefix 绑定） |
-| 运行副本 scripts/ | 无 git | 原子替换上线，备份 `claude-hub.py.bak-s19replay-20260826-171457` |
+| claude1-personal personal | `7646b5b` / `8348f82` | 45s 缩窗 + 文档同步，840 测试全绿 |
+| 运行副本 scripts/ | 无 git | 原子替换上线，备份 `claude-hub.py.bak-s19replay-20260826-171457`、`.bak-holdwin45-20260826-183042` |
 
 以上均未 push。
 
