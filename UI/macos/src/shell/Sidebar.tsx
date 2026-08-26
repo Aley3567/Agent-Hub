@@ -1,6 +1,7 @@
 /**
  * 主导航侧栏。展开 --sidebar-w(232px)，折叠 --sidebar-w-collapsed(56px) 只留图标（DESIGN.md 第 3 节）。
- * 分两组：会话（渠道、槽位）与观测（用量、诊断、账号池、体检）；底部固定「设置」入口与主题三态切换。
+ * 分三组：会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、扩展（插件、任务）；
+ * 底部固定「设置」入口与主题三态切换。
  * 折叠态每一项都靠 Tooltip 说明自己是谁，否则只剩一排看不懂的图标。
  */
 import { BrandMark, Icon, IconButton, SegmentedControl, Tooltip } from '../components';

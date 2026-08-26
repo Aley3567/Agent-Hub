@@ -14,12 +14,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Icon } from '../components';
 import type { IconName } from '../components';
-import { cx, fuzzyMatch } from '../lib';
+import { cx, formatRelative, formatTime, fuzzyMatch, redactSecrets } from '../lib';
 import { REFRESH_KEYS, errorText, pickDefaultHub, useApp } from '../store';
 import type { RefreshKey } from '../store';
 import { useNav } from '../store/nav';
 import type { ThemeMode, ViewId } from '../store/nav';
 import { THEME_LABEL } from '../store/nav';
+import { useToast } from '../store/toast';
+import { DENSITY_LABEL, useUi } from '../store/ui';
+import type { Density } from '../store/ui';
 import type { Effort, HubConfig, LaunchTarget, SlotName } from '../types/contract';
 import { EFFORT_CHOICES } from '../views/channels/model';
 import { EFFORT_UNSET, SLOT_DEFAULT_EFFORT, effortChoices, fromEffortChoice, toEffortChoice } from '../views/slots/slotModel';
@@ -29,13 +32,14 @@ import { useAnnouncer } from './announce';
 import { VIEW_LIST, VIEW_META, VIEW_REFRESH_KEY, refreshView, viewShortcut } from './views';
 import styles from './CommandPalette.module.css';
 
-/** 四个分组的顺序与标题（DESIGN.md 第 4.3 节） */
-type PaletteGroupId = 'nav' | 'channel' | 'slot' | 'action';
+/** 五个分组的顺序与标题（DESIGN.md 第 4.3 节；「最近使用」是 REDESIGN-PROMPT 第 2.3 节补的） */
+type PaletteGroupId = 'nav' | 'recent' | 'channel' | 'slot' | 'action';
 
-const GROUP_SEQUENCE: PaletteGroupId[] = ['nav', 'channel', 'slot', 'action'];
+const GROUP_SEQUENCE: PaletteGroupId[] = ['nav', 'recent', 'channel', 'slot', 'action'];
 
 const GROUP_TITLE: Record<PaletteGroupId, string> = {
   nav: '导航',
+  recent: '最近使用',
   channel: '渠道',
   slot: '槽位',
   action: '动作',
@@ -44,6 +48,15 @@ const GROUP_TITLE: Record<PaletteGroupId, string> = {
 const SLOTS: SlotName[] = ['fable', 'opus', 'sonnet', 'haiku'];
 
 const THEME_SEQUENCE: ThemeMode[] = ['system', 'dark', 'light'];
+
+/** 界面大小三档，与设置页「外观」同一组取值（store/ui.ts） */
+const DENSITY_SEQUENCE: Density[] = ['standard', 'large', 'larger'];
+
+/** 「最近使用」分组的上限：按 Channel.lastUsedAt 倒序取前 5 条 */
+const MAX_RECENT = 5;
+
+/** 复制进诊断报告的错误流水条数上限：报告是摘要，不是整条 journal 的搬运 */
+const REPORT_ERROR_LIMIT = 20;
 
 /** 每组最多显示的条数：再多就靠继续输入筛，而不是让面板长到屏幕外 */
 const MAX_PER_GROUP = 8;
@@ -57,6 +70,9 @@ const REFRESH_KEY_LABEL: Record<RefreshKey, string> = {
   usage: '用量',
   errors: '错误流水',
   doctor: '体检',
+  chat: '对话',
+  plugins: '插件',
+  tasks: '计划任务',
 };
 
 /** 用量时间窗的三个预设，与用量视图工具栏的 SegmentedControl 同一口径 */
@@ -159,6 +175,12 @@ export default function CommandPalette() {
   const usageRange = useApp((state) => state.usageRange);
   const setUsageRange = useApp((state) => state.setUsageRange);
 
+  const density = useUi((state) => state.density);
+  const setDensity = useUi((state) => state.setDensity);
+
+  const toastSuccess = useToast((state) => state.success);
+  const toastError = useToast((state) => state.error);
+
   const view = useNav((state) => state.view);
   const setView = useNav((state) => state.setView);
   const setPaletteOpen = useNav((state) => state.setPaletteOpen);
@@ -239,6 +261,43 @@ export default function CommandPalette() {
         announce(`${label}：${path}`);
       } catch (cause) {
         announce(`${label}未成功：${errorText(cause)}`);
+      }
+    };
+
+    /**
+     * 复制诊断报告（REDESIGN-PROMPT 第 2.3 节）：体检结论 + 最近错误摘要组装成纯文本进剪贴板。
+     * 整段文本必须过 redactSecrets——detail 与 message 是自由文本，fail-closed 不赌上游干净
+     * （CONTRACT.md 第 1.2 节）。成败反馈走 toast（复制类操作的统一通道）+ announce 播报。
+     */
+    const runCopyDiagnostics = async (): Promise<void> => {
+      const state = useApp.getState();
+      const failed = state.doctor.filter((check) => check.level === 'fail').length;
+      const noticed = state.doctor.filter((check) => check.level === 'info').length;
+      const lines: string[] = [
+        `Agent Hub 诊断报告（${formatTime(Math.floor(Date.now() / 1000))}）`,
+        `体检：共 ${state.doctor.length} 项，失败 ${failed} 项，提醒 ${noticed} 项`,
+      ];
+      for (const check of state.doctor) {
+        lines.push(`- [${check.level}] ${check.title}${check.detail === null ? '' : `：${check.detail}`}`);
+      }
+      lines.push(`最近错误：${state.errors.length} 条`);
+      for (const row of state.errors.slice(0, REPORT_ERROR_LIMIT)) {
+        const parts = [
+          formatTime(row.ts),
+          row.phase,
+          row.status === null ? null : `HTTP ${row.status}`,
+          row.code,
+          row.message,
+        ].filter((part): part is string => part !== null);
+        lines.push(`- ${parts.join(' ')}`);
+      }
+      try {
+        await navigator.clipboard.writeText(redactSecrets(lines.join('\n')));
+        toastSuccess('诊断报告已复制到剪贴板');
+        announce('诊断报告已复制到剪贴板');
+      } catch (cause) {
+        toastError(`复制诊断报告未成功：${errorText(cause)}`);
+        announce(`复制诊断报告未成功：${errorText(cause)}`);
       }
     };
 
@@ -519,6 +578,27 @@ export default function CommandPalette() {
       });
     }
 
+    // 最近使用（REDESIGN-PROMPT 第 2.3 节）：按 Channel.lastUsedAt 倒序的渠道启动动作，
+    // 上限 MAX_RECENT 条。没用过任何渠道时整组为空，分组自然不渲染。
+    const recentChannels = channels
+      .filter((channel) => channel.lastUsedAt !== null)
+      .sort((a, b) => (b.lastUsedAt ?? 0) - (a.lastUsedAt ?? 0))
+      .slice(0, MAX_RECENT);
+    for (const channel of recentChannels) {
+      rows.push({
+        id: `recent-${channel.id}`,
+        group: 'recent',
+        label: `用 ${channel.name} 启动会话`,
+        hint: `最近使用 ${formatRelative(channel.lastUsedAt)}`,
+        icon: 'clock',
+        keywords: `recent 最近 ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
+        action: {
+          kind: 'run',
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+        },
+      });
+    }
+
     // 隐藏渠道不过滤：CONTRACT 明确「隐藏渠道别名与 id 仍然能启动」，面板只标注，不藏起来
     for (const channel of channels) {
       const notes: string[] = [channel.apiFormat];
@@ -670,6 +750,37 @@ export default function CommandPalette() {
       });
     }
 
+    // 界面大小三档（REDESIGN-PROMPT 第 2.3 节）：接 store/ui.ts 的 density，
+    // 与设置页「外观」同一开关。这是「保存设置」类操作，成败反馈走 toast。
+    for (const candidate of DENSITY_SEQUENCE) {
+      rows.push({
+        id: `action-density-${candidate}`,
+        group: 'action',
+        label: `界面大小：${DENSITY_LABEL[candidate]}`,
+        hint: candidate === density ? '当前' : null,
+        icon: 'monitor',
+        keywords: `density 界面大小 缩放 ${candidate}`,
+        action: {
+          kind: 'run',
+          run: () => {
+            setDensity(candidate);
+            toastSuccess(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
+            announce(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
+          },
+        },
+      });
+    }
+
+    rows.push({
+      id: 'action-copy-diagnostics',
+      group: 'action',
+      label: '复制诊断报告',
+      hint: '体检结论与最近错误摘要进剪贴板',
+      icon: 'copy',
+      keywords: 'copy 复制 诊断 报告 diagnostics report',
+      action: { kind: 'run', run: runCopyDiagnostics },
+    });
+
     rows.push({
       id: 'action-doctor',
       group: 'action',
@@ -741,6 +852,7 @@ export default function CommandPalette() {
   }, [
     announce,
     channels,
+    density,
     env,
     hubs,
     launch,
@@ -751,6 +863,7 @@ export default function CommandPalette() {
     refreshAll,
     revealInFolder,
     setAlias,
+    setDensity,
     setHidden,
     setOverride,
     setSlot,
@@ -760,6 +873,8 @@ export default function CommandPalette() {
     setView,
     sidebarCollapsed,
     theme,
+    toastError,
+    toastSuccess,
     toggleSidebar,
     usageRange,
     view,

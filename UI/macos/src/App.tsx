@@ -19,6 +19,7 @@ import RouteProgress from './shell/RouteProgress';
 import Sidebar from './shell/Sidebar';
 import StatusBar from './shell/StatusBar';
 import TitleBar from './shell/TitleBar';
+import ToastLayer from './shell/ToastLayer';
 import ViewHeader from './shell/ViewHeader';
 import { useAnnouncer } from './shell/announce';
 import { useGlobalKeyboard } from './shell/keyboard';
@@ -27,12 +28,15 @@ import styles from './App.module.css';
 
 /** 路由表的键与路径由 CONTRACT.md 第 6.1 节写死，这里只是把它们包成 lazy 组件 */
 const LAZY_VIEWS = {
+  chat: lazy(VIEWS.chat),
   channels: lazy(VIEWS.channels),
   slots: lazy(VIEWS.slots),
   usage: lazy(VIEWS.usage),
   diagnostics: lazy(VIEWS.diagnostics),
   accounts: lazy(VIEWS.accounts),
   doctor: lazy(VIEWS.doctor),
+  plugins: lazy(VIEWS.plugins),
+  tasks: lazy(VIEWS.tasks),
   settings: lazy(VIEWS.settings),
 } satisfies Record<ViewId, ComponentType>;
 
@@ -47,6 +51,9 @@ export default function App() {
   const poolCount = useApp((state) => state.pools.length);
   const errorCount = useApp((state) => state.errors.length);
   const doctorChecks = useApp((state) => state.doctor);
+  const chatSessionCount = useApp((state) => state.chatSessions.length);
+  const pluginCount = useApp((state) => state.plugins.length);
+  const taskCount = useApp((state) => state.tasks.length);
   const turns = useApp((state) => state.usage?.totals.turns ?? null);
 
   const announce = useAnnouncer((state) => state.announce);
@@ -74,6 +81,8 @@ export default function App() {
 
   const countText = useMemo<string | null>(() => {
     switch (view) {
+      case 'chat':
+        return `${chatSessionCount} 个会话`;
       case 'channels':
         return `${channelCount} 个渠道`;
       case 'slots':
@@ -86,10 +95,14 @@ export default function App() {
         return `${poolCount} 个账号池`;
       case 'doctor':
         return `${doctorChecks.length} 项检查`;
+      case 'plugins':
+        return `${pluginCount} 个插件`;
+      case 'tasks':
+        return `${taskCount} 个任务`;
       case 'settings':
         return null;
     }
-  }, [channelCount, doctorChecks.length, errorCount, hubCount, poolCount, turns, view]);
+  }, [channelCount, chatSessionCount, doctorChecks.length, errorCount, hubCount, pluginCount, poolCount, taskCount, turns, view]);
 
   const meta = VIEW_META[view];
   const CurrentView = LAZY_VIEWS[view];
@@ -137,6 +150,8 @@ export default function App() {
       </div>
       <StatusBar />
       {paletteOpen ? <CommandPalette /> : null}
+      {/* toast 渲染层常驻（空队列时自身返回 null），层级 --z-toast，在命令面板之上 */}
+      <ToastLayer />
     </div>
   );
 }

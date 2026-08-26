@@ -1,8 +1,9 @@
 /**
  * 视图路由表与视图元数据。
  *
- * VIEWS 的七个键与 import 路径由 CONTRACT.md 第 6.1 节写死：目录名与「默认导出无 props 组件」
- * 的形式都不可更改，否则 lazy 加载会找不到视图。
+ * VIEWS 的十个键与 import 路径由 CONTRACT.md 第 6.1 节写死：目录名与「默认导出无 props 组件」
+ * 的形式都不可更改，否则 lazy 加载会找不到视图；键的顺序即侧栏分组顺序
+ * （chat 在 channels 前，plugins/tasks 在 doctor 后、settings 前）。
  * 侧栏标签、视图标题、副标题逐字取自 CONTRACT.md 第 6.5 节的文案锚点表，一个字都不改写。
  */
 import type { IconName } from '../components';
@@ -12,17 +13,23 @@ import { useNav } from '../store/nav';
 import type { ViewId } from '../store/nav';
 
 export const VIEWS = {
+  chat: () => import('../views/chat'),
   channels: () => import('../views/channels'),
   slots: () => import('../views/slots'),
   usage: () => import('../views/usage'),
   diagnostics: () => import('../views/diagnostics'),
   accounts: () => import('../views/accounts'),
   doctor: () => import('../views/doctor'),
+  plugins: () => import('../views/plugins'),
+  tasks: () => import('../views/tasks'),
   settings: () => import('../views/settings'),
 } as const;
 
-/** 侧栏分组：会话（渠道、槽位）、观测（用量、诊断、账号池、体检）、底部固定的设置 */
-export type ViewGroup = 'session' | 'observe' | 'system';
+/**
+ * 侧栏分组（DESIGN.md 第 3 节）：会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、
+ * 扩展（插件、任务）。system 组是底部固定的设置，不参与主体循环。
+ */
+export type ViewGroup = 'session' | 'observe' | 'extend' | 'system';
 
 export interface ViewMeta {
   id: ViewId;
@@ -39,18 +46,31 @@ export interface ViewMeta {
   fullWidth: boolean;
 }
 
-/** 侧栏与 Cmd+1..7 的顺序，也是命令面板导航组的顺序 */
+/** 侧栏与 Cmd+1..9/0 的顺序，也是命令面板导航组的顺序（即 VIEWS 的键序） */
 export const VIEW_ORDER = [
+  'chat',
   'channels',
   'slots',
   'usage',
   'diagnostics',
   'accounts',
   'doctor',
+  'plugins',
+  'tasks',
   'settings',
 ] as const satisfies readonly ViewId[];
 
 export const VIEW_META: Record<ViewId, ViewMeta> = {
+  chat: {
+    id: 'chat',
+    navLabel: '对话',
+    title: '对话',
+    subtitle: '和当前渠道直接说上话，验证配置是不是真的能用',
+    icon: 'chat',
+    group: 'session',
+    // 对话视图满宽且自身接管滚动（DESIGN.md 第 4.5 节），是「唯一滚动容器」的唯一视图级例外
+    fullWidth: true,
+  },
   channels: {
     id: 'channels',
     navLabel: '渠道',
@@ -105,6 +125,24 @@ export const VIEW_META: Record<ViewId, ViewMeta> = {
     group: 'observe',
     fullWidth: false,
   },
+  plugins: {
+    id: 'plugins',
+    navLabel: '插件',
+    title: '插件',
+    subtitle: 'hooks、输出风格、状态栏、权限这些扩展点各自是什么状态',
+    icon: 'plugins',
+    group: 'extend',
+    fullWidth: false,
+  },
+  tasks: {
+    id: 'tasks',
+    navLabel: '任务',
+    title: '计划任务',
+    subtitle: '哪些事被定时触发，下一次什么时候跑',
+    icon: 'tasks',
+    group: 'extend',
+    fullWidth: false,
+  },
   settings: {
     id: 'settings',
     navLabel: '设置',
@@ -122,11 +160,12 @@ export const VIEW_LIST: ViewMeta[] = VIEW_ORDER.map((id) => VIEW_META[id]);
 export const GROUP_LABEL: Record<ViewGroup, string> = {
   session: '会话',
   observe: '观测',
+  extend: '扩展',
   system: '系统',
 };
 
-/** 侧栏主体渲染的两组；system 组固定在底部，不参与这里的循环 */
-export const SIDEBAR_GROUPS: ViewGroup[] = ['session', 'observe'];
+/** 侧栏主体渲染的三组；system 组固定在底部，不参与这里的循环 */
+export const SIDEBAR_GROUPS: ViewGroup[] = ['session', 'observe', 'extend'];
 
 /**
  * 每个视图刷新时该刷哪些 store key。口径与各视图自己的 reload 实现逐一核对过：
@@ -134,12 +173,15 @@ export const SIDEBAR_GROUPS: ViewGroup[] = ['session', 'observe'];
  * hubs / channels / usage，所以这两个视图不止一个 key。数组顺序即刷新顺序。
  */
 export const VIEW_REFRESH_KEY: Record<ViewId, RefreshKey[]> = {
+  chat: ['chat'],
   channels: ['channels'],
   slots: ['hubs', 'channels', 'usage'],
   usage: ['usage'],
   diagnostics: ['errors', 'usage'],
   accounts: ['pools'],
   doctor: ['doctor'],
+  plugins: ['plugins'],
+  tasks: ['tasks'],
   settings: ['env'],
 };
 
@@ -159,7 +201,11 @@ export async function refreshView(view: ViewId): Promise<void> {
   await Promise.all(VIEW_REFRESH_KEY[view].map((key) => useApp.getState().refresh(key)));
 }
 
-/** Cmd+1..7 的展示用序号，Sidebar 与命令面板都拿它做提示 */
+/**
+ * Cmd+1..9、Cmd+0 的展示用序号，Sidebar 与命令面板都拿它做提示。
+ * 十个视图九个数字键不够：第十个（设置）沿用常见惯例落在 ⌘0 上。
+ */
 export function viewShortcut(id: ViewId): string {
-  return `⌘${VIEW_ORDER.indexOf(id) + 1}`;
+  const index = VIEW_ORDER.indexOf(id);
+  return `⌘${index === 9 ? 0 : index + 1}`;
 }
