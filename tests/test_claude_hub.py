@@ -3446,7 +3446,7 @@ class ClaudeHubTests(unittest.TestCase):
         )
         padding = b"x" * (64 * 1024)
         ping = b'event: ping\ndata: {"type":"ping","pad":"' + padding + b'"}\n\n'
-        chunk_count = hub.STREAM_REPLAY_BUFFER_BYTES // len(ping) + 1
+        chunk_count = hub.THINKING_HOLD_BUFFER_BYTES // len(ping) + 1
         prelude = [ping] * chunk_count
         stalled = _FakeUpstream(
             200,
@@ -5725,6 +5725,212 @@ class ClaudeHubTests(unittest.TestCase):
             ["HUB_DEGRADE_SYSTEM_ROLE_PROMOTED"],
         )
         self.assertFalse(self.usage_file.exists())
+
+    def test_thinking_phase_truncation_is_replayed_silently(self):
+        # S19: 网关在思考期干净断流（无终态事件）而客户端还没看到任何正文时，
+        # 这次尝试应被静默重放吃掉；客户端只应收到第二次尝试的完整流。
+        # 实况样本：某中转网关 glm-5.3 首条消息 2.7s/18.4s 两次
+        # IncompleteSSE，全部死在 thinking_delta、正文零字节。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        truncated = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [
+                b'event: message_start\ndata: {"type":"message_start",'
+                b'"message":{"type":"message"}}\n\n',
+                b'event: content_block_start\ndata: {"type":"content_block_start",'
+                b'"index":0,"content_block":{"type":"thinking"}}\n\n',
+                b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+                b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+            ],
+        )
+        complete_chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":0,"content_block":{"type":"thinking"}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+            b'event: content_block_stop\ndata: {"type":"content_block_stop",'
+            b'"index":0}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":1,"content_block":{"type":"text","text":""}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":1,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+            b'event: content_block_stop\ndata: {"type":"content_block_stop",'
+            b'"index":1}\n\n',
+            b'event: message_delta\ndata: {"type":"message_delta",'
+            b'"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n',
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+        ]
+        complete = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            complete_chunks,
+        )
+        session = _SequencedFakeSession([truncated, complete])
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [
+                    {"role": "system", "content": "system context"},
+                    {"role": "user", "content": "hello"},
+                ],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub.web, "StreamResponse", return_value=downstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        self.assertEqual(len(session.calls), 2)
+        self.assertEqual(downstream.writes, complete_chunks)
+        rows = [
+            json.loads(line)
+            for line in self.errors_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["phase"], "stream")
+        self.assertEqual(rows[0]["exc"], "IncompleteSSE")
+        self.assertIn("HUB_DEGRADE_STREAM_REPLAYED", rows[0]["deg"])
+        usage_rows = [
+            json.loads(line)
+            for line in self.usage_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(usage_rows), 1)
+        self.assertEqual(usage_rows[0].get("out"), 3)
+
+    def test_thinking_phase_truncation_exhausts_replay_with_readable_504(self):
+        # 重放预算烧完仍一无所见：客户端没提交过字节，所以还能拿到一个
+        # 可读的 504 JSON（而不是裸断连），每次尝试各留一行错误账。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        truncated = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [
+                b'event: message_start\ndata: {"type":"message_start",'
+                b'"message":{"type":"message"}}\n\n',
+                b'event: content_block_start\ndata: {"type":"content_block_start",'
+                b'"index":0,"content_block":{"type":"thinking"}}\n\n',
+                b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+                b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+            ],
+        )
+        session = _SequencedFakeSession([truncated] * (hub.STREAM_REPLAY_ATTEMPTS + 1))
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub.web, "StreamResponse", return_value=downstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertEqual(response.status, 504)
+        self.assertIn("before sending any content", response.text)
+        self.assertEqual(len(session.calls), hub.STREAM_REPLAY_ATTEMPTS + 1)
+        self.assertEqual(downstream.writes, [])
+        rows = [
+            json.loads(line)
+            for line in self.errors_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(rows), hub.STREAM_REPLAY_ATTEMPTS + 1)
+        for row in rows:
+            self.assertEqual(row["exc"], "IncompleteSSE")
+            self.assertIn("HUB_DEGRADE_STREAM_REPLAYED", row["deg"])
+
+    def test_thinking_hold_past_buffer_cap_commits_and_reports_truncation(self):
+        # 扣留有字节上限：超限即提交，之后的截断回到「具名错误收尾」路径，
+        # 不再重放——宁可可见地失败，也不无限扣留。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":0,"content_block":{"type":"thinking"}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+        ]
+        upstream = _FakeUpstream(
+            200, {"Content-Type": "text/event-stream"}, chunks
+        )
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=_FakeSession(upstream),
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub, "THINKING_HOLD_BUFFER_BYTES", 1):
+            with mock.patch.object(
+                hub.web, "StreamResponse", return_value=downstream
+            ):
+                response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        rendered = b"".join(downstream.writes)
+        self.assertIn(b"thinking_delta", rendered)
+        self.assertIn(b"event: error", rendered)
+        self.assertFalse(request.transport.aborted)
+        row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(row["exc"], "IncompleteSSE")
+        self.assertNotIn("deg", row)
+
+    def test_thinking_hold_deadline_degrades_to_visible_streaming(self):
+        # 扣留有时间上限：思考期超过保护窗后转为直通，之后客户端已经看到
+        # 字节，截断只能如实上报，不能再伪装成一次隐形重放。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+        ]
+        upstream = _FakeUpstream(
+            200, {"Content-Type": "text/event-stream"}, chunks
+        )
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=_FakeSession(upstream),
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub, "THINKING_HOLD_MAX_SECONDS", -1.0):
+            with mock.patch.object(
+                hub.web, "StreamResponse", return_value=downstream
+            ):
+                response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        rendered = b"".join(downstream.writes)
+        self.assertIn(b"thinking_delta", rendered)
+        self.assertIn(b"event: error", rendered)
+        self.assertFalse(request.transport.aborted)
+        row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(row["exc"], "IncompleteSSE")
+        self.assertNotIn("deg", row)
 
     def test_account_pool_never_retries_a_stream_after_downstream_commit(self):
         self._write_account_pool_db()

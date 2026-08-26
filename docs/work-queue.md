@@ -482,3 +482,41 @@ direct-451→proxy-200、最终 451 提示四组回归测试；全套 820 项测
 `python3 -m unittest discover -s tests -p 'test_*.py'` 全绿，新增未知 phase/block 放行测试。
 
 **明确不做**：不改上游（OpenAI Responses spec 方言归上游）；不在本卡动凭证与鉴权。
+
+## S19 · 某中转网关思考期断流静默重放（glm-5.3「首条消息空回 + mid-response」）
+
+**状态**：【代码完成，合成上游运行态已验证；真实上游待自然复发验证】。2026-08-26 定位并实现。
+行为一（具名终局）独立提交 `477a0b4`；行为二（思考期扣留重放）见实现记录。
+渠道与域名属 CC Switch 私有数据，不入仓库；本机证据见 `~/.cc-switch/logs/claude-hub-errors.jsonl`。
+
+**症状与根因**：该 newapi 网关家族间歇性把 SSE 流干净关闭
+且不发任何终态事件。journal 61 条 `IncompleteSSE` 跨 opus/gpt-5.6-sol/deepseek/glm-5.3
+全部集中于该家族；2026-08-26 13:46–13:48 glm-5.3 两条实况（2.7s/18.4s）全部死在
+thinking_delta、正文零字节 → 客户端 Ctrl+O 可见思维链但回复为空并报
+「Connection lost mid-response」。实况抓包证实上游 EOF 无终态；h1.1 各变体对照实验
+（小/大/gzip/真 CC）同时段全通过 → 截断是**间歇性**而非确定性，推翻了 S12 时代
+「干净 EOF 重放只会复现」的前提——该前提仅在正文已可见后依然成立。
+
+**做法（两层）**：
+1. 已提交后的截断：以具名 `event:error`（api_error，保留「mid-response」措辞供续接钩子）
+   收尾，不再裸 abort——失败仍可见，但可渲染、可 hook。
+2. 提交前：tracker 新增 `commit_started` 分类（message_start/ping/thinking 系列扣留，
+   其余一律视为正文放行）；native 流扣留上限 `THINKING_HOLD_BUFFER_BYTES`=1MiB、
+   保护窗 `THINKING_HOLD_MAX_SECONDS`=120s；窗内干净 EOF 且下游零字节 →
+   `UpstreamStreamReplayable` 静默重放（预算沿用 `STREAM_REPLAY_ATTEMPTS`），每次尝试记
+   `HUB_DEGRADE_STREAM_REPLAYED`；超限降级到第 1 层。放弃的备选：SSE 哑心跳需要提前
+   prepare 下游，与 route failover 的跨目标重放冲突，记录备查。
+
+**客户端渲染实测（CC 2.1.229 `-p`，选型依据）**：流中 `event:error` 被渲染为误导性的
+「empty or malformed response」并自动重试一次；裸 RST 渲染为 mid-response 报错；
+**干净 EOF 无终态 = 静默空回 exit 0（数据丢失不可见，最劣）**。故失败必须保持可见，
+第 2 层的目标是让它根本走不到客户端。
+
+**验收合同**：新增 4 条回归测试（静默重放 / 预算耗尽 504 / 字节上限降级 / 时间窗降级）；
+全套 906 测试绿；真 CC + 真桥 + 合成 flaky 上游端到端：首试截断被重放吃掉，CC exit 0
+零感知。真实上游运行态由自然复发时 errors.jsonl 的 `deg` 码与消失的 mid-response
+用户报告验证。
+
+**明确不做**：不伪造 `message_stop`；不对已见字节的回合重放；不动 transform 路径
+（openai_chat 同类截断另行开卡）；不换 h2 客户端（实测该网关 h2 在 ~64KB 处截断，
+aiohttp h1.1 不受影响）。

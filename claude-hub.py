@@ -151,6 +151,13 @@ STREAM_REPLAY_ATTEMPTS = 2
 # memory. A real prelude is a few hundred bytes of message_start plus pings,
 # so this ceiling only ever trips on an upstream that streams metadata forever.
 STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
+# Thinking-only prefaces are held back so a gateway that kills the stream
+# before any user-visible content can be replayed invisibly. The hold is
+# bounded in bytes and seconds; crossing either commits the stream, after
+# which a truncation is reported to the client instead of replayed.
+THINKING_HOLD_BUFFER_BYTES = 1024 * 1024
+THINKING_HOLD_MAX_SECONDS = 120.0
+HUB_DEGRADE_STREAM_REPLAYED = "HUB_DEGRADE_STREAM_REPLAYED"
 
 HOP_BY_HOP = {
     "host",
@@ -2298,7 +2305,8 @@ class _SSETerminalTracker:
     def __init__(self) -> None:
         self.terminal = False
         self.protocol_error = False
-        self.content_started = False
+        self.commit_started = False
+        self._classify_payloads = True
         self._line = bytearray()
         self._discarding_line = False
         self._event_type: bytes | None = None
@@ -2405,14 +2413,6 @@ class _SSETerminalTracker:
         if not line:
             if (
                 self._event_has_data
-                and self._event_type is not None
-                and self._event_type not in (b"message_start", b"ping")
-            ):
-                # message_start carries only metadata and ping carries nothing;
-                # any other event proves the upstream is really producing.
-                self.content_started = True
-            if (
-                self._event_has_data
                 and self._event_type in (b"message_stop", b"error")
             ):
                 self.terminal = True
@@ -2423,12 +2423,59 @@ class _SSETerminalTracker:
         field, separator, value = line.partition(b":")
         if field == b"data":
             self._event_has_data = True
+            if self._classify_payloads:
+                if separator and value.startswith(b" "):
+                    value = value[1:]
+                self._classify_data(value)
             return
         if field != b"event":
             return
         if separator and value.startswith(b" "):
             value = value[1:]
         self._event_type = value if separator else b""
+
+    def _classify_data(self, value: bytes) -> None:
+        """Decide whether this SSE payload carries commit-worthy content.
+
+        Holding the stream back is only safe while every payload seen so far
+        is thinking bookkeeping: a gateway that dies in that phase can then be
+        replayed without the client ever noticing. Anything unclassifiable
+        counts as content -- visibility beats a longer invisible hold.
+        """
+        try:
+            payload = json.loads(value) if len(value) <= 262144 else None
+            if not isinstance(payload, dict):
+                self._commit()
+                return
+            kind = payload.get("type")
+            if kind == "content_block_start":
+                if (payload.get("content_block") or {}).get("type") == "thinking":
+                    return
+                self._commit()
+                return
+            if kind == "content_block_delta":
+                if (payload.get("delta") or {}).get("type") in (
+                    "thinking_delta",
+                    "signature_delta",
+                ):
+                    return
+                self._commit()
+                return
+            if kind in ("message_delta", "message_stop", "error"):
+                # Finalization frames must reach the client even when no
+                # content block preceded them, or a complete-but-empty
+                # answer would stay buffered forever.
+                self._commit()
+                return
+            if kind in ("message_start", "ping"):
+                return
+            self._commit()
+        except Exception:
+            self._commit()
+
+    def _commit(self) -> None:
+        self.commit_started = True
+        self._classify_payloads = False
 
 
 class _DeferredDownstream:
@@ -2440,11 +2487,17 @@ class _DeferredDownstream:
     frames that arrive before real content are small enough to hold.
     """
 
-    def __init__(self, response: web.StreamResponse, request: web.Request) -> None:
+    def __init__(
+        self,
+        response: web.StreamResponse,
+        request: web.Request,
+        hold_limit: int = STREAM_REPLAY_BUFFER_BYTES,
+    ) -> None:
         self._response = response
         self._request = request
         self._pending: list[bytes] = []
         self._pending_bytes = 0
+        self._hold_limit = hold_limit
         self.started = False
 
     async def open(self) -> int:
@@ -2465,7 +2518,7 @@ class _DeferredDownstream:
         if not self.started:
             self._pending.append(chunk)
             self._pending_bytes += len(chunk)
-            if self._pending_bytes <= STREAM_REPLAY_BUFFER_BYTES:
+            if self._pending_bytes <= self._hold_limit:
                 return 0
             # Holding more than this is worse than losing the replay, so commit
             # rather than either dropping bytes or growing without a bound.
@@ -3801,6 +3854,97 @@ async def _forward_to_channel(
     raise AssertionError("replay loop must return or raise")
 
 
+def _journal_broken_native_stream(
+    journal,
+    *,
+    account_id: str | None,
+    log_prefix: str,
+    byte_count: int,
+    telemetry,
+    exc: Exception,
+) -> None:
+    """Log and journal one attempt whose upstream connection broke mid-way."""
+    log(
+        f"{log_prefix} upstream broke or was invalid "
+        f"after {byte_count}B downstream: "
+        f"{type(exc).__name__} "
+        + stream_telemetry_fields(
+            telemetry,
+            terminal="error",
+            error=type(exc).__name__,
+            downstream_bytes=byte_count,
+        )
+    )
+    journal.error(
+        phase="stream",
+        account_id=account_id,
+        code=(exc.code if isinstance(exc, ProtocolTransformError) else None),
+        exc_type=type(exc).__name__,
+        telemetry=telemetry.snapshot(),
+    )
+
+
+async def _resolve_incomplete_native_sse(
+    *,
+    journal,
+    journal_account: str | None,
+    log_prefix: str,
+    byte_count: int,
+    telemetry,
+    downstream: _DeferredDownstream,
+) -> tuple[bool, int]:
+    """Journal one clean-EOF-without-terminal attempt and pick its ending.
+
+    Returns whether nothing reached the client yet (so the caller should
+    raise ``UpstreamStreamReplayable``) plus the downstream byte count
+    adjusted for any held bytes the commit flushed.
+    """
+    if not downstream.started:
+        # The client never saw a byte of this attempt, and every payload so
+        # far was thinking bookkeeping: a fresh attempt can still produce a
+        # complete answer invisibly. Field evidence (third-party gateway
+        # family, 2026-08-26) shows these clean-EOF kills are
+        # intermittent, not deterministic, so the old "replay would just
+        # repeat it" reasoning does not hold in this phase.
+        journal._replace(
+            degrade_codes=journal.degrade_codes + (HUB_DEGRADE_STREAM_REPLAYED,)
+        ).error(
+            phase="stream",
+            account_id=journal_account,
+            exc_type="IncompleteSSE",
+            telemetry=telemetry.snapshot(),
+        )
+        log(
+            f"{log_prefix} upstream SSE ended before any content "
+            + stream_telemetry_fields(
+                telemetry,
+                terminal="missing",
+                downstream_bytes=byte_count,
+            )
+        )
+        return True, byte_count
+    # A clean EOF after real content is the upstream's own malformed answer
+    # about work the client has already seen. Hand over what arrived and let
+    # the caller close with a named error event instead of a bare abort.
+    byte_count += await downstream.open()
+    log(
+        f"{log_prefix} upstream SSE ended without a valid "
+        f"terminal event after {byte_count}B "
+        + stream_telemetry_fields(
+            telemetry,
+            terminal="missing",
+            downstream_bytes=byte_count,
+        )
+    )
+    journal.error(
+        phase="stream",
+        account_id=journal_account,
+        exc_type="IncompleteSSE",
+        telemetry=telemetry.snapshot(),
+    )
+    return False, byte_count
+
+
 async def _write_truncated_native_terminal(
     request,
     response,
@@ -4086,9 +4230,16 @@ async def _forward_to_channel_attempt(
                 )
             # Committing the response forfeits any chance of a silent replay,
             # so hold it back until the upstream proves it is really producing.
-            downstream = _DeferredDownstream(response, request)
+            # Thinking-only prefaces get a wider hold: a gateway that dies in
+            # that phase is the one failure a fresh attempt can hide entirely.
+            downstream = _DeferredDownstream(
+                response, request, hold_limit=THINKING_HOLD_BUFFER_BYTES
+            )
             if not streamed:
                 await downstream.open()
+            hold_deadline = (
+                time.monotonic() + THINKING_HOLD_MAX_SECONDS if streamed else None
+            )
             byte_count = 0
             stream_telemetry = StreamTelemetry(started_at=started)
             sse_tracker = _SSETerminalTracker() if streamed else None
@@ -4108,11 +4259,22 @@ async def _forward_to_channel_attempt(
                                     "native Anthropic SSE violated terminal or UTF-8 ordering",
                                     code="HUB_SSE_ORDER_VIOLATION",
                                 )
+                            if (
+                                hold_deadline is not None
+                                and not sse_tracker.commit_started
+                                and time.monotonic() > hold_deadline
+                            ):
+                                # The thinking phase outlived the protected
+                                # window: stream live from here and let any
+                                # truncation surface to the client, because a
+                                # replay would no longer be invisible anyway.
+                                byte_count += await downstream.open()
+                                hold_deadline = None
                             # Keep one highly compressible response from
                             # monopolizing the local gateway event loop.
                             await asyncio.sleep(0)
                     json_buf = _append_bounded_json_buffer(json_buf, chunk)
-                    if sse_tracker is not None and sse_tracker.content_started:
+                    if sse_tracker is not None and sse_tracker.commit_started:
                         byte_count += await downstream.open()
                     byte_count += await downstream.write(chunk)
                 if sse_tracker is not None:
@@ -4126,27 +4288,13 @@ async def _forward_to_channel_attempt(
                 zlib.error,
                 ProtocolTransformError,
             ) as exc:
-                log(
-                    f"{log_prefix} upstream broke or was invalid "
-                    f"after {byte_count}B downstream: "
-                    f"{type(exc).__name__} "
-                    + stream_telemetry_fields(
-                        stream_telemetry,
-                        terminal="error",
-                        error=type(exc).__name__,
-                        downstream_bytes=byte_count,
-                    )
-                )
-                journal.error(
-                    phase="stream",
+                _journal_broken_native_stream(
+                    journal,
                     account_id=journal_account,
-                    code=(
-                        exc.code
-                        if isinstance(exc, ProtocolTransformError)
-                        else None
-                    ),
-                    exc_type=type(exc).__name__,
-                    telemetry=stream_telemetry.snapshot(),
+                    log_prefix=log_prefix,
+                    byte_count=byte_count,
+                    telemetry=stream_telemetry,
+                    exc=exc,
                 )
                 if not downstream.started and isinstance(
                     exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
@@ -4170,26 +4318,18 @@ async def _forward_to_channel_attempt(
                 ) from exc
 
             if sse_tracker is not None and not sse_tracker.complete:
-                # A clean EOF without a terminal event is the upstream's own
-                # malformed answer rather than a stall, so replaying it would
-                # just repeat a deterministic failure. Hand over what arrived
-                # and close with a named error event instead of a bare abort.
-                byte_count += await downstream.open()
-                log(
-                    f"{log_prefix} upstream SSE ended without a valid "
-                    f"terminal event after {byte_count}B "
-                    + stream_telemetry_fields(
-                        stream_telemetry,
-                        terminal="missing",
-                        downstream_bytes=byte_count,
+                replayable, byte_count = await _resolve_incomplete_native_sse(
+                    journal=journal,
+                    journal_account=journal_account,
+                    log_prefix=log_prefix,
+                    byte_count=byte_count,
+                    telemetry=stream_telemetry,
+                    downstream=downstream,
+                )
+                if replayable:
+                    raise UpstreamStreamReplayable(
+                        "upstream SSE ended before any content was forwarded"
                     )
-                )
-                journal.error(
-                    phase="stream",
-                    account_id=journal_account,
-                    exc_type="IncompleteSSE",
-                    telemetry=stream_telemetry.snapshot(),
-                )
                 await _write_truncated_native_terminal(
                     request, response, downstream, byte_count
                 )
