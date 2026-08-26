@@ -262,3 +262,26 @@ git 历史。受影响的 `p0-tasks.md` T0.5、T0.6 已改写为**从代码直�
 
 **明确不做**：`modelOverrides` + managed settings 路径（需系统级写入，且 `Hgo` 会在
 host-managed 场景删除该键）；启动路径发探测请求。
+
+---
+
+## S14 · Agent-Hub：Rust 管理面（TUI + CLI + 编排式对话）
+
+**状态**：M1 代码完成，待提交后继续 M2。2026-08-24 决策树 Q1–Q11 已定稿（`agent-hub-design.md`），
+四路调研完成（cc-switch-cli / All API Hub / ai-switch 家族 / T3 Code），
+参考实现已浅克隆至 `~/Documents/Codex/2026-06-07/cc-switch-cli`。
+
+**目的**：claude1 菜单审美疲劳且渠道增多后难维护；Agent-Hub 用 Rust 重写管理面
+（TUI+CLI 双模式），共享 cc-switch DB，协议桥留 Python 不动。
+
+**M1 卡 · 只读闭环**：workspace scaffold（根 `Cargo.toml` + `crates/agent-hub`），
+`agent-hub provider list/current`（CLI）与裸命令 TUI 渠道列表页，全部只读。
+DB 打开用 `SQLITE_OPEN_READ_ONLY`；`user_version` 高于 cc-switch-cli 的 17 时拒绝并提示
+（本机实测 16）；`settings_config` 含凭证，list 输出永不打印。
+
+**验收合同**：`cargo build` 通过；`agent-hub provider list` 输出 38 个渠道且不含任何
+key 材料；裸命令 TUI 列表可 j/k 导航、q 退出；`python3 -m unittest discover -s tests -p 'test_*.py'`
+不退步（`test_docs_index.py` 含新设计文档索引行）。
+
+**明确不做**：写路径（切换/快照/回滚）是 M2；MCP/prompts 后置（Q10）；
+proxy/daemon/webdav 不抄（Python hub 已有协议层）；GUI 不动（M5 才接 `UI/`）。

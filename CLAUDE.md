@@ -66,6 +66,7 @@
 **宪法与设计**(几乎不变;动手前对照):
 
 - `claude1-refactor-design.md` — 重构宪法
+- `agent-hub-design.md` — Agent-Hub（Rust 管理面 + TUI/CLI + 编排式对话）决策树与架构
 - `product-definition.md` — 产品定位与三档口径(现状/部分/待建)
 - `codex1-design.md` — codex1 渠道启动器设计
 - `context-window-design.md` — 上下文窗口判定与 1M 支持矩阵

@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Aley3567/claude-hub.git"
+    "url": "git+https://github.com/Aley3567/Agent-Hub.git"
   },
   "bin": {
     "model-bridge": "bin/model-bridge.js",
