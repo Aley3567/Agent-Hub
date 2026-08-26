@@ -1,0 +1,230 @@
+/* 渠道行。七列宽度由 index.tsx 的 <colgroup> 按 DESIGN.md 4.1.1「宽度预算」写死（table-layout:
+   fixed），所以每个单元格自己负责吸收溢出，谁都不许把列撑宽——撑宽了整张表就横滚：
+   状态靠 StatusDot 自己的 text-overflow，渠道名单行截断，模型名中截断（保尾部日期戳），
+   语义兼容性两行截断。协议格式那格是 Badge，它 max-width: 100% 封在格子里，但被压窄是硬裁
+   （Badge 是 inline-flex，它的 text-overflow 管不到里面的文字），完整值在它的 title 上。 */
+
+.currentRow {
+  background: var(--bg-selected-table);
+}
+
+/* 当前渠道左侧一条 2px accent 竖条，与侧栏选中项同一套语言（DESIGN.md 第 3 节）。
+   竖条是 DESIGN.md 2.4.1 里 selected 态的主标识，所以它的出现 / 消失走 selected 那一档
+   --dur-fast（过渡写在 .statusCell 上，见下面那条）；色值与宽度一个字都没动。 */
+.currentRow .currentCell {
+  box-shadow: inset var(--accent-bar-w) 0 0 0 var(--accent);
+}
+
+.formatBadge {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+
+/* 单元格里的 Badge 一律不参与收缩：Badge 是 inline-flex，它自己的 text-overflow: ellipsis
+   对里面的文字不起作用，被压窄就是硬裁一半字（实测「覆盖」被裁成一个半字）。
+   该让出去的宽度由同格里能省略号截断的那段文字承担。 */
+.cellBadge {
+  flex: 0 0 auto;
+}
+
+/* 已隐藏的行做成凹陷底，不用降低不透明度——那会把文字对比度也一起拉低 */
+.hiddenRow {
+  background: var(--bg-inset);
+}
+
+/* 状态列定宽 88px：塞不下时由 StatusDot 自己的 text-overflow 省略文字，完整语义留在它的
+   title 上，不靠撑宽列来解决 */
+.statusCell {
+  overflow: hidden;
+  white-space: nowrap;
+  /* 竖条的可插值起点。box-shadow: none 到有阴影是硬切，先摆一条同宽的透明阴影，
+     切换当前渠道时 2px accent 竖条才是「140ms 长出来」而不是瞬间蹦出来。
+     box-shadow 不引起位移，reduced-motion 下按 global.css 的属性白名单继续保留。 */
+  box-shadow: inset var(--accent-bar-w) 0 0 0 transparent;
+  transition: box-shadow var(--dur-fast) var(--ease-out);
+}
+
+.statusStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+/* 渠道列定宽 150px：该让的宽度全由 .nameText 的单行截断让出来，别名 Badge 不收缩
+   （见上面 .cellBadge） */
+.nameCell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 渠道名兼「展开详情」的折叠开关。五态按 DESIGN.md 2.4.1：
+   hover 只换文字色，走 --dur-instant（语义表第一条）；
+   active 另叠 --bg-active、时长换到 --dur-fast，2.4.1 要求按下与 hover 视觉可区分——
+   只加深文字色区分不出来，所以按下多一层背景（行底的 --bg-hover 归 Table 原语管，
+   这里只涂按钮自己那一小块）；
+   展开态不换文字色：文字色已经归 hover 了，两态同色就分不清「指针在上面」和「已展开」，
+   方向交给 .nameChevron 的 90° 旋转，配套的图标按钮另有 active 态；
+   focus-visible 与全局同一套 token（绝不 outline: none）；
+   disabled：本控件按构造永不禁用（展开 / 收起随时可用，写入动作在末列的按钮上），
+   所以不写一条到不了的 :disabled 规则。 */
+.nameButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: var(--control-h-sm);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-1);
+  margin-left: calc(-1 * var(--sp-1));
+  color: var(--text-primary);
+  text-align: left;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.nameButton:hover {
+  color: var(--accent-text);
+}
+
+.nameButton:active {
+  background: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+.nameButton:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* 折叠箭头：与隐藏分区那个开关同一套做法（index.module.css 的 .groupChevron 有完整推导）。
+   单一 chevron-right 旋转 90° 等于 chevron-down，时长取语义表「图标旋转翻转」的 --dur-fast，
+   曲线取「双向状态」的 --ease-in-out——展开与收起是同一个开合动作的两个方向。 */
+.nameChevron {
+  transition: transform var(--dur-fast) var(--ease-in-out);
+}
+
+.nameButton[aria-expanded='true'] .nameChevron {
+  transform: rotate(90deg);
+}
+
+/* 渠道名是技术标识，一律等宽（DESIGN.md 第 1 节第 3 条硬规则）。
+   150px 的列放不下长名字时单行截断，完整名在 title 上——和原语 Td 的 truncate 同一套做法 */
+.nameText {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 模型列上限 240px（DESIGN.md 4.1.1「模型名列：240px 上限 + 中截断」）。
+   overflow: hidden 是最后一道保险：覆盖与 effort 两个 Badge 一起出现时宁可裁掉，
+   也不让内容漫到隔壁列上去 */
+.modelCell {
+  overflow: hidden;
+}
+
+.modelInner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 没有模型可显示时是一句中文说明，不是标识符，所以不上等宽 */
+.muted {
+  color: var(--text-tertiary);
+}
+
+/* 语义兼容性列占 DESIGN.md 4.1.1「备注列：min 160 / max 320，两行截断」那一档预算，是整张表
+   唯一的 flexible 列：min 160 由 index.module.css 的 .channelTable 的 min-width 兜住，
+   max 320 只能封在内容盒上——<col> 只认 width，不认 min/max-width。 */
+.compatCell {
+  overflow: hidden;
+}
+
+.compatInner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  max-width: var(--table-col-note-max);
+}
+
+/* 结论（已验收 / 不兼容 / 未评估）是这一列的主信息，不参与收缩 */
+.compatDot {
+  flex: 0 0 auto;
+}
+
+/* 两行截断挂在这一层的子元素上，而不是直接挂在 flex 项上：flex 项的 display 会被 blockify，
+   而 safari15 走的是 legacy 的 -webkit-box + -webkit-line-clamp，blockify 掉就没了依附。
+   （Chrome 151 换了新实现，两种写法都能截断，所以这条只在 safari15 上看得出差别。）
+   外面这层只做「能收缩的块」，不带任何视觉。 */
+.compatReasonBox {
+  display: block;
+  min-width: 0;
+}
+
+/* 真实结论才配一行原因；未评估的默认值在这里什么都不显示。
+   原因超过两行就折断，完整文本进 title；这套 -webkit- 前缀写法 safari15 就支持，
+   两行 18px 行高共 36px，还在 40px 的行高里，折断不会把整表行高顶乱。 */
+.compatReason,
+.compatReasonBad {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.compatReason {
+  color: var(--text-tertiary);
+}
+
+.compatReasonBad {
+  color: var(--danger);
+}
+
+.actionsCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+/* sticky 操作列的 position / z-index / 不透明底色 / 左侧分隔线 / 向左的渐变全在原语的
+   .stickyAction 里（Td 的 stickyAction prop），视图不再自带第二套。这里只改底色变量：
+   已隐藏行的行底是 --bg-inset，操作列得跟上，不然横滚时那一格是一条亮带。
+   当前行的不透明底色由原语的 .stickyActionCurrent（Td 的 currentRow prop）负责；两条规则
+   同时命中时 .hiddenRow .actionCell（0,2,0）压过 .stickyActionCurrent（0,1,0），
+   与改造前 `.hiddenRow .actionCellSticky` 写在 `.currentRow .actionCellSticky` 之后的结果一致。 */
+.hiddenRow .actionCell {
+  --sticky-action-bg: var(--bg-inset);
+}
+
+/* 单元格背景盖在行背景之上，详情面板因此不跟着行 hover 闪一下 */
+.detailCell {
+  background: var(--bg-surface);
+  white-space: normal;
+}
+
+/* 详情行末列补的空 sticky 单元格：底色跟详情面板同色，免得操作列在这一行断成一条
+   --bg-base 的暗带。原语的 .stickyAction 自己声明了 --sticky-action-bg，所以这里用
+   td.xxx（0,1,1）压过它（0,1,0），不去赌两个 CSS Modules 文件的打包先后。 */
+td.detailActionCell {
+  --sticky-action-bg: var(--bg-surface);
+}

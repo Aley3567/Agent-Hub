@@ -1,0 +1,59 @@
+/* DESIGN.md 第 2.2.1 节：代码块自带 --bg-inset 底色并整圈描边，是独立容器，
+   外轮廓用 --border-default；下面 .bar 与代码区之间是内部分隔线，保持 subtle */
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+  overflow: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex: 1 1 auto;
+  text-align: right;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.pre {
+  margin: 0;
+  padding: var(--sp-3);
+  overflow: auto;
+}
+
+.code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  white-space: pre;
+}
+
+.wrap .code {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

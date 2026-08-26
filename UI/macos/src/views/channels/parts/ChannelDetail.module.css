@@ -1,0 +1,203 @@
+/* 展开行的详情面板。两栏靠百分比 flex 自适应，不写断点像素 */
+
+/* 入场：opacity 0→1 + 2px 上移，时长取 --dur-normal——DESIGN.md 2.5 的时长语义表把
+   「面板 / 抽屉 / 对话框入场」划在这一档，而这块面板是点开一行后展开的面板。
+   关键帧本身不新写：2.5「关键帧清单」是全工程 8 个的白名单，并且明写
+   「src/views/** 下不许出现 @keyframes」，所以这里复用 global.css 的 view-enter
+   （同形：opacity 0→1 + translateY(2px)→0，--dur-normal / --ease-out）。
+   必须写成 global(view-enter)：CSS Modules 默认把 animation 里的裸关键帧名也当本文件的
+   局部名哈希掉（实测 vite 会输出 _view-enter_xxxxx），那样就引用不到 global.css 里那个。
+   both 与工具类一致。reduced-motion 下被 global.css 的通配 animation: none 整体关掉，
+   面板直接就位——丢一次淡入不丢任何信息。 */
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4) 0;
+  animation: global(view-enter) var(--dur-normal) var(--ease-out) both;
+}
+
+.error {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.launch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.launchOk {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.launchFail {
+  color: var(--danger);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+.facts {
+  display: flex;
+  flex: 3 1 55%;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.fact {
+  display: grid;
+  grid-template-columns: 7em minmax(0, 1fr);
+  gap: var(--sp-3);
+  align-items: baseline;
+}
+
+.factLabel {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.factValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.side {
+  display: flex;
+  flex: 2 1 30%;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.slots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.slot {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.slotName {
+  flex: 0 0 5em;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+/* ---- 降级码：人话在前，机器码在后但不隐藏（DESIGN.md 第 4.4 节）---- */
+
+.degradeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.degradeItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.degradeTitle {
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* lossy = 丢的是钱或可复现性，标题加粗 */
+.lossy {
+  font-weight: var(--fw-semibold);
+}
+
+.degradeCode {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.degradeCount {
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 编辑区 ---- */
+
+.editors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-4);
+}
+
+/* ---- 通用文字样式 ---- */
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--text-tertiary);
+}
+
+.hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.reason {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.notes {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

@@ -1,0 +1,132 @@
+/*
+ * 槽位行的五列栅格。
+ *
+ * 列宽在这里集中成局部 token，各处只引用变量，不再重复写数值。
+ * 取值依据：effort 一列要容纳「未设置 / low / medium / high / xhigh」五段标签；
+ * 模型一列按常见模型 id 长度取；其余按控件最小可读宽度取。
+ * 合计 + 四道 --sp-3 间隙约 1004px，落在内容区最大宽 --content-max-w 扣掉
+ * 内容区与卡片内边距之后的可用宽度内；窗口更窄时由外层容器横向滚动承担
+ * （DESIGN.md 3 节：宽内容自己 overflow-x，body 永不横向滚动）。
+ */
+.item {
+  --col-slot: 140px;
+  --col-channel: 192px;
+  --col-model: 208px;
+  --col-effort: 260px;
+  --col-usage: 156px;
+
+  min-width: calc(
+    var(--col-slot) + var(--col-channel) + var(--col-model) + var(--col-effort) + var(--col-usage) + 4 *
+      var(--sp-3)
+  );
+  padding: var(--sp-3) 0;
+}
+
+.item + .item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.line {
+  display: grid;
+  grid-template-columns:
+    var(--col-slot) var(--col-channel) var(--col-model)
+    var(--col-effort) var(--col-usage);
+  gap: var(--sp-3);
+  align-items: end;
+}
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+}
+
+/* 槽位名是标识符，等宽（DESIGN.md 2.3） */
+.slotName {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  font-weight: var(--fw-medium);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  min-height: var(--lh-12);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+/* 用量列的补充说明与数字 */
+.usageNote {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.usageMeta {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+/* 行下方的说明区：未绑定去向、配置错误、跨协议降级 */
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+}
+
+.notes:empty {
+  padding-top: 0;
+}
+
+.note,
+.noteWarn,
+.noteDanger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.note {
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+}
+
+/* 琥珀警告收敛为行内 StatusDot + 一行字，不再用满宽背景条 */
+.noteWarn {
+  color: var(--warn);
+}
+
+.noteDanger {
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.noteText {
+  min-width: 0;
+}

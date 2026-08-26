@@ -1,0 +1,50 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+/*
+ * 与 Icon 同一套栅格和线宽（tokens.css 的 --icon-size / --stroke-w）：Spinner 常常出现在
+ * 图标的位置上（Button 的 loading 就是把前置图标换成它），两者边长不一致会让按钮在
+ * 进入加载态时横向抖一下。调用方传 size 时由 Spinner.tsx 覆盖 --spinner-box。
+ */
+.svg {
+  display: block;
+  width: var(--spinner-box, var(--icon-size));
+  height: var(--spinner-box, var(--icon-size));
+  stroke-width: var(--stroke-w);
+  /* 循环周期不是过渡，不受 DESIGN.md 2.5「过渡上限 320ms」约束——2.5「上限与例外」把
+     indeterminate 指示器的循环列为唯一例外，并给了 --dur-spin-loop 这个 token。 */
+  animation: spin var(--dur-spin-loop) linear infinite;
+}
+
+.label {
+  color: var(--text-secondary);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* DESIGN.md 2.5 第 3 条：reduced-motion 下 global.css 的通配 animation: none 会停转，
+   停下来仍是一个可见的环（底圈 + accent 弧），不做「关掉动画等于加载态消失」。
+   所以这里不需要额外的 @media 规则，静态形态本来就是完整的。 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}

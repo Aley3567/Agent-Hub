@@ -1,0 +1,140 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.heroSection {
+  display: grid;
+  grid-template-columns: 1fr minmax(calc(var(--sp-10) * 5), 280px);
+  gap: var(--sp-4);
+}
+
+.heroCard,
+.sideCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  min-width: 0;
+}
+
+.heroCard {
+  /* 英雄卡视觉上略高，垂直居中让大数字不贴边 */
+  justify-content: center;
+}
+
+.heroLabel,
+.sideLabel,
+.barLabel {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+}
+
+.heroValue,
+.sideValue,
+.barValue {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-20);
+  line-height: var(--lh-20);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.heroValue {
+  font-size: var(--fs-28);
+  line-height: var(--lh-28);
+  font-weight: var(--fw-semibold);
+}
+
+.heroSub {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+.sideValueSuccess {
+  color: var(--success);
+}
+
+.heroCaption,
+.sideCaption,
+.barCaption {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.sideCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.sideCard {
+  flex: 1;
+  justify-content: center;
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.barCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-surface);
+}
+
+.barProgressTrack {
+  height: 4px;
+  margin-top: var(--sp-1);
+  border-radius: var(--radius-full);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.barProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+/* 窄窗口：英雄区换行、汇总条自动Wrap，避免挤爆 */
+@media (max-width: 720px) {
+  .heroSection {
+    grid-template-columns: 1fr;
+  }
+
+  .sideCards {
+    flex-direction: row;
+  }
+
+  .sideCard {
+    flex: 1 1 0;
+  }
+
+  .barRow {
+    grid-template-columns: repeat(auto-fit, minmax(calc(var(--sp-10) * 3), 1fr));
+  }
+}

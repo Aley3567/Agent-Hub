@@ -1,0 +1,73 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  width: 100%;
+}
+
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  background: var(--bg-inset);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  resize: vertical;
+  transition: border-color var(--dur-instant) var(--ease-out);
+}
+
+.textarea:focus {
+  border-color: var(--accent);
+}
+
+.textarea:focus-visible {
+  /* DESIGN.md 4.1 的 accent 焦点环，粗细与偏移取 5 节 Windows 行的 1px + 1px；
+     不用 box-shadow 假环 */
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.textarea:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.invalid {
+  border-color: var(--danger);
+}
+
+.invalid:focus {
+  border-color: var(--danger);
+}
+
+.invalid:focus-visible {
+  outline-color: var(--danger);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.error {
+  color: var(--danger);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.hint {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

@@ -1,0 +1,38 @@
+.root {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.svg {
+  display: block;
+}
+
+.value {
+  fill: var(--text-primary);
+  font-family: var(--font-mono);
+  /* DESIGN.md 第 4.2 节：中心百分比 --fs-20 */
+  font-size: var(--fs-20);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  text-align: center;
+}
+
+.caption {
+  /* 说明文字不撑破环的宽度 */
+  max-width: 200px;
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  text-align: center;
+}

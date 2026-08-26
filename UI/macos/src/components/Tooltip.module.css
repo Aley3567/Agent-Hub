@@ -1,0 +1,70 @@
+.wrap {
+  /* 延迟 400ms（DESIGN.md 第 4.1 节 Tooltip 行）取 tokens.css 的 --tooltip-delay，
+     原先这里又写了一遍字面 400ms，两处同值属于重复定义，删掉只留 token */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bubble {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  width: max-content;
+  /* 气泡最宽到这里就换行，避免长句撑出窗口 */
+  max-width: 240px;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  /* 离场：--dur-instant。指针一离开就该走干净，不能在下一个按钮上方留一片旧气泡
+     ——Tooltip.tsx 的说明也是「离开立刻消失」 */
+  transition: opacity var(--dur-instant) var(--ease-out);
+  transition-delay: 0ms;
+}
+
+/*
+ * 入场时长与消失一致，都是 --dur-instant。DESIGN.md 2.5 的时长语义表把 --dur-normal 只划给
+ * 「面板 / 抽屉 / 对话框入场、视图切换、折叠展开的尺寸位移」，Tooltip 气泡不在这三类里，
+ * 表里也没有可外推的「浮层入场」条目，所以不抬时长。
+ * 延迟仍是 --tooltip-delay（400ms）：延迟决定「悬停多久才弹」，时长决定「弹出来这一下有多快」，
+ * 两件事——延迟已经承担了「不要一扫过就冒」，入场再拉长只会让总等待叠到 620ms。
+ */
+.wrap:hover > .bubble,
+.wrap:focus-within > .bubble {
+  opacity: 1;
+  transition: opacity var(--dur-instant) var(--ease-out);
+  transition-delay: var(--tooltip-delay);
+}
+
+.top {
+  bottom: calc(100% + var(--sp-1));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bottom {
+  top: calc(100% + var(--sp-1));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.left {
+  right: calc(100% + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.right {
+  left: calc(100% + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+}

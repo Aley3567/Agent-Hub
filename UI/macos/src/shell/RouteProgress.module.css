@@ -1,0 +1,5 @@
+/* 进度线本体是 position: fixed（global.css 里定义），这里只占住兜底期间的高度，
+   避免内容区在视图到位的一瞬间发生跳动。 */
+.host {
+  height: var(--sp-1);
+}

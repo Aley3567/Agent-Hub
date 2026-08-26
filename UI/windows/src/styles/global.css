@@ -1,0 +1,216 @@
+/*
+ * 全局基线样式。只做三件事：极简 reset、可达性底线、顶部加载进度线。
+ * 组件样式一律写在各自的 .module.css 里，不往这里堆。
+ * 所有数值引用 tokens.css 的变量（1px 边框除外）。
+ */
+
+/* ==========================================================================
+   极简 reset
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd,
+ul,
+ol,
+li,
+fieldset,
+legend,
+pre {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  font-weight: var(--fw-regular);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  /* 数字不许跳动（DESIGN.md 2.3） */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  /* 主内容区是唯一滚动容器，body 永不横向滚动（DESIGN.md 3） */
+  overflow-x: hidden;
+}
+
+/*
+ * 关于 Win11 Mica 的一条实情，留给写 shell 的人：
+ * 窗口在 tauri.conf.json 里声明了 windowEffects("mica")，但上面这条 body 背景是不透明的
+ * --bg-base，所以 Mica 不会真的透出来，Sidebar 的实色 --sidebar-bg 只是与 --bg-base
+ * 形成一层层次差。若要让 Mica 真的可见，需要把 body / 根容器背景改成 transparent，
+ * 再由各区域自己上底色。这里保持不透明是刻意的默认。
+ *
+ * 更根本的一层：窗口本身也没有开 transparent。decorations false 加 transparent 在
+ * Windows 上会牵连出「边缘拖不动、没有系统投影」这类毛病，而 Mica 在 Win10 或关掉
+ * 透明效果时本就不可用——DESIGN.md 5 节要求那种情况退回实色 --bg-base 且不做 blur 兜底。
+ * 所以 windowEffects 里的 mica 是声明在位、暂时不生效：真正画到屏幕上的一直是实色那条退路，
+ * 界面上也没有任何一处宣称 Mica 生效了。哪天要让它真亮起来，得同时把窗口与这几层背景改成
+ * 透明，并且先解决 Win10 上会透出桌面壁纸的问题。
+ */
+
+/* 等宽承载所有技术标识：模型 id、token 数、降级码、端口号（DESIGN.md 2.3） */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表单控件默认不继承字体，统一拉回来 */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* ==========================================================================
+   滚动条：8px 常显轨道，thumb 用 --border-strong + --radius-full
+   （DESIGN.md 5 节 Windows 行：Windows 用户期待可见轨道）
+   ========================================================================== */
+::-webkit-scrollbar {
+  width: var(--scrollbar-w);
+  height: var(--scrollbar-w);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+}
+
+/* hover 只把 thumb 提到 --text-tertiary：深色里更亮、浅色里更深，两套主题都是对比度变强 */
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ==========================================================================
+   可达性底线（DESIGN.md 6）。
+   焦点环全局统一；本工程任何地方都不许把 outline 归零。
+   不在此处设 border-radius——outline 会自动跟随元素自身圆角。
+   ========================================================================== */
+:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+::selection {
+  background: var(--accent-muted);
+}
+
+/* ==========================================================================
+   加载态：一条 1px 顶部进度线，不做骨架屏（DESIGN.md 2.5）
+   用法：<div className="app-progress" role="progressbar" aria-label="加载中" />
+   ========================================================================== */
+.app-progress {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  z-index: var(--z-toast);
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--accent-muted);
+}
+
+.app-progress::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 32%;
+  background: var(--accent);
+  animation: app-progress-slide var(--dur-progress-loop) var(--ease-in-out) infinite;
+}
+
+/* translateX 的百分比相对自身宽度：32% 宽的亮条走满整条轨道
+   需要位移自身宽度的 100 / 32 ≈ 312.5%。全是百分比，无魔法 px。 */
+@keyframes app-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(312.5%);
+  }
+}
+
+/* ==========================================================================
+   尊重减少动效（DESIGN.md 2.5）
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* 进度线退化成一条静止的 accent 细线，仍然表达"在忙" */
+  .app-progress::after {
+    width: 100%;
+  }
+}

@@ -1,0 +1,287 @@
+/*
+ * claude1 Windows 桌面端设计 token。
+ * 唯一来源是 UI/DESIGN.md：色值、字号、间距、圆角、动效一律照抄，本文件不发明数值。
+ * 平台相关的值取 DESIGN.md 第 5 节平台差异表的 Windows 列。
+ *
+ * 主题三态（system / dark / light）的落地方式（DESIGN.md 2.2）：
+ *   1. 深色定义在裸 :root —— 默认态。
+ *   2. 浅色在 @media (prefers-color-scheme: light) 内的 :root:not([data-theme="dark"]) —— 系统态。
+ *   3. 浅色再在 :root[data-theme="light"] 重复一遍 —— 手动态。
+ * 两处重复是刻意的，缺一个就会有一种组合失效。
+ */
+
+/* ==========================================================================
+   深色（默认）· DESIGN.md 2.1
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* --- 背景 --- */
+  --bg-base: #131316;
+  --bg-surface: #1a1a1e;
+  --bg-elevated: #212127;
+  --bg-inset: #0f0f11;
+  --bg-hover: rgba(255, 255, 255, 0.045);
+  --bg-active: rgba(255, 255, 255, 0.075);
+  --bg-selected: rgba(78, 201, 212, 0.12);
+
+  /* --- 描边 --- */
+  --border-subtle: #26262c;
+  --border-default: #32323a;
+  --border-strong: #45454f;
+
+  /* --- 文字 --- */
+  --text-primary: #ececf1;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #6e6e78;
+  --text-inverse: #131316;
+
+  /* --- accent：青，主行动色 --- */
+  --accent: #4ec9d4;
+  --accent-hover: #6ad9e3;
+  --accent-press: #3fb4bf;
+  --accent-muted: rgba(78, 201, 212, 0.14);
+  --accent-text: #7fdbe4;
+
+  /* --- violet：思考 / reasoning / effort --- */
+  --violet: #b57bee;
+  --violet-muted: rgba(181, 123, 238, 0.14);
+
+  /* --- 语义状态 --- */
+  --success: #3fb950;
+  --success-muted: rgba(63, 185, 80, 0.14);
+  --warn: #d29922;
+  --warn-muted: rgba(210, 153, 34, 0.14);
+  --danger: #f85149;
+  --danger-muted: rgba(248, 81, 73, 0.14);
+
+  /* --- 派生值（深色）---
+     --sidebar-bg：DESIGN.md 5 节平台差异表 Windows 行「背景材质」要求 Win11 Mica，
+     不可用时退回实色且明确不做 blur 兜底（性能差）。所以 Sidebar 用实色
+     --bg-surface #1a1a1e，靠与 --bg-base 的层次差分隔，既不叠半透明也不加 backdrop-filter。
+     --chart-area：DESIGN.md 4.2 TimeSeries 的「accent 8% 填充」。 */
+  --sidebar-bg: #1a1a1e;
+  --chart-area: rgba(78, 201, 212, 0.08);
+
+  /* ======================================================================
+     以下 token 与主题无关，只在裸 :root 定义一次
+     ====================================================================== */
+
+  /* --- 字体 · DESIGN.md 5 节 Windows 列 --- */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+
+  /* --- 字号 / 行高 · DESIGN.md 2.3。不存在 15px、17px 这类中间值 --- */
+  --fs-11: 11px;
+  --lh-11: 16px;
+  --fs-12: 12px;
+  --lh-12: 18px;
+  --fs-13: 13px;
+  --lh-13: 20px;
+  --fs-14: 14px;
+  --lh-14: 21px;
+  --fs-16: 16px;
+  --lh-16: 24px;
+  --fs-20: 20px;
+  --lh-20: 28px;
+  --fs-28: 28px;
+  --lh-28: 34px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* --- 间距 · DESIGN.md 2.4 --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* --- 圆角 · DESIGN.md 5 节 Windows 列：Fluent 更方，故两侧各存一份 --- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+
+  /* --- 阴影 · DESIGN.md 2.4（未区分主题，两套主题共用）--- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.36);
+
+  /* --- 层级 · DESIGN.md 2.4 --- */
+  --z-content: 1;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-dialog: 200;
+  --z-palette: 300;
+  --z-toast: 400;
+
+  /* --- 动效 · DESIGN.md 2.5 的基准值 × 0.85（5 节平台差异表 Windows 行：
+     Windows 惯例更快）。换算结果直接写死：80→68、140→119、220→187，
+     过渡上限随之从 220ms 降到 187ms。 --- */
+  --dur-instant: 68ms;
+  --dur-fast: 119ms;
+  --dur-normal: 187ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  /* 顶部加载进度线的循环周期。DESIGN.md 2.5 的 220ms 上限约束的是「过渡」，
+     不定时长的 indeterminate 指示器不是过渡，故单列一个 token 而非写死魔法值。
+     同理，平台差异表的 × 0.85 只作用于过渡类 token，循环指示器两侧同值。 */
+  --dur-progress-loop: 1100ms;
+
+  /* ======================================================================
+     布局与控件尺寸 token。
+     数值全部来自 DESIGN.md 3 / 4 / 5 节的正文，集中成变量是为了让组件端
+     不必写魔法 px（工程铁律：样式只用 token）。
+     ====================================================================== */
+
+  /* 标题栏 · DESIGN.md 5 节 Windows 行：decorations false 自绘，高 32px；
+     左侧 12px（--sp-3）放应用名，右侧是自绘的最小化 / 最大化 / 关闭三个按钮 */
+  --titlebar-h: 32px;
+  /* 自绘窗口按钮 46×32：宽度是 Fluent 规范值，高度直接取标题栏高，不另存一个会漂移的副本 */
+  --win-caption-w: 46px;
+  /* close 的 hover 背景与图标色是 Fluent 规范值（DESIGN.md 5 节 Windows 行）；
+     按下态用同一支红降到 90% 不透明度，不引入第二种红 */
+  --win-close-hover-bg: #c42b1c;
+  --win-close-press-bg: rgba(196, 43, 28, 0.9);
+  --win-close-hover-fg: #ffffff;
+
+  /* 骨架 · DESIGN.md 3 节 */
+  --sidebar-w: 220px;
+  --sidebar-w-collapsed: 56px;
+  --statusbar-h: 28px;
+  --content-max-w: 1120px;
+  /* 选中项左侧 2px accent 竖条 */
+  --accent-bar-w: 2px;
+  /* 滚动条 · DESIGN.md 5 节 Windows 行：8px 常显轨道 */
+  --scrollbar-w: 8px;
+
+  /* 控件 · DESIGN.md 4.1，尺寸按 5 节平台差异表 Windows 行的控件密度收紧：
+     按钮高各减 2px（28→26、32→30）、表格行高 36→34。
+     --icon-btn-size 是例外，保持 28px：DESIGN.md 4.1 与 6 节把它同时钉在 28×28，
+     再减就跌破最小点击区，那是可达性底线而不是密度参数。 */
+  --control-h-sm: 26px;
+  --control-h-md: 30px;
+  --icon-btn-size: 28px;
+  --badge-h: 18px;
+  --row-h: 34px;
+  --dot-size: 6px;
+  --icon-size: 16px;
+  --stroke-w: 1.5;
+  /* 表头大写字距 */
+  --table-head-tracking: 0.04em;
+  /* Dialog 最大宽与遮罩 */
+  --dialog-max-w: 520px;
+  --overlay-scrim: rgba(0, 0, 0, 0.5);
+  /* Tooltip 延迟 400ms */
+  --tooltip-delay: 400ms;
+
+  /* 命令面板 · DESIGN.md 4.3：宽 560，距顶 15vh */
+  --palette-w: 560px;
+  --palette-top: 15vh;
+
+  /* 焦点环 · DESIGN.md 5 节 Windows 行：1px / offset 1px（Fluent 更贴合） */
+  --focus-ring-w: 1px;
+  --focus-ring-offset: 1px;
+
+  /* 图表 · DESIGN.md 4.2 */
+  --chart-bar-h: 20px;
+  --chart-bar-radius: 2px;
+  --chart-donut-w: 8px;
+  --chart-sparkline-h: 24px;
+}
+
+/* ==========================================================================
+   浅色 · 系统态（未手动指定主题时由系统偏好接管）· DESIGN.md 2.2
+   ========================================================================== */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg-base: #ffffff;
+    --bg-surface: #f7f7f8;
+    --bg-elevated: #ffffff;
+    --bg-inset: #f0f0f2;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-active: rgba(0, 0, 0, 0.07);
+    --bg-selected: rgba(12, 140, 150, 0.10);
+
+    --border-subtle: #e8e8ea;
+    --border-default: #d8d8dc;
+    --border-strong: #b8b8c0;
+
+    --text-primary: #18181b;
+    --text-secondary: #55555f;
+    --text-tertiary: #7a7a85;
+    --text-inverse: #ffffff;
+
+    --accent: #0c8c96;
+    --accent-hover: #0a7d86;
+    --accent-press: #086a72;
+    --accent-muted: rgba(12, 140, 150, 0.10);
+    --accent-text: #076e77;
+
+    --violet: #7c4dbf;
+    --violet-muted: rgba(124, 77, 191, 0.10);
+
+    --success: #1a7f37;
+    --success-muted: rgba(26, 127, 55, 0.10);
+    --warn: #9a6700;
+    --warn-muted: rgba(154, 103, 0, 0.10);
+    --danger: #cf222e;
+    --danger-muted: rgba(207, 34, 46, 0.10);
+
+    /* 派生值（浅色）：与深色同构——Sidebar 底就是本主题的 --bg-surface #f7f7f8 实色；
+       图表面积是本主题 accent 的 8%。不引入新色相，只换主题内已有的色。 */
+    --sidebar-bg: #f7f7f8;
+    --chart-area: rgba(12, 140, 150, 0.08);
+  }
+}
+
+/* ==========================================================================
+   浅色 · 手动态（document.documentElement.dataset.theme = "light"）· DESIGN.md 2.2
+   与上一段逐字相同，两处都要有才能覆盖系统深色 + 手动浅色的组合
+   ========================================================================== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base: #ffffff;
+  --bg-surface: #f7f7f8;
+  --bg-elevated: #ffffff;
+  --bg-inset: #f0f0f2;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.07);
+  --bg-selected: rgba(12, 140, 150, 0.10);
+
+  --border-subtle: #e8e8ea;
+  --border-default: #d8d8dc;
+  --border-strong: #b8b8c0;
+
+  --text-primary: #18181b;
+  --text-secondary: #55555f;
+  --text-tertiary: #7a7a85;
+  --text-inverse: #ffffff;
+
+  --accent: #0c8c96;
+  --accent-hover: #0a7d86;
+  --accent-press: #086a72;
+  --accent-muted: rgba(12, 140, 150, 0.10);
+  --accent-text: #076e77;
+
+  --violet: #7c4dbf;
+  --violet-muted: rgba(124, 77, 191, 0.10);
+
+  --success: #1a7f37;
+  --success-muted: rgba(26, 127, 55, 0.10);
+  --warn: #9a6700;
+  --warn-muted: rgba(154, 103, 0, 0.10);
+  --danger: #cf222e;
+  --danger-muted: rgba(207, 34, 46, 0.10);
+
+  --sidebar-bg: #f7f7f8;
+  --chart-area: rgba(12, 140, 150, 0.08);
+}

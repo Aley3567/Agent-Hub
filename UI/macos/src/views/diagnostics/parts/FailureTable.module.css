@@ -1,0 +1,110 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  /* hover 只变背景色与文字色 → --dur-instant（DESIGN.md 2.5 反向判据）。
+     属性写长写法 background-color，不写 background shorthand：真正在变的只有底色。 */
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.toggle:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* 按下：比 hover 再深一档，时长按 DESIGN.md 2.5 语义表走 --dur-fast */
+.toggle:active:not(:disabled) {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 展开与否由箭头图标 + aria-expanded 表达，没有 selected 态；
+   focus-visible 由 global.css 统一画，本文件不归零；disabled 给出明确定义。 */
+.toggle:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* 阶段列与状态列都是「人话在上、机器码在下」 */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  /* 状态列里躺着 HTTP 状态码（failure.ts 直接 String(row.status)），
+     HTTP 状态码在 DESIGN.md 2.3 的定宽清单里；StatusDot 自己只声明了 --font-ui */
+  font-variant-numeric: tabular-nums;
+}
+
+.primary {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.machine {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.note {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  white-space: nowrap;
+}
+
+/* 展开行不受 36px 行高约束 */
+.detailCell {
+  height: auto;
+  padding: 0 var(--sp-3) var(--sp-4);
+  background: var(--bg-base);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+
+.facts {
+  display: grid;
+  /* 标签列按最长的那句自然定宽，不写死像素 */
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-3);
+  align-items: baseline;
+}
+
+.term {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-13);
+  letter-spacing: var(--table-head-tracking);
+  white-space: nowrap;
+}
+
+.text {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}

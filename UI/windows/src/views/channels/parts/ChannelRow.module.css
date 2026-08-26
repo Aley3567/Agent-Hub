@@ -1,0 +1,107 @@
+/* 渠道行。列宽不写死：内容都 nowrap，放不下时由 Table 自带的横向滚动容器接管 */
+
+.currentRow {
+  background: var(--bg-selected);
+}
+
+/* 当前渠道左侧一条 2px accent 竖条，与侧栏选中项同一套语言（DESIGN.md 第 3 节） */
+.currentRow .currentCell {
+  box-shadow: inset var(--accent-bar-w) 0 0 0 var(--accent);
+}
+
+/* 已隐藏的行做成凹陷底，不用降低不透明度——那会把文字对比度也一起拉低 */
+.hiddenRow {
+  background: var(--bg-inset);
+}
+
+.statusCell {
+  white-space: nowrap;
+}
+
+.statusStack {
+  display: inline-flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.nameCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.nameButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h-sm);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-1);
+  margin-left: calc(-1 * var(--sp-1));
+  color: var(--text-primary);
+  text-align: left;
+  transition: color var(--dur-instant) var(--ease-out);
+}
+
+.nameButton:hover {
+  color: var(--accent-text);
+}
+
+/* 渠道名是技术标识，一律等宽（DESIGN.md 第 1 节第 3 条硬规则） */
+.nameText {
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  white-space: nowrap;
+}
+
+.modelCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 没有模型可显示时是一句中文说明，不是标识符，所以不上等宽 */
+.muted {
+  color: var(--text-tertiary);
+}
+
+.compatCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+/* 真实结论才配一行原因；未评估的默认值在这里什么都不显示 */
+.compatReason {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.compatReasonBad {
+  color: var(--danger);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.actionsCell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+/* 单元格背景盖在行背景之上，详情面板因此不跟着行 hover 闪一下 */
+.detailCell {
+  background: var(--bg-surface);
+  white-space: normal;
+}

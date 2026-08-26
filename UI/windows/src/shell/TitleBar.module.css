@@ -1,0 +1,85 @@
+/* 高 32px、背景透明（露出窗口的 Mica 或 --bg-base）、右侧自绘窗口按钮
+   （DESIGN.md 第 5 节 Windows 列）。两列栅格：左边是可拖拽的应用名条，右边是按钮区。 */
+.bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  height: var(--titlebar-h);
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 拖拽区到此为止：data-tauri-drag-region 会吞掉区域内的点击，
+   盖到按钮上按钮就按不动了。左内边距 12px 就是 --sp-3。 */
+.drag {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: var(--sp-3);
+}
+
+.title {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.captions {
+  display: flex;
+  align-items: stretch;
+}
+
+/* 每个按钮 46×32：宽度是 Fluent 规范值，高度撑满标题栏 */
+.caption {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--win-caption-w);
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  /* 系统窗口按钮上是普通箭头而不是手型，这里跟随系统观感 */
+  cursor: default;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.caption:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.caption:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.caption:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+/* close 单独一套：hover 是 Fluent 的红底白图标，按下用同一支红降到 90% 不透明度 */
+.captionClose:hover:not(:disabled) {
+  background: var(--win-close-hover-bg);
+  color: var(--win-close-hover-fg);
+}
+
+.captionClose:active:not(:disabled) {
+  background: var(--win-close-press-bg);
+  color: var(--win-close-hover-fg);
+}
+
+/* 焦点环画在按钮内侧：这排按钮贴着窗口右上角，向外的 offset 会被窗口边裁掉 */
+.caption:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus-ring-w));
+}

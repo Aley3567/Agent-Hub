@@ -1,0 +1,15 @@
+/* 两个 Select 各占槽位行的一列；列宽由 SlotRow.module.css 的栅格决定，这里只管纵向堆叠。 */
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.label {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+}

@@ -1,0 +1,30 @@
+{
+  "name": "claude1-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "claude1 Windows 桌面端",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "dev:renderer": "vite",
+    "build:renderer": "vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.0.0"
+  }
+}

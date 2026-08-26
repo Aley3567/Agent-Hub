@@ -1,0 +1,18 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-ssr/
+.vite/
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# TypeScript 增量信息
+*.tsbuildinfo
+
+# 本机杂物
+.DS_Store
+*.log
+.env
+.env.local

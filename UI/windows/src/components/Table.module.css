@@ -1,0 +1,91 @@
+.scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* DESIGN.md 第 4.1 节：表头 --fs-11 大写字距 .04em --text-tertiary */
+.table thead th,
+.th {
+  height: 28px;
+  padding: 0 var(--sp-3);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* 行高 34（DESIGN.md 4.1 的 36 按 5 节 Windows 行 -2px）、
+   行间 1px --border-subtle、hover --bg-hover */
+.table tbody td,
+.td {
+  height: var(--row-h);
+  padding: 0 var(--sp-3);
+  vertical-align: middle;
+}
+
+/* 紧凑行同样跟随 Windows 密度 -2px：30 → 28 */
+.table.dense tbody td {
+  height: 28px;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color var(--dur-instant) var(--ease-out);
+}
+
+.table tbody tr:last-child {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.table tbody tr[aria-selected='true'] {
+  background: var(--bg-selected);
+}
+
+.table.sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--bg-base);
+}
+
+.align-left {
+  text-align: left;
+}
+
+.align-center {
+  text-align: center;
+}
+
+.align-right {
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.truncate {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

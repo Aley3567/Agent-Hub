@@ -1,0 +1,17 @@
+.root {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.note {
+  fill: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+}

@@ -1,0 +1,95 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-instant) var(--ease-out);
+}
+
+/* 与 Button 同高，便于并排（DESIGN.md 第 4.1 节） */
+.sm {
+  height: var(--control-h-sm);
+}
+
+.md {
+  height: var(--control-h-md);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+.field.invalid {
+  border-color: var(--danger);
+}
+
+.leading {
+  color: var(--text-tertiary);
+}
+
+.input {
+  flex: 1 1 auto;
+  /* 撑满外壳内高，焦点环才会贴着 .field 的边框画，而不是缩在里面 */
+  align-self: stretch;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.input:focus-visible {
+  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上；粗细与偏移取 5 节 Windows 行的
+     1px + 1px offset（token 里已经是这个值）。
+     外层 .field 只改描边色，不再叠一层 box-shadow 环，避免双环 */
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.invalid .input:focus-visible {
+  outline-color: var(--danger);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.input:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.error {
+  color: var(--danger);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.hint {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

@@ -1,0 +1,71 @@
+.root {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  max-width: 100%;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.swatch {
+  /* 图例色块，比 StatusDot 的 6px 稍大一点才压得住 --fs-11 的文字 */
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+/*
+ * 行的 hover 反馈（DESIGN.md 2.4.1 hover 行）。原先整张图只有 SVG <title>，
+ * 指针停在某一行上没有任何视觉回应，长列表里对不准自己在看第几行。
+ * 只换底槽的 fill——该行硬约束是「只变色，不位移、不放大、不加阴影」；
+ * 时长按 2.5 语义表的 hover 档走 --dur-instant（80ms），慢下来会变成拖影。
+ * fill 也在 global.css 的 reduced-motion 放行名单里，所以减少动效时这条仍然保留。
+ */
+.track {
+  fill: var(--bg-inset);
+  transition: fill var(--dur-instant) var(--ease-out);
+}
+
+.row:hover .track {
+  fill: var(--bg-active);
+}
+
+.label {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.value {
+  fill: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  fill: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+}

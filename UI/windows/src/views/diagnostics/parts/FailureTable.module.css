@@ -1,0 +1,92 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  transition:
+    background var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* 阶段列与状态列都是「人话在上、机器码在下」 */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.primary {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.machine {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.note {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  white-space: nowrap;
+}
+
+/* 展开行不受 34px 行高约束 */
+.detailCell {
+  height: auto;
+  padding: 0 var(--sp-3) var(--sp-4);
+  background: var(--bg-base);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+
+.facts {
+  display: grid;
+  /* 标签列按最长的那句自然定宽，不写死像素 */
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-3);
+  align-items: baseline;
+}
+
+.term {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-13);
+  letter-spacing: var(--table-head-tracking);
+  white-space: nowrap;
+}
+
+.text {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}

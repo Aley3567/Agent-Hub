@@ -1,0 +1,151 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0 var(--sp-3);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  /* DESIGN.md 2.5 时长语义表：hover 只是指针路过的副产物，颜色变化走 --dur-instant；
+     box-shadow 在这里是**按下反馈**（primary 的外发光在 :active 时收掉），按下归
+     --dur-fast，且它是「按下 → 松开」的双向状态，所以用 --ease-in-out。 */
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    border-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-in-out);
+}
+
+/* DESIGN.md 第 4.1 节与第 5 节 macOS 列：绝不 outline:none。
+   2px / offset 2px 取 tokens.css 的 --focus-ring-w / --focus-ring-offset，不写字面值 */
+.button:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/* 按下态整体切到 --dur-fast（DESIGN.md 2.4.1 active 行的时长列）：hover 是 80ms、
+   按下是 140ms，两者速度不同，「到底按下了没有」才判断得出来（同一行的硬约束）。
+   松手时走基础规则的 80ms 弹回，press 感更利落 */
+.button:active:not(:disabled) {
+  transition-duration: var(--dur-fast);
+}
+
+/*
+ * DESIGN.md 2.4.1 disabled 行：文字与图标 --text-tertiary、背景回落到无态、cursor: default，
+ * 且明确禁止用整体 opacity 压暗——那会连语义色一起压掉，并把嵌套文字的对比度拖到
+ * 第 1 节的 4.5:1 以下。所以这里逐属性回落，不用 opacity。
+ * 同一行还要求「不许只靠颜色表意」：四个变体的 disabled 一律收成同一副空心外形
+ * （透明底 + --border-subtle 细边），形状本身就是第二重编码——primary 的渐变实底与
+ * ghost 的无边框在禁用后都变成这一副样子，一眼能看出「这个按钮现在不参与」。
+ */
+.button:disabled,
+.button[aria-disabled='true'] {
+  border-color: var(--border-subtle);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* 2.4.1 叠加规则第 3 条：disabled 吃掉 hover 与 active，但不吃掉 focus-visible——
+   aria-disabled 的元素仍要能聚焦，否则读屏用户读不到「这里有个不能用的按钮」。
+   所以 aria-disabled 不写原生 disabled，只用 pointer-events 掐掉指针交互；
+   hover / active 因此自动失效，各变体不必再加一层 :not([aria-disabled]) 守卫。 */
+.button[aria-disabled='true'] {
+  pointer-events: none;
+}
+
+/* DESIGN.md 第 4.1 节：高 30（sm）/ 34（md） */
+.sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--sp-2);
+}
+
+.md {
+  height: var(--control-h-md);
+}
+
+.full {
+  width: 100%;
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.primary {
+  background: var(--accent-gradient);
+  color: #ffffff;
+  box-shadow: 0 2px 10px var(--accent-glow);
+}
+
+/* DESIGN.md 2.4.1 hover 行：实底 accent 面换 --accent-hover，而且 hover
+   「只变色，不位移、不放大、不加阴影」——原先这里同时把外发光从 10px 抬到 14px，
+   属于该行明文禁止的第三项，去掉。外发光只在按下时收掉，作为 press 反馈。 */
+.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.primary:active:not(:disabled) {
+  background: var(--accent-press);
+  box-shadow: none;
+}
+
+.secondary {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.secondary:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.danger {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
+.danger:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+/*
+ * 五态清点（DESIGN.md 2.4.1）：hover / active 每个变体各自定义在上面，focus-visible 与
+ * disabled 在文件开头统一定义。**selected 在 Button 上不存在**——Button 不是可切换控件，
+ * 「当前项」由 SegmentedControl 的 .selected 与 IconButton 的 .active（aria-pressed）承担。
+ * 这一格是「不适用」，不是漏写：给按钮加一个假的选中底反而会和 primary 撞语义。
+ */

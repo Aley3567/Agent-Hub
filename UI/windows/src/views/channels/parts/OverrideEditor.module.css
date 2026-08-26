@@ -1,0 +1,33 @@
+.form {
+  display: flex;
+  flex: 1 1 45%;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 模型 id 比别名长，给的上限也宽一些 */
+.input {
+  max-width: 26em;
+}
+
+.error {
+  color: var(--danger);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.status {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  min-height: var(--lh-12);
+}

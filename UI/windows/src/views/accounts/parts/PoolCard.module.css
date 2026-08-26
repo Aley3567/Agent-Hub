@@ -1,0 +1,96 @@
+/* 账号池卡片。外框、头部与内边距都由 Card 原语提供，这里只补卡片内部的排版。
+   色值、间距、字号一律取 tokens.css 的变量（1px 边框除外）。 */
+
+.titleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 池名就是主 provider 的选择器：人话渠道名在前，机器码在后但不隐藏（DESIGN.md 4.4） */
+.ref {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+}
+
+/* 渠道名是标识符，一律等宽（DESIGN.md 1 节第 3 条） */
+.channelName {
+  font-family: var(--font-mono);
+}
+
+.headerMeta {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  white-space: nowrap;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 池级元数据：一条环绕的元信息带，窄窗口自然换行。
+   不用固定列宽——设计 token 里没有列宽这一档，硬写像素就成了魔法值。 */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-6);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.metaLabel {
+  color: var(--text-tertiary);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+  text-transform: uppercase;
+}
+
+.metaValue {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.metaCode {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-tertiary);
+}
+
+/* 成员列表为空：claude1 会直接拒绝加载这个池，属于配置坏了，用 danger 语义说清 */
+.brokenPool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--danger);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

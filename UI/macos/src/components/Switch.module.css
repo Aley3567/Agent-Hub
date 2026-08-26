@@ -1,0 +1,110 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  cursor: pointer;
+}
+
+/* 焦点环取 tokens.css 的 --focus-ring-w / --focus-ring-offset，绝不 outline: none
+   （DESIGN.md 2.4.1 focus-visible 行） */
+.root:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+/*
+ * disabled（DESIGN.md 2.4.1 disabled 行）：--text-tertiary + cursor: default，
+ * 禁止整体 opacity 压暗。轨道退到 --border-subtle、拨钮去掉投影，
+ * 但**拨钮位置不动**——开关的开/关本来就是靠拨钮在左还是在右表达的，
+ * 所以禁用后仍然读得出当前值，符合同一行「不许只靠颜色表意」。
+ */
+.root:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.root:disabled .track {
+  background: var(--border-subtle);
+}
+
+.root:disabled .knob {
+  background: var(--bg-surface);
+  box-shadow: none;
+}
+
+/* DESIGN.md 第 4.1 节：40×22 */
+.track {
+  position: relative;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: var(--border-strong);
+  /* 拨动是双向状态（DESIGN.md 2.5「双向状态（hover 进出、开关来回）用 var(--ease-in-out)」），
+     时长按同节语义表的「开关拨动」= --dur-fast */
+  transition: background-color var(--dur-fast) var(--ease-in-out);
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+  /* 同上：来回拨的位移，--dur-fast + --ease-in-out */
+  transition: transform var(--dur-fast) var(--ease-in-out);
+}
+
+.on .track {
+  background: var(--accent);
+}
+
+/* 40 - 18 - 2×2 = 18 */
+.on .knob {
+  transform: translateX(18px);
+}
+
+/*
+ * hover（DESIGN.md 2.4.1 hover 行）。原先整个 Switch 没有 hover 态，指针放上去毫无反馈。
+ * 分两种底：
+ *   1. 关闭态的轨道是中性实底，按该行「背景叠 --bg-hover」处理——--bg-hover 是半透明值，
+ *      用一层同色渐变叠在底色之上，底色本身不换，所以不会出现「hover 把轨道换成别的灰」。
+ *   2. 开启态的轨道是 accent 实底，按同一行「实底 accent 面换 --accent-hover」直接换色。
+ * 两者都只变色，不位移、不放大、不加阴影。
+ */
+.root:not(.on):hover:not(:disabled) .track {
+  background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
+}
+
+.on:hover:not(:disabled) .track {
+  background-color: var(--accent-hover);
+}
+
+/*
+ * active（DESIGN.md 2.4.1 active 行）：按下必须与 hover 视觉可区分，所以关闭态叠的是
+ * 更重的 --bg-active，开启态换 --accent-press（该行原文「accent 面换 --accent-press」）。
+ * 时长沿用 .track 已有的 --dur-fast，不另设——按下与拨动是同一件事的两半。
+ */
+.root:not(.on):active:not(:disabled) .track {
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+}
+
+.on:active:not(:disabled) .track {
+  background-color: var(--accent-press);
+}
+
+.label {
+  text-align: left;
+}

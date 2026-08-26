@@ -1,0 +1,64 @@
+/* 常驻高 28px（DESIGN.md 第 3 节）。整条不换行、不横向滚动：信息挤不下时先牺牲播报区。 */
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  height: var(--statusbar-h);
+  padding: 0 var(--sp-4);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.left {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: var(--content-max-w);
+  overflow: hidden;
+}
+
+.label {
+  color: var(--text-tertiary);
+}
+
+/* 渠道名、槽位、端口、token 数都是技术标识，一律等宽（DESIGN.md 第 2.3 节） */
+.value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.valueWarn {
+  font-family: var(--font-mono);
+  color: var(--warn);
+  font-weight: var(--fw-medium);
+}
+
+.sep {
+  color: var(--border-strong);
+}
+
+/* 播报区：占住中间剩余宽度，内容过长就截断，不许把状态栏顶高 */
+.live {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

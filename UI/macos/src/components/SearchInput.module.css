@@ -1,0 +1,119 @@
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  box-sizing: border-box;
+  /* 与 Button md 同高 */
+  height: var(--control-h-md);
+  /* 搜索框的默认宽度，容得下一段渠道名；调用方可用 className 覆盖 */
+  width: 240px;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 0 var(--sp-2);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-instant) var(--ease-out);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+/* hover 只变色（DESIGN.md 2.4.1 hover 行）：描边抬到 --border-strong */
+.field:hover:not(.disabled):not(:focus-within) {
+  border-color: var(--border-strong);
+}
+
+/* disabled：DESIGN.md 2.4.1 disabled 行禁止用整体 opacity 压暗（会连带把里面的文字
+   对比度拖到第 1 节的 4.5:1 以下），改成描边退到 --border-subtle、文字与图标降到
+   --text-tertiary。输入框本身已带原生 disabled，所以不可点这一半有保证 */
+.disabled {
+  border-color: var(--border-subtle);
+}
+
+.disabled .icon {
+  color: var(--text-tertiary);
+}
+
+.icon {
+  color: var(--text-tertiary);
+}
+
+.input {
+  flex: 1 1 auto;
+  /* 撑满外壳内高，焦点环才会贴着 .field 的边框画 */
+  align-self: stretch;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+.input:focus-visible {
+  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上，2px accent + 2px offset，
+     取 tokens.css 的 --focus-ring-w / --focus-ring-offset。
+     外层 .field 只改描边色，不再叠一层 box-shadow 环，避免双环 */
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* cursor 按 DESIGN.md 2.4.1 disabled 行取 default */
+.input:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* 原生搜索框自带的清除按钮换成我们自己的，保证两个平台外观一致 */
+.input::-webkit-search-cancel-button {
+  appearance: none;
+  display: none;
+}
+
+.clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  /* DESIGN.md 第 6 节：最小点击区 28×28 */
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/*
+ * 按下（DESIGN.md 2.4.1 active 行）。清空按钮原先只有 hover 变字色、没有按下反馈，
+ * 点空一次和点中一次看起来一样。按该行叠更重的 --bg-active，并把时长切到 --dur-fast
+ * ——2.5 语义表里「按钮按下」就是这一档，与 hover 的 80ms 区分得开。
+ */
+.clear:active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  transition-duration: var(--dur-fast);
+}
+
+.clear:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}

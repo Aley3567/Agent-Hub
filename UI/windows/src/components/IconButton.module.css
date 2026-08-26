@@ -1,0 +1,72 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    border-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.button:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* DESIGN.md 第 4.1 节：IconButton 28×28；也是第 6 节要求的最小点击区，
+   所以 sm 不参与第 5 节 Windows 行的「按钮高 -2px」——再减就跌破可达性底线。
+   md 是加大号，按 Windows 密度收成 30。 */
+.sm {
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+}
+
+.md {
+  width: var(--control-h-md);
+  height: var(--control-h-md);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.secondary {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+
+.danger {
+  color: var(--danger);
+}
+
+.danger:hover:not(:disabled) {
+  background: var(--danger-muted);
+}
+
+.active {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}

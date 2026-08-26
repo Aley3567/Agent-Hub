@@ -1,0 +1,76 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-6);
+  text-align: center;
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sp-10);
+  height: var(--sp-10);
+  margin-bottom: var(--sp-1);
+  border-radius: var(--radius-full);
+  background: var(--bg-active);
+  color: var(--text-tertiary);
+}
+
+.heroMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  margin-bottom: var(--sp-2);
+  border-radius: var(--radius-lg);
+  background: var(--bg-active);
+}
+
+.rootHero {
+  gap: var(--sp-3);
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  /* DESIGN.md 5 节 Windows 行的字重补偿：标题用 --fw-semibold，Segoe 下 500 太细 */
+  font-weight: var(--fw-semibold);
+}
+
+.titleHero {
+  font-size: var(--fs-16);
+  line-height: var(--lh-16);
+}
+
+.description {
+  margin: 0;
+  /* 一行说明的最佳阅读宽度 */
+  max-width: 420px;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.hint {
+  /* 与说明同宽，两段左右边界对齐 */
+  max-width: 420px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}

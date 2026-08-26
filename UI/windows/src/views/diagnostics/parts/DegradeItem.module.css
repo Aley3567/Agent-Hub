@@ -1,0 +1,157 @@
+.item {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.item:last-child {
+  border-bottom: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--row-h);
+  padding: var(--sp-1) var(--sp-4) var(--sp-1) var(--sp-2);
+}
+
+.header:hover {
+  background: var(--bg-hover);
+}
+
+/* 展开开关只包住「指示箭头 + 严重度 + 人话标题」；
+   原码留在按钮外面，这样它可以被鼠标划选、直接复制粘贴给作者 */
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-align: left;
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  transition: color var(--dur-instant) var(--ease-out);
+}
+
+.toggle:hover .chevron {
+  color: var(--text-secondary);
+}
+
+.title {
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+}
+
+/* lossy：会让人损失钱、可复现性或原始证据，标题加粗（DESIGN.md 4.4） */
+.lossy {
+  font-weight: var(--fw-semibold);
+}
+
+.code {
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 机器码可选中可复制，绝不隐藏 */
+  user-select: text;
+}
+
+.extra {
+  flex: 0 0 auto;
+  padding: 0 var(--sp-2);
+  height: var(--badge-h);
+  border-radius: var(--radius-full);
+  background: var(--warn-muted);
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.meta {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  white-space: nowrap;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4) var(--sp-4) var(--sp-6);
+  background: var(--bg-base);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.blockTitle {
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* 三段式：标签一列、正文一列，扫读时三段对齐 */
+.facts {
+  display: grid;
+  /* 标签列按最长的那句自然定宽（三个标签都是中文五字内），不写死像素 */
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-2) var(--sp-3);
+  align-items: baseline;
+}
+
+.term {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-13);
+  letter-spacing: var(--table-head-tracking);
+}
+
+.text {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}

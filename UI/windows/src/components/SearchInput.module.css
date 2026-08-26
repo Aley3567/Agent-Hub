@@ -1,0 +1,88 @@
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  box-sizing: border-box;
+  /* 与 Button md 同高 */
+  height: var(--control-h-md);
+  /* 搜索框的默认宽度，容得下一段渠道名；调用方可用 className 覆盖 */
+  width: 240px;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-instant) var(--ease-out);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+.disabled {
+  opacity: 0.45;
+}
+
+.icon {
+  color: var(--text-tertiary);
+}
+
+.input {
+  flex: 1 1 auto;
+  /* 撑满外壳内高，焦点环才会贴着 .field 的边框画 */
+  align-self: stretch;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.input:focus-visible {
+  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上；粗细与偏移取 5 节 Windows 行的
+     1px + 1px offset。外层 .field 只改描边色，不再叠一层 box-shadow 环，避免双环 */
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* 原生搜索框自带的清除按钮换成我们自己的，保证两个平台外观一致 */
+.input::-webkit-search-cancel-button {
+  appearance: none;
+  display: none;
+}
+
+.clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  /* DESIGN.md 第 6 节：最小点击区 28×28，不随 Windows 的控件密度再缩 */
+  width: var(--icon-btn-size);
+  height: var(--icon-btn-size);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.clear:hover {
+  color: var(--text-primary);
+}
+
+.clear:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}

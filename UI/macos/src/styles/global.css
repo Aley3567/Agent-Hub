@@ -1,0 +1,288 @@
+/*
+ * 全局基线样式。只做三件事：极简 reset、可达性底线、顶部加载进度线。
+ * 组件样式一律写在各自的 .module.css 里，不往这里堆。
+ * 所有数值引用 tokens.css 的变量（1px 边框除外）。
+ */
+
+/* ==========================================================================
+   极简 reset
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd,
+ul,
+ol,
+li,
+fieldset,
+legend,
+pre {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  font-weight: var(--fw-regular);
+  color: var(--text-primary);
+  background: var(--bg-base);
+  /* 数字不许跳动（DESIGN.md 2.3） */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  /* 主内容区是唯一滚动容器，body 永不横向滚动（DESIGN.md 3） */
+  overflow-x: hidden;
+}
+
+/*
+ * 关于 macOS vibrancy 的一条实情，留给写 shell 的人：
+ * 窗口开了 transparent + windowEffects("sidebar")，但上面这条 body 背景是不透明的
+ * --bg-base，所以桌面不会真的透过来，Sidebar 的 --sidebar-bg 只会叠在 --bg-base 上，
+ * 呈现为一层极轻的层次差。若要让 NSVisualEffectView 真的可见，需要在 shell 的
+ * 布局样式里把 body / 根容器背景改成 transparent，再由各区域自己上底色。
+ * 这里保持不透明是刻意的默认：任何一处忘了上底色也不会漏出桌面壁纸。
+ */
+
+/* 等宽承载所有技术标识：模型 id、token 数、降级码、端口号（DESIGN.md 2.3） */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表单控件默认不继承字体，统一拉回来 */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* ==========================================================================
+   滚动条：macOS 隐藏，靠触控板惯性（DESIGN.md 5 节 macOS 行）
+   ========================================================================== */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ==========================================================================
+   界面大小三档（设置页「外观 → 界面大小」）：body 整体 zoom。
+   zoom 同时缩放布局与渲染，矢量图标和文字保持锐利；WKWebView 与 Chromium 都支持。
+   标准档不写 data-density，body 保持 zoom: 1。
+   ========================================================================== */
+:root[data-density='large'] body {
+  zoom: 1.125;
+}
+
+:root[data-density='larger'] body {
+  zoom: 1.25;
+}
+
+/* ==========================================================================
+   可达性底线（DESIGN.md 6）。
+   焦点环全局统一；本工程任何地方都不许把 outline 归零。
+   不在此处设 border-radius——outline 会自动跟随元素自身圆角。
+   ========================================================================== */
+:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+::selection {
+  background: var(--accent-muted);
+}
+
+/*
+ * 视觉隐藏但屏幕阅读器与键盘可达（DESIGN.md 6 节「全部交互元素键盘可达」）。
+ * 用途：图表的逐点/逐行数值表——hover 浮层与 SVG <title> 键盘够不着，
+ * 用一张 sr-only 数据表把同样的数值暴露给辅助技术。标准 visually-hidden 写法。
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==========================================================================
+   加载态：一条 1px 顶部进度线，不做骨架屏（DESIGN.md 2.5）
+   用法：<div className="app-progress" role="progressbar" aria-label="加载中" />
+   ========================================================================== */
+.app-progress {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1px;
+  z-index: var(--z-toast);
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--accent-muted);
+}
+
+.app-progress::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 32%;
+  background: var(--accent);
+  animation: app-progress-slide var(--dur-progress-loop) var(--ease-in-out) infinite;
+}
+
+/* translateX 的百分比相对自身宽度：32% 宽的亮条走满整条轨道
+   需要位移自身宽度的 100 / 32 ≈ 312.5%。全是百分比，无魔法 px。 */
+@keyframes app-progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(312.5%);
+  }
+}
+
+/* ==========================================================================
+   关键帧与配套工具类（DESIGN.md 2.5「关键帧清单」）
+
+   纪律，照 DESIGN.md 2.5 原文：新增关键帧一律进 styles/global.css 并配一个工具类，
+   让调用方用类名而不是各自写 @keyframes；已有的三处组件模块
+   （CommandPalette / Dialog / Spinner）归各自 owner，保留原位；
+   「src/views/** 下不许出现 @keyframes」。
+   白名单全工程 8 个：本文件 5 个（上面的 app-progress-slide + 下面 4 个）
+   加那三处组件模块各 1 个。要新动效先改 DESIGN.md 的清单，不要就地造。
+
+   本文件不是 CSS Module，类名字面生效，React 侧直接写 className="view-enter"。
+   同一动效要落在 .module.css 的伪元素上时，引用这里的关键帧名即可，不要另写
+   @keyframes——白名单只有 8 个。
+
+   每个工具类给了 kebab 与 camel 两种写法（同一条规则的两个选择器，不是两份实现）：
+   调用方从 CSS Modules 过来习惯 camelCase，而类名写错在 CSS 里是静默失效，不报错。
+
+   骨架屏微光（skeleton-shimmer）不在清单里，也不许补——DESIGN.md 2.5 把
+   「不做骨架屏闪烁」写成了明文禁令，加载态用 .app-progress 那条 1px 进度线或 Spinner。
+   ========================================================================== */
+
+/* 视图切换入场。位移只有 2px：它是「换了一屏」的提示，不是入场表演，放大到 8px
+   就变成整页在跳。2px 是 DESIGN.md 2.5 清单里 view-enter 那行的原文写法
+   （--sp-1 是 4px，没有 2px 的间距 token，故此处写字面值）。
+   时长 --dur-normal——时长语义表把「视图切换」划给了 220ms。 */
+@keyframes view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.view-enter,
+.viewEnter {
+  animation: view-enter var(--dur-normal) var(--ease-out) both;
+}
+
+/* ==========================================================================
+   尊重减少动效（DESIGN.md 2.5「reduced-motion 的精细规则」）
+   判据是「有没有位移」，不是「有没有动画」。这段是可达性兜底，写反了比不写更糟，
+   所以选了兜底优先的写法，取舍逐条记在下面。
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /*
+     * 1) animation 保持通配 none：工程里 4 个带位移/旋转的关键帧
+     *    （palette-in、app-progress-slide、spin、view-enter）一次全关，且以后新增的、
+     *    CSS Modules 哈希类名够不到的关键帧也默认被关掉。
+     *    代价是 Dialog 的 fade 这类模块内的纯透明度动画一起关掉——
+     *    可接受：丢一次淡入不丢任何信息（DESIGN.md 2.5 第 4 条）。
+     */
+    animation: none !important;
+    /*
+     * 2) transition 不再通配 none，改成按属性白名单放行（DESIGN.md 2.5 第 1、2 条）：
+     *    transform / width / height / top / left / margin 这类会让元素挪位或改尺寸的
+     *    过渡不在名单里，直接被丢掉（工程里现有 Sidebar 的 width 与 Switch 拨钮的
+     *    transform 两处就是这样停掉的）；opacity / 颜色 / 阴影 / fill / stroke 留着，
+     *    它们承载的正是「状态变了」这个信息，全关掉等于连可读性一起关了。
+     *    duration 压到 --dur-instant，符合第 2 条「时长可以压到 --dur-instant」。
+     */
+    transition-property: opacity, color, background-color, border-color, box-shadow,
+      fill, stroke !important;
+    transition-duration: var(--dur-instant) !important;
+    /*
+     * 3) 刻意不动 transition-delay：Tooltip 的 400ms 是「悬停多久才弹」的交互延迟，
+     *    不是动效时长，清零会让提示气泡贴着指针乱冒。
+     */
+    scroll-behavior: auto !important;
+  }
+
+  /* 关掉循环之后指示器必须仍有静态可见形态，不允许「关掉动画等于加载态消失」
+     （DESIGN.md 2.5 第 3 条）。进度线退化成一条铺满的静止 accent 细线，仍然表达"在忙"。
+     Spinner 停转后仍是一个可见的环，那条归 components/Spinner.module.css 的 owner。 */
+  .app-progress::after {
+    width: 100%;
+  }
+}

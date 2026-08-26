@@ -1,0 +1,60 @@
+.wrap {
+  /* DESIGN.md 第 4.1 节：Tooltip 延迟 400ms */
+  --tooltip-delay: 400ms;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.bubble {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  width: max-content;
+  /* 气泡最宽到这里就换行，避免长句撑出窗口 */
+  max-width: 240px;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-instant) var(--ease-out);
+  transition-delay: 0ms;
+}
+
+.wrap:hover > .bubble,
+.wrap:focus-within > .bubble {
+  opacity: 1;
+  transition-delay: var(--tooltip-delay);
+}
+
+.top {
+  bottom: calc(100% + var(--sp-1));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.bottom {
+  top: calc(100% + var(--sp-1));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.left {
+  right: calc(100% + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.right {
+  left: calc(100% + var(--sp-1));
+  top: 50%;
+  transform: translateY(-50%);
+}

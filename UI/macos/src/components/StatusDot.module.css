@@ -1,0 +1,60 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* DESIGN.md 第 4.1 节：6px 圆点 + 文字 */
+.dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.hollow {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.ok {
+  color: var(--success);
+}
+
+.degraded {
+  color: var(--warn);
+}
+
+.fail {
+  color: var(--danger);
+}
+
+.off {
+  color: var(--text-tertiary);
+}
+
+.current {
+  color: var(--accent);
+}

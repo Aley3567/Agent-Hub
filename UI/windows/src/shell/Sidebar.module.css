@@ -1,0 +1,152 @@
+/* 宽 220px，折叠 56px（DESIGN.md 第 3 节）。
+   背景是实色 --sidebar-bg（= --bg-surface）：DESIGN.md 第 5 节 Windows 列要求 Mica，
+   不可用时退回实色且明确不做 blur 兜底（性能差），所以这里没有 backdrop-filter，
+   只靠与 --bg-base 的层次差把侧栏分出来。 */
+.sidebar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: var(--sidebar-w);
+  padding: var(--sp-2) 0 var(--sp-2);
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border-subtle);
+  overflow: hidden;
+  transition: width var(--dur-fast) var(--ease-out);
+}
+
+.collapsed {
+  width: var(--sidebar-w-collapsed);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+.collapsed .brand {
+  justify-content: center;
+  padding: 0 0 var(--sp-2);
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.groupLabel {
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--table-head-tracking);
+  color: var(--text-tertiary);
+}
+
+/* 折叠态没有位置写分组名，用一条细线保留「这里换组了」的信息 */
+.groupDivider {
+  display: block;
+  height: 1px;
+  margin: var(--sp-1) var(--sp-3);
+  background: var(--border-subtle);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* 选中项：--bg-selected 底 + 左侧 2px accent 竖条 + 图标转 accent（DESIGN.md 第 3 节） */
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-align: left;
+  transition: background var(--dur-instant) var(--ease-out), color var(--dur-instant) var(--ease-out);
+}
+
+.item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.item:active {
+  background: var(--bg-active);
+}
+
+.itemActive {
+  background: var(--bg-selected);
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
+}
+
+.itemActive::before {
+  content: "";
+  position: absolute;
+  top: var(--sp-1);
+  bottom: var(--sp-1);
+  left: 0;
+  width: var(--accent-bar-w);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+}
+
+.itemIcon {
+  flex: none;
+  display: flex;
+  color: inherit;
+}
+
+.itemActive .itemIcon {
+  color: var(--accent);
+}
+
+.itemLabel {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 折叠态图标居中，且整项仍满足 28×28 最小点击区（DESIGN.md 第 6 节） */
+.collapsed .item {
+  justify-content: center;
+  padding: 0;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.footerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+}
+
+.collapsed .footerActions {
+  flex-direction: column;
+  padding: 0;
+}

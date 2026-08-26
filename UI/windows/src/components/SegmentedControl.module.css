@@ -1,0 +1,99 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  gap: 1px;
+  /* 1px 描边内再留 2px，选中块不贴边 */
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  background: var(--bg-inset);
+  max-width: 100%;
+}
+
+.full {
+  display: flex;
+  width: 100%;
+}
+
+.full .segment {
+  flex: 1 1 0;
+}
+
+/* 不允许截断时：段按内容撑开，控件整体允许溢出外层滚动容器 */
+.noTruncate.full .segment {
+  flex: 0 0 auto;
+  min-width: auto;
+}
+
+.noTruncate .label {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.disabled {
+  opacity: 0.45;
+}
+
+/* 与 Button 同高，便于并排 */
+.sm {
+  height: var(--control-h-sm);
+}
+
+.md {
+  height: var(--control-h-md);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  box-sizing: border-box;
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-out),
+    color var(--dur-instant) var(--ease-out);
+}
+
+.segment:focus-visible {
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.segment:hover:not(:disabled):not(.selected) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.segment:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.selected {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+}
+
+.label {
+  white-space: nowrap;
+}
+
+.labelTruncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

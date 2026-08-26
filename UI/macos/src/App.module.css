@@ -1,0 +1,63 @@
+/* 骨架：标题栏 / 侧栏 + 主内容 / 状态栏（DESIGN.md 第 3 节）。
+   窗口是 transparent + vibrancy，所以整层用 --bg-base 兜底，避免透出桌面。 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 唯一滚动容器：纵向滚动在这里发生，横向一律交给内部的宽表格自己处理 */
+.scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--sp-5) var(--sp-6) var(--sp-8);
+}
+
+.container {
+  width: 100%;
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+
+/* 表格类视图满宽，长表格才不至于挤在中间一条（DESIGN.md 第 3 节） */
+.fullWidth {
+  max-width: none;
+}
+
+/* 首屏内容浮现：整层壳在启动时随 view-enter 浮现一次。DESIGN.md 第 2.5 节把 --dur-slow
+   只留给「命令面板入场」与「首屏内容浮现」两类，这里是后者；关键帧仍用 styles/global.css
+   提供的 view-enter（白名单里那一个），本文件不新写 @keyframes。
+   .app 挂载一次就不再重挂，所以「只在首屏播一次」不需要任何状态位。
+
+   两处刻意的覆盖：
+     · animation-duration → --dur-slow：工具类自带的是视图切换那档 --dur-normal；
+     · animation-fill-mode → backwards：view-enter 末帧是 transform: translateY(0)，
+       工具类的 both 会让 .app 永久留着一个非 none 的 transform，从此成为
+       position: fixed 后代的包含块——顶部进度线（.app-progress）与命令面板遮罩都是
+       fixed，不能让它们改挂到 .app 上。backwards 只覆盖入场前那一帧，播完干净退出。
+
+   选择器写成 :global(.view-enter).firstPaint 是为了拿到 (0,2,0) 的特异性，
+   不依赖 global.css 与本模块谁先注入。 */
+:global(.view-enter).firstPaint {
+  animation-duration: var(--dur-slow);
+  animation-fill-mode: backwards;
+}

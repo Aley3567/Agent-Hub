@@ -1,0 +1,55 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 错误原样暴露（AGENTS.md）：store 里的中文原因直接摆出来 */
+.alert {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-10) 0;
+}
+
+/* KPI 下面这行说清上面那六个数统计的是哪一段，数字与口径永不分离 */
+.windowNote {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  /* 这一行整句都是时间戳（窗口起止），时间戳属于 DESIGN.md 2.3 点名要定宽的那一类：
+     秒位从 09 跳到 10 不许把后半句推着走 */
+  font-variant-numeric: tabular-nums;
+}
+
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--content-max-w) / 3), 1fr));
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.footNote {
+  flex: 1 1 auto;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.tableEmpty {
+  padding: var(--sp-6) var(--sp-4);
+}

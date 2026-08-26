@@ -1,0 +1,62 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 错误原样暴露（AGENTS.md）：store 里的中文原因直接摆出来，不换成「加载失败」 */
+.alert {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 从用量明细带过来的码筛选：说清现在只在看一小撮，并给一键回到全部 */
+.handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.handoffText {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.occurrences {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.more {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

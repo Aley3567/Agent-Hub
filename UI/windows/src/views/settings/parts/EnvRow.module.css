@@ -1,0 +1,52 @@
+/* 本机环境的一行。数值全部取 tokens.css。 */
+
+/* 标签在上、值在下：token 里没有「标签列宽」这一档，与其硬写像素，
+   不如像 PoolCard 的元信息带一样堆叠，窄窗口也不会挤成两行错位。 */
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.label {
+  color: var(--text-tertiary);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+  text-transform: uppercase;
+}
+
+.value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin: 0;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+/* 平台名、版本号、python 版本都是技术标识，一律等宽（DESIGN.md 2.3） */
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.plain {
+  min-width: 0;
+}
+
+.impact {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

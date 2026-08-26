@@ -1,0 +1,48 @@
+.header {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6) var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.text {
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.title {
+  font-size: var(--fs-20);
+  line-height: var(--lh-20);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+}
+
+/* 计数是技术标识，走等宽（DESIGN.md 第 2.3 节） */
+.count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+}
+
+.subtitle {
+  margin-top: var(--sp-1);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--text-secondary);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}

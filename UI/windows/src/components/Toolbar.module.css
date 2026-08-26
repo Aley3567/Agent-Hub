@@ -1,0 +1,30 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  min-width: 0;
+  padding: var(--sp-2) 0;
+  background: var(--bg-base);
+}
+
+.wrap {
+  flex-wrap: wrap;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.divider {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sticky {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+}

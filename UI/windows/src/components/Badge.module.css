@@ -1,0 +1,52 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  /* DESIGN.md 第 4.1 节：高 18 */
+  height: 18px;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-1);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.neutral {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+
+.accent {
+  background: var(--accent-muted);
+  color: var(--accent-text);
+}
+
+.violet {
+  background: var(--violet-muted);
+  color: var(--violet);
+}
+
+.success {
+  background: var(--success-muted);
+  color: var(--success);
+}
+
+.warn {
+  background: var(--warn-muted);
+  color: var(--warn);
+}
+
+.danger {
+  background: var(--danger-muted);
+  color: var(--danger);
+}

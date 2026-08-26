@@ -1,0 +1,50 @@
+/* 账号池视图容器。数值全部取 tokens.css。 */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* 只读说明与数据缺失说明：辅助文字用 --text-tertiary，且不小于 12px（DESIGN.md 2.1） */
+.note {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.code {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+/* IPC 的中文错误原文直接显示，不换成「加载失败」（AGENTS.md：错误原样暴露） */
+.error {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-8) 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}

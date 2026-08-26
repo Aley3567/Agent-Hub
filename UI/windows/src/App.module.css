@@ -1,0 +1,46 @@
+/* 骨架：标题栏 / 侧栏 + 主内容 / 状态栏（DESIGN.md 第 3 节）。
+   窗口声明了 Mica 材质，但整层仍用 --bg-base 兜底：Mica 只在 Win11 且开了透明效果时有，
+   拿不到就必须退回实色（DESIGN.md 第 5 节 Windows 列），实色兜底同时保证任何一处
+   忘了上底色也不会漏出桌面。 */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 唯一滚动容器：纵向滚动在这里发生，横向一律交给内部的宽表格自己处理 */
+.scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--sp-5) var(--sp-6) var(--sp-8);
+}
+
+.container {
+  width: 100%;
+  max-width: var(--content-max-w);
+  margin: 0 auto;
+}
+
+/* 表格类视图满宽，长表格才不至于挤在中间一条（DESIGN.md 第 3 节） */
+.fullWidth {
+  max-width: none;
+}

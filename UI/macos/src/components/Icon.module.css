@@ -1,0 +1,16 @@
+/*
+ * 图标只有一套线宽和一套栅格，值取 tokens.css 的 --stroke-w（1.5）与 --icon-size（20px）。
+ * 刻意写在 CSS 里而不是 JSX 的 width / height / stroke-width 属性上：属性只能填字面数字，
+ * 落不到 token 上；写成 CSS 之后默认值就是 token 本身，改栅格只需改 tokens.css。
+ * 同一份线宽配同一份栅格才有意义——viewBox 是 24，渲染边长每变一次，1.5 个用户单位换算出的
+ * 屏幕线宽就跟着变（13px 时只剩 0.81px，20px 时是 1.25px），所以「统一线宽」和「统一栅格」
+ * 是一件事的两面。
+ * 调用方仍可用 size / strokeWidth 覆盖：Icon.tsx 把值写进下面两个局部变量，旧调用点像素不变。
+ */
+.icon {
+  display: block;
+  flex: 0 0 auto;
+  width: var(--icon-box, var(--icon-size));
+  height: var(--icon-box, var(--icon-size));
+  stroke-width: var(--icon-stroke-w, var(--stroke-w));
+}

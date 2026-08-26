@@ -1,0 +1,94 @@
+/* 渠道视图。所有数值取 tokens.css 的变量（1px 边框除外），不写十六进制色值 */
+
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+/* 读取失败时把 store 里的中文原因原样摆出来，不换成「加载失败」 */
+.error {
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.pending {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-8) 0;
+}
+
+/* ---- 已隐藏分区 ---- */
+
+.groupRow {
+  background: var(--bg-surface);
+}
+
+.groupCell {
+  white-space: nowrap;
+  /* 单元格背景盖在行背景之上，分区标题行因此不跟着 hover 变色 */
+  background: var(--bg-surface);
+}
+
+.groupToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--control-h-sm);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--sp-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-weight: var(--fw-medium);
+  transition: background-color var(--dur-instant) var(--ease-out);
+}
+
+.groupToggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.groupToggle:disabled {
+  cursor: default;
+  color: var(--text-tertiary);
+}
+
+.groupCount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.groupNote {
+  margin-left: var(--sp-2);
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+/* ---- 表尾说明。协议差异与「未评估」的解释只在这里说一次 ---- */
+
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--sp-3);
+}
+
+.note {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

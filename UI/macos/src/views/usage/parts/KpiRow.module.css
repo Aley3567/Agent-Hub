@@ -1,0 +1,150 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.heroSection {
+  display: grid;
+  grid-template-columns: 1fr minmax(calc(var(--sp-10) * 5), 280px);
+  gap: var(--sp-4);
+}
+
+.heroCard,
+.sideCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  min-width: 0;
+}
+
+.heroCard {
+  /* 英雄卡视觉上略高，垂直居中让大数字不贴边 */
+  justify-content: center;
+}
+
+.heroLabel,
+.sideLabel,
+.barLabel {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  letter-spacing: var(--table-head-tracking);
+}
+
+.heroValue,
+.sideValue,
+.barValue {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-20);
+  line-height: var(--lh-20);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.heroValue {
+  font-size: var(--fs-28);
+  line-height: var(--lh-28);
+  font-weight: var(--fw-semibold);
+}
+
+.heroSub {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  /* 「≈ 1.20 亿」是英雄数字的副行，也是 token 计数（DESIGN.md 2.3），跟着定宽 */
+  font-variant-numeric: tabular-nums;
+}
+
+.sideValueSuccess {
+  color: var(--success);
+}
+
+.heroCaption,
+.sideCaption,
+.barCaption {
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.sideCards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.sideCard {
+  flex: 1;
+  justify-content: center;
+  padding: var(--sp-3) var(--sp-4);
+}
+
+/* 外轮廓用 default 立住整条汇总条；1px gap 透出的底色是格子之间的内部分隔线，仍用 subtle */
+.barRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.barCell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--bg-surface);
+}
+
+.barProgressTrack {
+  height: 4px;
+  margin-top: var(--sp-1);
+  border-radius: var(--radius-full);
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.barProgressFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  /* 缓存命中率刷新时这条填充的宽度会变，是本视图唯一一处连续的尺寸变化。
+     DESIGN.md 2.5 时长语义表里管尺寸的那一档原话是「面板 / 抽屉 / 对话框入场、视图切换、
+     折叠展开的尺寸位移」= --dur-normal；进度条不在那三类的字面枚举里，但它就是一次尺寸位移，
+     所以取这一档、不另造时长。位移用 var(--ease-out)。
+     reduced-motion 下 width 不在 global.css 那份过渡属性白名单里，过渡被换掉，
+     进度条直接跳到新宽度——数值不丢，位移不播。 */
+  transition: width var(--dur-normal) var(--ease-out);
+}
+
+/* 窄窗口：英雄区换行、汇总条自动Wrap，避免挤爆 */
+@media (max-width: 720px) {
+  .heroSection {
+    grid-template-columns: 1fr;
+  }
+
+  .sideCards {
+    flex-direction: row;
+  }
+
+  .sideCard {
+    flex: 1 1 0;
+  }
+
+  .barRow {
+    grid-template-columns: repeat(auto-fit, minmax(calc(var(--sp-10) * 3), 1fr));
+  }
+}

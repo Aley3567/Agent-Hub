@@ -1,0 +1,339 @@
+/*
+ * claude1 macOS 桌面端设计 token。
+ * 唯一来源是 UI/DESIGN.md：色值、字号、间距、圆角、动效一律照抄，本文件不发明数值。
+ * 平台相关的值取 DESIGN.md 第 5 节平台差异表的 macOS 列。
+ *
+ * 主题三态（system / dark / light）的落地方式（DESIGN.md 2.2）：
+ *   1. 深色定义在裸 :root —— 默认态。
+ *   2. 浅色在 @media (prefers-color-scheme: light) 内的 :root:not([data-theme="dark"]) —— 系统态。
+ *   3. 浅色再在 :root[data-theme="light"] 重复一遍 —— 手动态。
+ * 两处重复是刻意的，缺一个就会有一种组合失效。
+ */
+
+/* ==========================================================================
+   深色（默认）· DESIGN.md 2.1
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+
+  /* --- 背景：四层拉开反差，带极轻冷蓝倾向，避免纯灰的"平" --- */
+  --bg-base: #101116;
+  --bg-surface: #17181e;
+  --bg-elevated: #1f212a;
+  --bg-inset: #0b0c10;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-active: rgba(255, 255, 255, 0.08);
+  --bg-selected: rgba(62, 214, 227, 0.20);
+  --bg-selected-table: rgba(62, 214, 227, 0.08);
+  /* DESIGN.md 4.1.1「sticky 操作列」第 1 条：上一行叠在 --bg-base 上的不透明等价色。
+     sticky 列不能用半透明底，横滚时会透出滚过去的单元格文字。
+     逐通道 c = a·前景 + (1−a)·背景：R .08·62+.92·16=19.68→20、G .08·214+.92·17=32.76→33、
+     B .08·227+.92·22=38.40→38，即 #142126。 */
+  --bg-selected-table-solid: #142126;
+
+  /* --- 描边 --- */
+  --border-subtle: #232530;
+  --border-default: #2e313d;
+  --border-strong: #414654;
+
+  /* --- 文字 --- */
+  --text-primary: #ececf1;
+  --text-secondary: #a9abb6;
+  /* #787a85 对 surface 仅 4.15、对 base 4.42，双双低于 DESIGN.md 1 节的 4.5:1 硬规则。
+     12px 不能豁免——WCAG 的豁免线是 18.66px bold / 24px regular。抬到 #828490 后
+     实测 surface 4.77 / base 5.07。 */
+  --text-tertiary: #828490;
+  --text-inverse: #131316;
+
+  /* --- accent：青，主行动色。亮饱和，不再低调 --- */
+  --accent: #3ed6e3;
+  --accent-hover: #6fe7ef;
+  --accent-press: #2fc0cc;
+  --accent-muted: rgba(62, 214, 227, 0.18);
+  --accent-text: #8fe6ee;
+  /* 品牌渐变（青→蓝，取自 BrandMark 的青→蓝段）：主按钮与强调面用 */
+  --accent-gradient: linear-gradient(135deg, #3ed6e3 0%, #3f8cff 100%);
+  /* accent 色外发光阴影，给 primary 这类主行动一点体量感 */
+  --accent-glow: rgba(62, 214, 227, 0.30);
+
+  /* --- violet：思考 / reasoning / effort --- */
+  --violet: #b57bee;
+  --violet-muted: rgba(181, 123, 238, 0.14);
+
+  /* --- 语义状态 --- */
+  --success: #3fb950;
+  --success-muted: rgba(63, 185, 80, 0.14);
+  --warn: #d29922;
+  --warn-muted: rgba(210, 153, 34, 0.14);
+  --danger: #f85149;
+  --danger-muted: rgba(248, 81, 73, 0.14);
+
+  /* --- 派生值（深色）---
+     --sidebar-bg：DESIGN.md 5 节平台差异表 macOS 行「背景材质」的 Sidebar 半透明底，
+     即 --bg-surface 叠 72% 不透明度，配合 --sidebar-blur 实现 vibrancy。
+     --chart-area：DESIGN.md 4.2 TimeSeries 的「accent 8% 填充」。 */
+  --sidebar-bg: rgba(23, 24, 30, 0.72);
+  --chart-area: rgba(62, 214, 227, 0.08);
+
+  /* ======================================================================
+     以下 token 与主题无关，只在裸 :root 定义一次
+     ====================================================================== */
+
+  /* --- 字体 · DESIGN.md 5 节 macOS 列 --- */
+  --font-ui: -apple-system, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+
+  /* --- 字号 / 行高 · DESIGN.md 2.3。不存在 15px、17px 这类中间值 --- */
+  --fs-11: 11px;
+  --lh-11: 16px;
+  --fs-12: 12px;
+  --lh-12: 18px;
+  --fs-13: 13px;
+  --lh-13: 20px;
+  --fs-14: 14px;
+  --lh-14: 21px;
+  --fs-16: 16px;
+  --lh-16: 24px;
+  --fs-20: 20px;
+  --lh-20: 28px;
+  --fs-28: 28px;
+  --lh-28: 34px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+
+  /* --- 间距 · DESIGN.md 2.4 --- */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* --- 圆角 · DESIGN.md 5 节 macOS 列（Windows 侧更方，故各存一份）--- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 999px;
+
+  /* --- 阴影 · DESIGN.md 2.4（未区分主题，两套主题共用）--- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.36);
+
+  /* --- 层级 · DESIGN.md 2.4 --- */
+  --z-content: 1;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-dialog: 200;
+  --z-palette: 300;
+  --z-toast: 400;
+
+  /* --- 动效 · DESIGN.md 2.5，macOS 取表内基准值，过渡上限 320ms ---
+     四档是「语义映射」而不是快慢刻度盘，选值前先读 DESIGN.md 2.5 的时长语义表：
+     instant 只给 hover 的颜色变化，fast 给按下/拨动/选中，normal 给面板入场与折叠位移，
+     slow 只给命令面板入场与首屏浮现两类。 */
+  --dur-instant: 80ms;
+  --dur-fast: 140ms;
+  --dur-normal: 220ms;
+  /* 过渡上限。只给命令面板入场与首屏内容浮现两类，不要扩散到别处 */
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 以下两个不是过渡时长，不受 320ms 上限约束（DESIGN.md 2.5「上限与例外」）。
+     顶部加载进度线与 Spinner 都是 indeterminate 指示器——表达「还在进行」而不是
+     「A 变成了 B」，所以循环周期可以长过上限；单列 token 而非写死魔法值。 */
+  --dur-progress-loop: 1100ms;
+  --dur-spin-loop: 720ms;
+
+  /* ======================================================================
+     布局与控件尺寸 token。
+     数值全部来自 DESIGN.md 3 / 4 / 5 节的正文，集中成变量是为了让组件端
+     不必写魔法 px（工程铁律：样式只用 token）。
+     ====================================================================== */
+
+  /* 标题栏 · DESIGN.md 5 节 macOS 行：高 38px，内容左侧留 78px 给红绿灯 */
+  --titlebar-h: 38px;
+  --titlebar-inset-left: 78px;
+
+  /* 骨架 · DESIGN.md 3 节 */
+  --sidebar-w: 232px;
+  --sidebar-w-collapsed: 56px;
+  --statusbar-h: 30px;
+  --content-max-w: 1120px;
+  /* 选中项左侧 2px accent 竖条 */
+  --accent-bar-w: 2px;
+  /* macOS vibrancy 的模糊半径 · DESIGN.md 5 节 backdrop-filter: blur(20px) */
+  --sidebar-blur: 20px;
+
+  /* 控件 · DESIGN.md 4.1 */
+  --control-h-sm: 30px;
+  --control-h-md: 34px;
+  --icon-btn-size: 30px;
+  --badge-h: 20px;
+  --row-h: 40px;
+  --dot-size: 7px;
+  --icon-size: 20px;
+  --stroke-w: 1.5;
+  /* 表头大写字距 */
+  --table-head-tracking: 0.04em;
+  /* Dialog 最大宽与遮罩 */
+  --dialog-max-w: 520px;
+  --overlay-scrim: rgba(0, 0, 0, 0.5);
+  /* Tooltip 延迟 400ms */
+  --tooltip-delay: 400ms;
+
+  /* 命令面板 · DESIGN.md 4.3：宽 560，距顶 15vh */
+  --palette-w: 560px;
+  --palette-top: 15vh;
+
+  /* 焦点环 · DESIGN.md 5 节 macOS 行：2px / offset 2px */
+  --focus-ring-w: 2px;
+  --focus-ring-offset: 2px;
+
+  /* 图表 · DESIGN.md 4.2 */
+  --chart-bar-h: 20px;
+  --chart-bar-radius: 2px;
+  --chart-donut-w: 8px;
+  --chart-sparkline-h: 24px;
+
+  /* --- 表格列宽 · DESIGN.md 4.1.1「宽度预算」表 ---
+     1440px 窗口可用宽 1160px（1440 − 侧栏 232 − 内容区 padding 48）。
+     固定六列合计 810px，备注列 min 160 → 970 / max 320 → 1130，两种都不横滚。
+     七列总和是硬预算，上限 1130：要加宽某列必须从别的列匀出来。
+     由 <colgroup> 声明，配 table-layout: fixed，不靠内容撑。 */
+
+  /* 状态列（StatusDot + 一行文字），定宽 */
+  --table-col-status: 88px;
+  /* 渠道名列（名称 + 别名），定宽 */
+  --table-col-channel: 150px;
+  /* 协议格式列（anthropic / openai_chat / openai_responses / unknown），定宽。
+     160 是按最长值反推的下限：openai_responses 16 字符 × 12px mono 的 0.6em advance
+     = 115.2px，加 Badge 左右 padding 16（--sp-2 ×2）与 td 左右 padding 24（--sp-3 ×2）
+     = 155.2px。原值 96px 只放得下 7.8 个字符，连最常见的 anthropic 都会被硬裁——
+     那是 table-layout: fixed 之后才暴露的，改 fixed 前列宽由内容撑开所以看不出来。
+     加宽的 64px 从备注列上限匀（320→256），七列总和仍是 1130。 */
+  --table-col-protocol: 160px;
+  /* 模型名列上限。超出走中截断保住尾部日期戳，禁用 text-overflow: ellipsis —— DESIGN.md
+     4.1.1「模型名列」：砍尾部等于把两个不同模型显示成同一个 */
+  --table-col-model-max: 240px;
+  /* 上下文窗口列（右对齐 mono 数字），定宽 */
+  --table-col-context: 104px;
+  /* 备注列是整张表唯一的 flexible 列，两行截断 · DESIGN.md 4.1.1「备注列」 */
+  --table-col-note-min: 160px;
+  --table-col-note-max: 256px;
+  /* 动作列（sticky 在右侧），定宽 */
+  --table-col-action: 132px;
+  /* sticky 操作列左侧向左的渐变遮罩宽度，表明「左边还有内容没看完」
+     · DESIGN.md 4.1.1「sticky 操作列」第 3 条 */
+  --table-sticky-fade-w: 24px;
+}
+
+/* ==========================================================================
+   浅色 · 系统态（未手动指定主题时由系统偏好接管）· DESIGN.md 2.2
+   ========================================================================== */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg-base: #f3f4f6;
+    --bg-surface: #fbfbfc;
+    --bg-elevated: #ffffff;
+    --bg-inset: #eef0f2;
+    --bg-hover: rgba(0, 0, 0, 0.04);
+    --bg-active: rgba(0, 0, 0, 0.07);
+    --bg-selected: rgba(10, 157, 176, 0.11);
+    --bg-selected-table: rgba(10, 157, 176, 0.07);
+    /* 浅色的不透明等价色：rgba(10,157,176,.07) over #f3f4f6。
+       R .07·10+.93·243=226.69→227、G .07·157+.93·244=237.91→238、
+       B .07·176+.93·246=241.10→241，即 #e3eef1 · DESIGN.md 4.1.1 */
+    --bg-selected-table-solid: #e3eef1;
+
+    --border-subtle: #dfe1e6;
+    --border-default: #d2d4db;
+    --border-strong: #b7bac4;
+
+    --text-primary: #18181b;
+    --text-secondary: #55555f;
+    --text-tertiary: #6c6e78;  /* 原 #72747e 对 base 仅 4.23；现 base 4.61 / surface 4.91 */
+    --text-inverse: #ffffff;
+
+    --accent: #0a9db0;
+    --accent-hover: #088a9c;
+    --accent-press: #067584;
+    --accent-muted: rgba(10, 157, 176, 0.14);
+    --accent-text: #06707f;
+    --accent-gradient: linear-gradient(135deg, #0a9db0 0%, #2563eb 100%);
+    --accent-glow: rgba(10, 157, 176, 0.28);
+
+    --violet: #7c4dbf;
+    --violet-muted: rgba(124, 77, 191, 0.10);
+
+    --success: #1a7f37;
+    --success-muted: rgba(26, 127, 55, 0.10);
+    --warn: #9a6700;
+    --warn-muted: rgba(154, 103, 0, 0.10);
+    --danger: #cf222e;
+    --danger-muted: rgba(207, 34, 46, 0.10);
+
+    /* 派生值（浅色）：与深色同构——Sidebar 底是本主题的 --bg-base 叠 DESIGN.md 5 节
+       「背景材质」行给浅色定的 .88 不透明度（浅底下 .72 会透得看不出侧栏边界，
+       所以比深色的 .72 高）；图表面积是本主题 accent 的 8%。
+       不引入新色相，只换主题内已有的色。 */
+    --sidebar-bg: rgba(243, 244, 246, 0.88);
+    --chart-area: rgba(10, 157, 176, 0.08);
+  }
+}
+
+/* ==========================================================================
+   浅色 · 手动态（document.documentElement.dataset.theme = "light"）· DESIGN.md 2.2
+   与上一段逐字相同，两处都要有才能覆盖系统深色 + 手动浅色的组合
+   ========================================================================== */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-base: #f3f4f6;
+  --bg-surface: #fbfbfc;
+  --bg-elevated: #ffffff;
+  --bg-inset: #eef0f2;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-active: rgba(0, 0, 0, 0.07);
+  --bg-selected: rgba(10, 157, 176, 0.11);
+  --bg-selected-table: rgba(10, 157, 176, 0.07);
+  /* 与系统态逐字一致，算式见上 · DESIGN.md 4.1.1 */
+  --bg-selected-table-solid: #e3eef1;
+
+  --border-subtle: #dfe1e6;
+  --border-default: #d2d4db;
+  --border-strong: #b7bac4;
+
+  --text-primary: #18181b;
+  --text-secondary: #55555f;
+  --text-tertiary: #6c6e78;  /* 与系统态逐字一致，理由见上 */
+  --text-inverse: #ffffff;
+
+  --accent: #0a9db0;
+  --accent-hover: #088a9c;
+  --accent-press: #067584;
+  --accent-muted: rgba(10, 157, 176, 0.14);
+  --accent-text: #06707f;
+  --accent-gradient: linear-gradient(135deg, #0a9db0 0%, #2563eb 100%);
+  --accent-glow: rgba(10, 157, 176, 0.28);
+
+  --violet: #7c4dbf;
+  --violet-muted: rgba(124, 77, 191, 0.10);
+
+  --success: #1a7f37;
+  --success-muted: rgba(26, 127, 55, 0.10);
+  --warn: #9a6700;
+  --warn-muted: rgba(154, 103, 0, 0.10);
+  --danger: #cf222e;
+  --danger-muted: rgba(207, 34, 46, 0.10);
+
+  --sidebar-bg: rgba(243, 244, 246, 0.88);
+  --chart-area: rgba(10, 157, 176, 0.08);
+}

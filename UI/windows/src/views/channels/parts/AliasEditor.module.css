@@ -1,0 +1,27 @@
+.form {
+  display: flex;
+  flex: 1 1 40%;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* Input 默认拉满容器，这里给个上限，免得一个别名框占掉整行 */
+.input {
+  max-width: 18em;
+}
+
+.status {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  min-height: var(--lh-12);
+}

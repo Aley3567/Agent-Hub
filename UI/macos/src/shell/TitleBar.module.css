@@ -1,0 +1,33 @@
+/* 高 38px、透明、整条可拖拽；左侧 78px 留给红绿灯（DESIGN.md 第 5 节 macOS 列）。
+   两侧同宽的栅格让标题在窗口正中，而不是在红绿灯右侧的剩余空间里居中。 */
+.bar {
+  flex: none;
+  display: grid;
+  grid-template-columns: var(--titlebar-inset-left) 1fr var(--titlebar-inset-left);
+  align-items: center;
+  height: var(--titlebar-h);
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.title {
+  grid-column: 2;
+  text-align: center;
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右侧动作区：占第三列、右对齐。按钮不带 data-tauri-drag-region，
+   所以在整条可拖拽的标题栏里它仍然可点 */
+.actions {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  padding-right: var(--sp-4);
+}

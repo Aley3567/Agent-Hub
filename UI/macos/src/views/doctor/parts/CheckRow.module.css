@@ -1,0 +1,145 @@
+/* 单条体检结论。行高与色值取 tokens.css，1px 分隔线是允许的例外。 */
+
+.row {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.trigger,
+.static {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--sp-2) var(--sp-4);
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.trigger {
+  /* hover 只变背景色，按 DESIGN.md 2.5 的反向判据钉在 --dur-instant */
+  transition: background-color var(--dur-instant) var(--ease-out);
+}
+
+.trigger:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+}
+
+/* 按下：DESIGN.md 2.4.1 要求 active 与 hover 视觉可区分，时长按 2.5 语义表走 --dur-fast */
+.trigger:active:not(:disabled) {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 这一行没有 selected 态：展开与否由箭头方向 + aria-expanded 表达，不是「当前项」。
+   focus-visible 由 global.css 的 :focus-visible 统一画（2px --accent + 2px offset），
+   本文件绝不把它归零。disabled 目前不会出现，五态仍给出明确定义：不只靠颜色，指针也回默认。 */
+.trigger:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.dot {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.title {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.tail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 0 0 auto;
+}
+
+/* 检查 id 是机器码：人话标题在前，码在后但不隐藏，方便粘给作者（DESIGN.md 4.4 的同一套规则） */
+.id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  color: var(--text-tertiary);
+}
+
+.level {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+/* 展开指示：同一枚 chevron-right 旋转 90° 变成向下，不再换图标名。
+   DESIGN.md 2.5 时长语义表把「图标旋转翻转」划给 --dur-fast；
+   开合是双向状态，所以曲线用 --ease-in-out。
+   reduced-motion 下 transform 不在 global.css 的过渡属性白名单里，整条过渡被丢掉，
+   箭头直接停在终止角度——指示不丢，只是不转。 */
+.chevron {
+  color: var(--text-tertiary);
+  transition: transform var(--dur-fast) var(--ease-in-out);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+/* 展开出来的这块是「面板入场」，DESIGN.md 2.5 时长语义表给的就是 --dur-normal，
+   位移用 --ease-out。位移量取 --sp-1（4px）——工程里没有比它更小的间距 token，
+   不写字面像素。
+   起点由 .bodyEnter 提供，挂载后隔一帧摘掉（CheckRow.tsx 里那个 requestAnimationFrame）：
+   条件挂载的元素上 transition 不会在挂载那一帧触发，而 DESIGN.md 2.5 的关键帧白名单
+   不许视图自己新增关键帧，所以这是让「刚展开的是这一块」被看见的唯一办法。
+   reduced-motion 下 transform 那条被 global.css 丢掉、opacity 那条压到 --dur-instant，
+   面板照样出现。 */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4) var(--sp-4) var(--sp-4);
+  transition:
+    opacity var(--dur-normal) var(--ease-out),
+    transform var(--dur-normal) var(--ease-out);
+}
+
+.bodyEnter {
+  opacity: 0;
+  transform: translateY(var(--sp-1));
+}
+
+/* Rust 侧给的原因原样显示，包括里面的路径与列表，只做换行不做裁剪 */
+.detail {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.fixHint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.fixError {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  overflow-wrap: anywhere;
+}

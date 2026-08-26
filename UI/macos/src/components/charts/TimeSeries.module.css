@@ -1,0 +1,107 @@
+.root {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+.plot {
+  position: relative;
+  min-width: 0;
+}
+
+.svg {
+  display: block;
+  max-width: 100%;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.swatch {
+  flex: 0 0 auto;
+  /* 图例色块，与 BarChart 一致 */
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.tick {
+  fill: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.emptyText {
+  fill: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+}
+
+.tip {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  transform: translateX(var(--sp-2));
+  min-width: 0;
+  padding: var(--sp-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+.tipFlip {
+  transform: translateX(calc(-100% - var(--sp-2)));
+}
+
+.tipTime {
+  margin-bottom: var(--sp-1);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  /* DESIGN.md 2.3 的适用范围里点了「时间戳」：hover 在相邻两个桶之间移动时，
+     08:00 → 11:15 这种宽度差会让整个浮层左右跳，定宽数字才钉得住 */
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tipRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+.tipLabel {
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.tipValue {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      安全边界：不连任何外部主机（UI/README.md）。
+      connect-src 只放 self（Vite 开发服务器与打包后的 tauri 资源协议同源）、
+      ipc: 与 http://ipc.localhost（Tauri v2 的 IPC 通道）。
+      与 src-tauri/tauri.conf.json 的 app.security.csp 保持逐字一致。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'"
+    />
+    <title>Agent Hub</title>
+    <!-- token 必须先于 reset 生效；组件的 CSS Module 由各自模块按需注入 -->
+    <link rel="stylesheet" href="/src/styles/tokens.css" />
+    <link rel="stylesheet" href="/src/styles/global.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

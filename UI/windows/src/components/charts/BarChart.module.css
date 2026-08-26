@@ -1,0 +1,55 @@
+.root {
+  display: block;
+  min-width: 0;
+  width: 100%;
+}
+
+.svg {
+  display: block;
+  max-width: 100%;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-2);
+  padding: 0;
+  list-style: none;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+}
+
+.swatch {
+  /* 图例色块，比 StatusDot 的 6px 稍大一点才压得住 --fs-11 的文字 */
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+
+.label {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+}
+
+.value {
+  fill: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  fill: var(--text-tertiary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+}

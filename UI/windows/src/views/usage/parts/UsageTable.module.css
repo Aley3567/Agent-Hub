@@ -1,0 +1,25 @@
+/* 没有降级码的回合：破折号压到三级文字，让有降级的行自己跳出来 */
+.clean {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.degrade {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--icon-btn-size);
+  padding: 0 var(--sp-2);
+  margin-left: calc(-1 * var(--sp-2));
+  border-radius: var(--radius-sm);
+  color: inherit;
+  text-align: left;
+  transition: background var(--dur-instant) var(--ease-out);
+}
+
+.degrade:hover {
+  background: var(--bg-hover);
+}
+
+.degrade:active {
+  background: var(--bg-active);
+}

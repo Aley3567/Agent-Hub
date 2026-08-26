@@ -1,0 +1,233 @@
+/* 中心浮层：宽 --palette-w(560)、距顶 --palette-top(15vh)、--bg-elevated + --shadow-lg + --radius-lg
+   （DESIGN.md 第 4.3 节）。遮罩沿用 Dialog 的 --overlay-scrim。 */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-palette);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--palette-top) var(--sp-4) var(--sp-4);
+  /* 遮罩淡入：入场是「面板入场」那档 --dur-normal（DESIGN.md 第 2.5 节时长语义表），
+     比面板本体的 --dur-slow 快一档——先铺底、再浮面板，而不是黑底一帧砸下来。
+     初值透明、由 .overlayIn 翻上去（挂载后一帧，见 CommandPalette.tsx 的 scrimIn），
+     所以这里必须写 background-color 而不是 background 简写：
+     styles/global.css 的减少动效兜底只放行 background-color。 */
+  background-color: transparent;
+  transition: background-color var(--dur-normal) var(--ease-out);
+}
+
+.overlayIn {
+  background-color: var(--overlay-scrim);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: var(--palette-w);
+  max-width: 100%;
+  max-height: calc(100vh - var(--palette-top) - var(--sp-8));
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  /* 命令面板入场是 DESIGN.md 第 2.5 节里 --dur-slow 允许的两类之一，关键帧清单 palette-in
+     那行写死了「--dur-slow --ease-out」。关键帧本体不新建也不改形状，只把时长与曲线对到
+     新语义上：这是键盘用户的主入口，320ms 让它「浮」出来而不是弹出来。 */
+  animation: palette-in var(--dur-slow) var(--ease-out);
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--sp-2)));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inputRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.searchIcon {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+/* 二级面板的作用域标签，说明「现在只在给某个槽位挑东西」 */
+.scope {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: var(--badge-h);
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+  border-radius: var(--radius-full);
+  background: var(--accent-muted);
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  white-space: nowrap;
+}
+
+/* 五态：hover 只变背景色，走 --dur-instant（DESIGN.md 第 2.4.1 节 hover 行）；
+   按下走 --dur-fast（同表 active 行）；focus-visible 由 global.css 的 :focus-visible 统一给；
+   这个返回按钮只在二级面板里出现，不存在 disabled 态。 */
+.scopeBack {
+  display: flex;
+  align-items: center;
+  color: inherit;
+  border-radius: var(--radius-full);
+  transition: background-color var(--dur-instant) var(--ease-in-out);
+}
+
+.scopeBack:hover {
+  background-color: var(--bg-hover);
+}
+
+.scopeBack:active {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+/* 顶部输入框无边框（DESIGN.md 第 4.3 节）。焦点环不取消，只把它收进框内，
+   这样既保留可见焦点（DESIGN.md 第 6 节），又不会在浮层里多出一道外框。 */
+.input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  border-radius: var(--radius-sm);
+}
+
+.input:focus-visible {
+  outline-offset: calc(-1 * var(--focus-ring-w));
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-2) 0;
+}
+
+.group + .group {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.groupTitle {
+  padding: 0 var(--sp-4) var(--sp-1);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--table-head-tracking);
+  color: var(--text-tertiary);
+}
+
+/* 条目的五态（DESIGN.md 第 2.4.1 节把「命令面板条目」列进了必须五态齐全的清单）：
+   hover 与 selected 在这里是同一态——指针一移进来 onMouseMove 就把它设成当前项，
+   所以不再单写 .row:hover，否则 (0,2,0) 的 hover 规则会把 (0,1,0) 的选中底色顶掉；
+   focus-visible 不落在条目上：面板用 aria-activedescendant，焦点始终留在输入框里，
+   由输入框自己的焦点环表达（.input:focus-visible 在上面）；命中的条目一律可执行，
+   没有 disabled 态。 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--control-h-sm);
+  padding: var(--sp-1) var(--sp-4);
+  color: var(--text-secondary);
+  /* 整行可点（onClick 直接执行），按第 2.4.1 节 hover 行的硬约束给 pointer */
+  cursor: pointer;
+  transition:
+    background-color var(--dur-instant) var(--ease-in-out),
+    color var(--dur-instant) var(--ease-in-out);
+}
+
+/* 按下要与「当前项」可分，否则回车与点击的反馈不一致；时长按 2.4.1 active 行走 --dur-fast */
+.row:active {
+  background-color: var(--bg-active);
+  transition-duration: var(--dur-fast);
+}
+
+.rowActive {
+  background-color: var(--bg-selected);
+  color: var(--text-primary);
+  /* 当前项是 ↑↓ 选出来的结果，时长按 2.4.1 selected 行走 --dur-fast */
+  transition-duration: var(--dur-fast);
+}
+
+.rowIcon {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.rowActive .rowIcon {
+  color: var(--accent);
+}
+
+.rowLabel {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 命中的字符（DESIGN.md 第 4.3 节：用 --accent-text 高亮） */
+.hit {
+  color: var(--accent-text);
+  font-weight: var(--fw-medium);
+}
+
+.rowHint {
+  flex: none;
+  max-width: 45%;
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.more,
+.empty {
+  padding: var(--sp-2) var(--sp-4);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  color: var(--text-tertiary);
+}
+
+.legend {
+  flex: none;
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  color: var(--text-tertiary);
+}

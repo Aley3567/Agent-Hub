@@ -1,0 +1,108 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+  width: 100%;
+}
+
+.field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-instant) var(--ease-out);
+}
+
+/* 与 Button 同高，便于并排 */
+.sm {
+  height: var(--control-h-sm);
+}
+
+.md {
+  height: var(--control-h-md);
+}
+
+.field:focus-within {
+  border-color: var(--accent);
+}
+
+/* hover：DESIGN.md 2.4.1 hover 行只允许变色。输入类控件没有 hover 底色，
+   把描边抬到 --border-strong 就够——它在 tokens.css 里的定义正是「focus 前的强调描边」 */
+.field:hover:not(.disabled):not(:focus-within) {
+  border-color: var(--border-strong);
+}
+
+.field.invalid {
+  border-color: var(--danger);
+}
+
+/* disabled（DESIGN.md 2.4.1 disabled 行）：外壳描边退到 --border-subtle，不用 opacity。
+   原生 <select disabled> 已经不可点，这里只管外观 */
+.field.disabled {
+  border-color: var(--border-subtle);
+}
+
+.select {
+  appearance: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  /* 右侧留出箭头的位置。箭头统一到 --icon-size（20px）栅格后，--sp-6（24px）不够了——
+     .chevron 定位在 right: var(--sp-2)，占到距右边 8 + 20 = 28px，24px 会被长选项文字压上去。
+     按几何算：--sp-2（箭头右边距）+ --icon-size（箭头宽）+ --sp-1（文字与箭头的最小间隙）。 */
+  padding: 0 calc(var(--sp-2) + var(--icon-size) + var(--sp-1)) 0 var(--sp-2);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-14);
+  line-height: var(--lh-14);
+  cursor: pointer;
+}
+
+.select:focus-visible {
+  /* DESIGN.md 4.1：焦点环画在真正获得焦点的那个控件上，2px accent + 2px offset，
+     取 tokens.css 的 --focus-ring-w / --focus-ring-offset。
+     外层 .field 只改描边色，不再叠一层 box-shadow 环，避免双环 */
+  outline: var(--focus-ring-w) solid var(--accent);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.invalid .select:focus-visible {
+  outline-color: var(--danger);
+}
+
+/* cursor 按 DESIGN.md 2.4.1 disabled 行取 default，不是 not-allowed */
+.select:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/*
+ * DESIGN.md 2.3 点名过这一处：「Select / Textarea / settings 的 EnvRow 的 .mono 只换字体族」，
+ * 而同节的硬规则是所有数值一律 tabular-nums。Select 的 mono 选项里就有带数字的模型 id
+ * （claude-opus-4-1-20250805）和端口，补上定宽数字。
+ */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.chevron {
+  position: absolute;
+  right: var(--sp-2);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.error {
+  color: var(--danger);
+  font-family: var(--font-ui);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}

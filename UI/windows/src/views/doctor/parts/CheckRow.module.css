@@ -1,0 +1,104 @@
+/* 单条体检结论。行高与色值取 tokens.css，1px 分隔线是允许的例外。 */
+
+.row {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.trigger,
+.static {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: var(--sp-2) var(--sp-4);
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.trigger {
+  transition: background-color var(--dur-instant) var(--ease-out);
+}
+
+.trigger:hover {
+  background: var(--bg-hover);
+}
+
+.dot {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.title {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+}
+
+.tail {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 0 0 auto;
+}
+
+/* 检查 id 是机器码：人话标题在前，码在后但不隐藏，方便粘给作者（DESIGN.md 4.4 的同一套规则） */
+.id {
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: var(--lh-11);
+  color: var(--text-tertiary);
+}
+
+.level {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.chevron {
+  color: var(--text-tertiary);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-4) var(--sp-4) var(--sp-4);
+}
+
+/* Rust 侧给的原因原样显示，包括里面的路径与列表，只做换行不做裁剪 */
+.detail {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.fix {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.fixHint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
+.fixError {
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-muted);
+  color: var(--text-primary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+  overflow-wrap: anywhere;
+}
