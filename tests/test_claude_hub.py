@@ -6023,6 +6023,7 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertIn(b"text_delta", rendered)
         self.assertIn(b"event: error", rendered)
         self.assertIn(b"mid-response", rendered)
+        self.assertTrue(downstream.eof)
         self.assertFalse(request.transport.aborted)
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual(row["exc"], "TimeoutError")
@@ -6065,6 +6066,8 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(len(session.calls), 1)
         rendered = b"".join(downstream.writes)
         self.assertIn(b"event: error", rendered)
+        self.assertIn(b"mid-response", rendered)
+        self.assertTrue(downstream.eof)
         self.assertFalse(request.transport.aborted)
         rows = [
             json.loads(line)
@@ -6072,6 +6075,60 @@ class ClaudeHubTests(unittest.TestCase):
         ]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["exc"], "TimeoutError")
+
+    def test_held_thinking_bytes_flush_on_deadline_trip(self):
+        # 思考字节扣留中遭遇死线跳闸：已扣留的字节必须如实冲刷给客户端，
+        # 随后的传输停顿具名收尾；terminal 里的字节记账与扣留量一致。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":0,"content_block":{"type":"thinking"}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}\n\n',
+        ]
+        upstream = _StallingUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            chunks,
+            stall_seconds=0.5,
+            tail=asyncio.TimeoutError("fixture upstream stalled mid-thinking"),
+        )
+        session = _FakeSession(upstream)
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(hub, "THINKING_HOLD_MAX_SECONDS", 0.2):
+            with mock.patch.object(
+                hub.web, "StreamResponse", return_value=downstream
+            ):
+                response = asyncio.run(
+                    asyncio.wait_for(hub.handle_messages(request), timeout=10)
+                )
+
+        self.assertIs(response, downstream)
+        self.assertEqual(len(session.calls), 1)
+        rendered = b"".join(downstream.writes)
+        self.assertIn(b"thinking_delta", rendered)
+        self.assertIn(b"event: error", rendered)
+        self.assertIn(b"mid-response", rendered)
+        held_bytes = sum(len(chunk) for chunk in chunks)
+        self.assertIn(f"after {held_bytes}B".encode(), rendered)
+        self.assertTrue(downstream.eof)
+        self.assertFalse(request.transport.aborted)
+        row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(row["exc"], "TimeoutError")
+        self.assertNotIn("deg", row)
 
     def test_account_pool_never_retries_a_stream_after_downstream_commit(self):
         self._write_account_pool_db()

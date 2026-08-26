@@ -157,6 +157,9 @@ STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
 # which a truncation is reported to the client instead of replayed.
 THINKING_HOLD_BUFFER_BYTES = 1024 * 1024
 THINKING_HOLD_MAX_SECONDS = 45.0
+# Keep this well below the upstream sock_read timeout (600s, set where the
+# client session is built): _held_read_chunk tells its watchdog trip apart
+# from a real read timeout by wall clock alone.
 HUB_DEGRADE_STREAM_REPLAYED = "HUB_DEGRADE_STREAM_REPLAYED"
 
 HOP_BY_HOP = {
@@ -2527,23 +2530,27 @@ class _DeferredDownstream:
         return len(chunk)
 
 
-async def _held_read_chunk(chunk_stream, hold_deadline: float | None):
+async def _held_read_chunk(
+    chunk_stream, hold_deadline: float | None
+) -> tuple[bytes | None, bool]:
     """Read one upstream chunk, arming the hold deadline as a watchdog.
 
     The hold window is a wall clock, but the stream loop's expiry check only
     runs when a chunk arrives; a fully silent upstream would otherwise hold
     the client until sock_read fires. Returns ``(chunk, False)``,
     ``(None, False)`` at EOF, or ``(None, True)`` when the deadline tripped
-    with no chunk arriving. A read that fails on its own raises unchanged,
-    and an already-expired deadline arms no watchdog: the loop's expiry
-    check commits on the next chunk that does arrive.
+    with no chunk arriving -- an already-expired deadline included: it trips
+    immediately rather than waiting once more on a silent stream. A read
+    that fails on its own raises unchanged.
     """
-    remaining = None if hold_deadline is None else hold_deadline - time.monotonic()
-    if remaining is None or remaining <= 0:
+    if hold_deadline is None:
         try:
             return await chunk_stream.__anext__(), False
         except StopAsyncIteration:
             return None, False
+    remaining = hold_deadline - time.monotonic()
+    if remaining <= 0:
+        return None, True
     try:
         chunk = await asyncio.wait_for(chunk_stream.__anext__(), timeout=remaining)
         return chunk, False
@@ -4024,7 +4031,7 @@ async def _resolve_broken_native_stream(
     telemetry,
     exc: Exception,
     downstream: _DeferredDownstream,
-    sse_tracker: "_SSETerminalTracker | None",
+    sse_tracker: _SSETerminalTracker | None,
     request,
     response,
 ) -> web.StreamResponse:
@@ -4375,10 +4382,12 @@ async def _forward_to_channel_attempt(
                     json_buf = _append_bounded_json_buffer(json_buf, chunk)
                     if sse_tracker is not None and sse_tracker.commit_started:
                         byte_count += await downstream.open()
-                        # Committed: the hold window no longer applies, so
-                        # stop bounding reads by its deadline.
-                        hold_deadline = None
                     byte_count += await downstream.write(chunk)
+                    if downstream.started:
+                        # Committed -- by the tracker above or by the buffer
+                        # cap inside write(): the hold window no longer
+                        # applies, so stop bounding reads by its deadline.
+                        hold_deadline = None
                 if sse_tracker is not None:
                     sse_decoder.finish()
                     sse_tracker.finish()
