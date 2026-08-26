@@ -136,3 +136,10 @@ docs/design-references/local-private-*
 # 清扫暂存与本地交接目录（不提交）
 .cleanup-staging/
 .kimi-code/
+
+# 第三方 agent 工具的临时 workspace：曾把项目记忆和明文凭证写进这里
+.workbuddy-ai/
+
+# 本地只读参考源码；正式实现不得从这里 import，需更新时在各自上游仓库处理
+/tools/freebuff-src/
+/tools/go-sdk/
