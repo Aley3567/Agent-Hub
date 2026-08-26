@@ -2,15 +2,42 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
+import platform
 import sys
 from collections.abc import Sequence
-from typing import TextIO
+from pathlib import Path
+from typing import Any, TextIO
+from uuid import UUID
 
 from . import __version__
 from .ccswitch import CCSwitchProviderStore
-from .domain import StoreCapability
+from .credentials import (
+    SecretStore,
+    SecretStoreError,
+    SecretStoreUnavailableError,
+    build_default_secret_store,
+)
+from .domain import ModelMapping, ProtocolAdapter, StoreCapability
+from .launch import launch_standalone_session
+from .quick_setup import (
+    audit_orphan_secrets,
+    cleanup_orphan_secrets,
+    create_standalone_profile,
+    delete_standalone_profile,
+)
 from .service import ProviderApplicationService
+from .standalone import (
+    StandaloneProfileConflictError,
+    StandaloneProfileExistsError,
+    StandaloneProfileNotFoundError,
+    StandaloneProfileStore,
+    StandaloneStoreCorruptError,
+    StandaloneStoreError,
+    standalone_data_dir,
+)
 from .store import (
     ProviderConfigCorruptError,
     ProviderNotFoundError,
@@ -31,6 +58,12 @@ _HELP_USAGE = (
     "switchctl inspect <stable-id>",
     "switchctl mode [--store standalone]",
     "switchctl route [--store standalone]",
+    "switchctl profile list",
+    "switchctl profile create --name <name> --base-url <url> [--adapter <adapter>] [--models <json>] --secret <key>",
+    "switchctl profile inspect <id>",
+    "switchctl profile delete <id> [--keep-secret]",
+    "switchctl profile audit-orphans",
+    "switchctl launch <profile-id>",
 )
 _COMMAND_USAGE = {
     "detect": _USAGE,
@@ -38,12 +71,20 @@ _COMMAND_USAGE = {
     "inspect": "switchctl inspect <stable-id>",
     "mode": "switchctl mode [--store standalone]",
     "route": "switchctl route [--store standalone]",
+    "profile": "switchctl profile <list|create|inspect|delete|audit-orphans>",
+    "launch": "switchctl launch <profile-id>",
 }
 
 
 def build_default_service() -> ProviderApplicationService:
     """Build the read-only CC Switch service for installed commands."""
     return ProviderApplicationService(CCSwitchProviderStore())
+
+
+def build_default_profile_store() -> StandaloneProfileStore:
+    """Build default StandaloneProfileStore at standard platform path."""
+    data_dir = standalone_data_dir(platform.system(), home=Path.home())
+    return StandaloneProfileStore(data_dir)
 
 
 def _envelope(
@@ -95,13 +136,112 @@ def _usage_for(arguments: tuple[object, ...]) -> str:
     return _USAGE
 
 
+def _handle_profile_command(
+    args: tuple[str, ...],
+    profile_store: StandaloneProfileStore,
+    secret_store: SecretStore,
+) -> dict[str, object]:
+    if not args:
+        raise ValueError("missing profile subcommand")
+
+    subcmd = args[0]
+    if subcmd == "list":
+        profiles = profile_store.list()
+        items: list[dict[str, object]] = []
+        for p in profiles:
+            items.append(
+                {
+                    "profileId": str(p.profile_id),
+                    "name": p.name,
+                    "baseUrl": p.base_url,
+                    "adapter": p.adapter.value,
+                    "models": p.models.to_public_dict(),
+                    "createdAt": p.created_at.isoformat(),
+                    "updatedAt": p.updated_at.isoformat(),
+                }
+            )
+        return {"profiles": items}
+
+    if subcmd == "inspect":
+        if len(args) < 2:
+            raise ValueError("missing profile id")
+        p = profile_store.get(args[1])
+        return {
+            "profileId": str(p.profile_id),
+            "name": p.name,
+            "baseUrl": p.base_url,
+            "adapter": p.adapter.value,
+            "models": p.models.to_public_dict(),
+            "createdAt": p.created_at.isoformat(),
+            "updatedAt": p.updated_at.isoformat(),
+            "hasSecret": secret_store.is_available() and secret_store.get_secret(p.secret_ref) is not None,
+        }
+
+    if subcmd == "create":
+        # Parse flags: --name, --base-url, --secret, [--adapter], [--models]
+        parser = argparse.ArgumentParser(prog="switchctl profile create")
+        parser.add_argument("--name", required=True)
+        parser.add_argument("--base-url", required=True)
+        parser.add_argument("--secret", required=True)
+        parser.add_argument("--adapter", default="anthropic")
+        parser.add_argument("--models", default=None)
+
+        parsed_args = parser.parse_args(args[1:])
+        models_obj = None
+        if parsed_args.models:
+            try:
+                m_dict = json.loads(parsed_args.models)
+                models_obj = ModelMapping(**m_dict)
+            except Exception as exc:
+                raise ValueError(f"invalid models JSON: {exc}") from exc
+
+        profile = create_standalone_profile(
+            profile_store,
+            secret_store,
+            name=parsed_args.name,
+            base_url=parsed_args.base_url,
+            secret=parsed_args.secret,
+            adapter=ProtocolAdapter(parsed_args.adapter.lower()),
+            models=models_obj,
+        )
+        return {
+            "profileId": str(profile.profile_id),
+            "name": profile.name,
+            "baseUrl": profile.base_url,
+            "adapter": profile.adapter.value,
+            "createdAt": profile.created_at.isoformat(),
+        }
+
+    if subcmd == "delete":
+        if len(args) < 2:
+            raise ValueError("missing profile id")
+        profile_id = args[1]
+        keep_secret = "--keep-secret" in args
+        deleted = delete_standalone_profile(
+            profile_store,
+            secret_store,
+            profile_id,
+            purge_secret=not keep_secret,
+        )
+        return {"profileId": str(profile_id), "deleted": deleted}
+
+    if subcmd == "audit-orphans":
+        orphans = audit_orphan_secrets(profile_store, secret_store)
+        return {"orphanSecretCount": len(orphans), "orphanSecretRefs": list(orphans)}
+
+    raise ValueError(f"unknown profile subcommand: {subcmd}")
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     service: ProviderApplicationService | None = None,
+    profile_store: StandaloneProfileStore | None = None,
+    secret_store: SecretStore | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
     standalone_exists: bool = False,
+    runner: Any | None = None,
 ) -> int:
     """Run ``switchctl`` with injectable argv, service, and output streams."""
 
@@ -137,6 +277,8 @@ def main(
     command = None
     stable_id = None
     store_override = None
+    profile_args: tuple[str, ...] = ()
+    launch_id = None
 
     if arguments == ("detect",):
         command = "detect"
@@ -155,6 +297,12 @@ def main(
     }:
         command = "mode"
         store_override = "standalone"
+    elif arguments and arguments[0] == "profile":
+        command = "profile"
+        profile_args = arguments[1:]
+    elif len(arguments) == 2 and arguments[0] == "launch":
+        command = "launch"
+        launch_id = arguments[1]
     else:
         _write_error(
             output,
@@ -166,6 +314,9 @@ def main(
 
     try:
         application = build_default_service() if service is None else service
+        prof_store = build_default_profile_store() if profile_store is None else profile_store
+        sec_store = build_default_secret_store() if secret_store is None else secret_store
+
         if command == "detect":
             capability = application.detect()
             data: dict[str, object] = {"capability": capability.value}
@@ -202,15 +353,73 @@ def main(
                     "fingerprint": inspection.unknown_fingerprint,
                 },
             }
+        elif command == "profile":
+            data = _handle_profile_command(profile_args, prof_store, sec_store)
+        elif command == "launch":
+            if launch_id is None:
+                raise ValueError("launch profile id is missing")
+            outcome = launch_standalone_session(
+                prof_store,
+                sec_store,
+                launch_id,
+                runner=runner,
+            )
+            data = {
+                "profileId": str(outcome.profile_id),
+                "exitCode": outcome.exit_code,
+                "sessionId": outcome.session_id,
+                "isolated": outcome.isolated,
+            }
         else:
+            has_standalone = standalone_exists or prof_store.has_profiles()
             route = application.resolve_startup(
-                standalone_exists=standalone_exists,
+                standalone_exists=has_standalone,
                 store_override=store_override,
             )
             data = {
                 "mode": route.mode.value,
                 "firstScreen": route.first_screen.value,
             }
+    except StandaloneProfileNotFoundError:
+        _write_error(
+            output,
+            diagnostics,
+            code="profile_not_found",
+            message="standalone profile was not found",
+        )
+        return EXIT_RUNTIME_ERROR
+    except (StandaloneProfileExistsError, StandaloneProfileConflictError) as exc:
+        _write_error(
+            output,
+            diagnostics,
+            code="profile_conflict",
+            message=str(exc),
+        )
+        return EXIT_RUNTIME_ERROR
+    except SecretStoreUnavailableError:
+        _write_error(
+            output,
+            diagnostics,
+            code="secret_store_unavailable",
+            message="system credential store is unavailable",
+        )
+        return EXIT_RUNTIME_ERROR
+    except SecretStoreError as exc:
+        _write_error(
+            output,
+            diagnostics,
+            code="secret_store_error",
+            message=str(exc),
+        )
+        return EXIT_RUNTIME_ERROR
+    except StandaloneStoreCorruptError:
+        _write_error(
+            output,
+            diagnostics,
+            code="store_corrupt",
+            message="standalone store is corrupt",
+        )
+        return EXIT_RUNTIME_ERROR
     except ProviderConfigCorruptError:
         _write_error(
             output,
@@ -243,16 +452,12 @@ def main(
             message="provider store schema is incompatible",
         )
         return EXIT_RUNTIME_ERROR
-    except Exception:
+    except Exception as exc:
         _write_error(
             output,
             diagnostics,
             code="runtime_error",
-            message=(
-                "detect failed"
-                if command == "detect"
-                else f"{command} failed"
-            ),
+            message=f"{command} failed: {exc}",
         )
         return EXIT_RUNTIME_ERROR
 
@@ -275,6 +480,7 @@ __all__ = [
     "EXIT_RUNTIME_ERROR",
     "EXIT_USAGE",
     "SCHEMA_VERSION",
+    "build_default_profile_store",
     "build_default_service",
     "main",
     "run",

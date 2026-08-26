@@ -7,14 +7,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from claude_hub import switchctl
 from claude_hub.ccswitch import CCSwitchProviderStore
-from claude_hub.domain import StoreCapability
+from claude_hub.credentials import InMemorySecretStore
+from claude_hub.domain import ModelMapping, ProtocolAdapter, StoreCapability
+from claude_hub.quick_setup import create_standalone_profile
 from claude_hub.service import ProviderApplicationService
+from claude_hub.standalone import StandaloneProfileStore
 from claude_hub.testing import InMemoryProviderStore
 
 
@@ -63,6 +67,9 @@ class SwitchctlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.db_path = Path(self.temp_dir.name) / "cc-switch.db"
+        self.profile_dir = Path(self.temp_dir.name) / "profiles"
+        self.profile_store = StandaloneProfileStore(self.profile_dir)
+        self.secret_store = InMemorySecretStore()
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -157,6 +164,96 @@ class SwitchctlTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["data"]["mode"], "standalone")
         self.assertEqual(payload["data"]["firstScreen"], "profile_list")
+
+    def test_profile_lifecycle_commands(self) -> None:
+        # 1. Profile create
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            [
+                "profile",
+                "create",
+                "--name",
+                "My CLI Profile",
+                "--base-url",
+                "https://api.cli.com/v1",
+                "--secret",
+                "mock_secret_cli_token_9999",  # secret-guard: allow generic-secret-assignment
+                "--models",
+                json.dumps({"default": "claude-3-5-sonnet", "fast": "claude-3-5-haiku"}),
+            ],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        output_raw = stdout.getvalue()
+        self.assertNotIn("mock_secret_cli_token", output_raw)
+        payload = json.loads(output_raw)
+        self.assertTrue(payload["ok"])
+        profile_id = payload["data"]["profileId"]
+
+        # 2. Profile list
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            ["profile", "list"],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(len(payload["data"]["profiles"]), 1)
+        self.assertEqual(payload["data"]["profiles"][0]["name"], "My CLI Profile")
+
+        # 3. Profile inspect
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            ["profile", "inspect", profile_id],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["data"]["name"], "My CLI Profile")
+        self.assertTrue(payload["data"]["hasSecret"])
+        self.assertNotIn("mock_secret_cli_token", stdout.getvalue())
+
+        # 4. Profile launch
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            ["launch", profile_id],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+            runner=lambda cmd, env: 0,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["data"]["exitCode"], 0)
+        self.assertTrue(payload["data"]["isolated"])
+
+        # 5. Profile delete
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        code = switchctl.main(
+            ["profile", "delete", profile_id],
+            profile_store=self.profile_store,
+            secret_store=self.secret_store,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        self.assertEqual(code, switchctl.EXIT_OK)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["data"]["deleted"])
 
     def test_usage_error_on_unknown_subcommand(self) -> None:
         stdout = io.StringIO()

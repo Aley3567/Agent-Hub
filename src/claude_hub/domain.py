@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, fields
+from datetime import datetime, timezone
 from enum import Enum
+from urllib.parse import urlparse
+from uuid import UUID
 
 
 class RuntimeMode(str, Enum):
@@ -41,11 +44,20 @@ class StoreCapability(str, Enum):
         return self is StoreCapability.COMPATIBLE
 
 
+class ProtocolAdapter(str, Enum):
+    """Protocol adapter flavor for standalone provider endpoints."""
+
+    ANTHROPIC = "anthropic"
+    OPENAI_CHAT = "openai_chat"
+    OPENAI_RESPONSES = "openai_responses"
+
+
 _SENSITIVE_TEXT_RE = re.compile(
     r"(?i)(?:api[-_]?key|access[-_]?token|auth[-_]?token|bearer|credential|"
     r"password|passwd|private[-_]?key|secret|session[-_]?token)"
 )
 _CONTROL_CHARACTER_RE = re.compile(r"[\x00-\x1f\x7f]")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _require_public_identifier(value: object, *, field_name: str) -> str:
@@ -62,6 +74,60 @@ def _require_public_identifier(value: object, *, field_name: str) -> str:
     if "://" in value or _SENSITIVE_TEXT_RE.search(value):
         raise ValueError(f"{field_name} is not a public identifier")
     return value
+
+
+def normalize_base_url(value: object) -> str:
+    """Validate and normalize a public endpoint base URL."""
+
+    if not isinstance(value, str):
+        raise TypeError("base_url must be a string")
+    trimmed = value.strip()
+    if not trimmed:
+        raise ValueError("base_url must not be empty")
+    if _CONTROL_CHARACTER_RE.search(trimmed):
+        raise ValueError("base_url contains control characters")
+
+    parsed = urlparse(trimmed)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("base_url must have http or https scheme")
+    if not parsed.netloc:
+        raise ValueError("base_url must contain a network location / host")
+    if parsed.username or parsed.password:
+        raise ValueError("base_url must not contain credentials in userinfo")
+    if parsed.query or parsed.fragment:
+        raise ValueError("base_url must not contain query or fragment parameters")
+
+    normalized = f"{parsed.scheme.lower()}://{parsed.netloc}{parsed.path.rstrip('/')}"
+    return normalized
+
+
+def _normalize_uuid(value: object, *, field_name: str) -> UUID:
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str):
+        try:
+            return UUID(value.strip())
+        except (ValueError, AttributeError) as exc:
+            raise ValueError(f"{field_name} must be a valid UUID string") from exc
+    raise TypeError(f"{field_name} must be a UUID or valid UUID string")
+
+
+def _normalize_timestamp(value: object, *, field_name: str) -> datetime:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.strip())
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except ValueError as exc:
+            raise ValueError(f"{field_name} must be a valid ISO-8601 timestamp string") from exc
+    raise TypeError(f"{field_name} must be a datetime, float timestamp, or ISO string")
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -154,7 +220,7 @@ class ProviderInspection:
         if not isinstance(self.is_current, bool):
             raise TypeError("is_current must be a bool")
         if self.fingerprint is not None:
-            if not isinstance(self.fingerprint, str) or len(self.fingerprint) != 64:
+            if not isinstance(self.fingerprint, str) or not _SHA256_RE.fullmatch(self.fingerprint):
                 raise ValueError("fingerprint must be a 64-character hex digest")
         if not isinstance(self.proxy_takeover, bool):
             raise TypeError("proxy_takeover must be a bool")
@@ -171,7 +237,7 @@ class ProviderInspection:
         if self.unknown_fingerprint is not None:
             if (
                 not isinstance(self.unknown_fingerprint, str)
-                or len(self.unknown_fingerprint) != 64
+                or not _SHA256_RE.fullmatch(self.unknown_fingerprint)
             ):
                 raise ValueError("unknown_fingerprint must be a 64-character hex digest")
 
@@ -182,16 +248,101 @@ class ProviderInspection:
         )
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class StandaloneProfile:
+    """Credential-free metadata for one standalone provider profile."""
+
+    profile_id: UUID
+    name: str
+    base_url: str
+    adapter: ProtocolAdapter
+    secret_ref: UUID
+    created_at: datetime
+    updated_at: datetime
+    models: ModelMapping = ModelMapping()
+    purpose_tags: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "profile_id", _normalize_uuid(self.profile_id, field_name="profile_id"))
+        _require_public_identifier(self.name, field_name="name")
+        object.__setattr__(self, "base_url", normalize_base_url(self.base_url))
+        if isinstance(self.adapter, str):
+            object.__setattr__(self, "adapter", ProtocolAdapter(self.adapter.lower()))
+        elif not isinstance(self.adapter, ProtocolAdapter):
+            raise TypeError("adapter must be a ProtocolAdapter")
+        object.__setattr__(self, "secret_ref", _normalize_uuid(self.secret_ref, field_name="secret_ref"))
+        object.__setattr__(self, "created_at", _normalize_timestamp(self.created_at, field_name="created_at"))
+        object.__setattr__(self, "updated_at", _normalize_timestamp(self.updated_at, field_name="updated_at"))
+        if self.updated_at < self.created_at:
+            raise ValueError("updated_at must not precede created_at")
+        if not isinstance(self.models, ModelMapping):
+            raise TypeError("models must be a ModelMapping")
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(profile_id={str(self.profile_id)!r}, "
+            f"name={self.name!r}, adapter={self.adapter.value!r}, "
+            f"models={self.models!r})"
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class LaunchDescriptor:
+    """Ephemeral, short-lived single-use launch token for isolated session."""
+
+    descriptor_id: UUID
+    profile_id: UUID
+    base_url: str
+    adapter: ProtocolAdapter
+    models: ModelMapping
+    secret_ref: UUID
+    created_at: datetime
+    expires_at: datetime
+    consumed: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "descriptor_id", _normalize_uuid(self.descriptor_id, field_name="descriptor_id"))
+        object.__setattr__(self, "profile_id", _normalize_uuid(self.profile_id, field_name="profile_id"))
+        object.__setattr__(self, "base_url", normalize_base_url(self.base_url))
+        if isinstance(self.adapter, str):
+            object.__setattr__(self, "adapter", ProtocolAdapter(self.adapter.lower()))
+        elif not isinstance(self.adapter, ProtocolAdapter):
+            raise TypeError("adapter must be a ProtocolAdapter")
+        if not isinstance(self.models, ModelMapping):
+            raise TypeError("models must be a ModelMapping")
+        object.__setattr__(self, "secret_ref", _normalize_uuid(self.secret_ref, field_name="secret_ref"))
+        object.__setattr__(self, "created_at", _normalize_timestamp(self.created_at, field_name="created_at"))
+        object.__setattr__(self, "expires_at", _normalize_timestamp(self.expires_at, field_name="expires_at"))
+        if self.expires_at <= self.created_at:
+            raise ValueError("expires_at must be strictly after created_at")
+        if not isinstance(self.consumed, bool):
+            raise TypeError("consumed must be a bool")
+
+    @property
+    def is_expired(self) -> bool:
+        return datetime.now(timezone.utc) > self.expires_at
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(descriptor_id={str(self.descriptor_id)!r}, "
+            f"profile_id={str(self.profile_id)!r}, consumed={self.consumed!r})"
+        )
+
+
 ProviderReference = ProviderRef
 ProviderInspect = ProviderInspection
 
 
 __all__ = [
+    "LaunchDescriptor",
     "ModelMapping",
+    "ProtocolAdapter",
     "ProviderInspect",
     "ProviderInspection",
     "ProviderRef",
     "ProviderReference",
     "RuntimeMode",
+    "StandaloneProfile",
     "StoreCapability",
+    "normalize_base_url",
 ]
