@@ -3920,6 +3920,7 @@ def _journal_broken_native_stream(
     byte_count: int,
     telemetry,
     exc: Exception,
+    replayed: bool = False,
 ) -> None:
     """Log and journal one attempt whose upstream connection broke mid-way."""
     log(
@@ -3933,6 +3934,12 @@ def _journal_broken_native_stream(
             downstream_bytes=byte_count,
         )
     )
+    if replayed:
+        # Same marker as the clean-EOF replay arm: the journal row must say
+        # this attempt was invisibly replayed, not silently eaten.
+        journal = journal._replace(
+            degrade_codes=journal.degrade_codes + (HUB_DEGRADE_STREAM_REPLAYED,)
+        )
     journal.error(
         phase="stream",
         account_id=account_id,
@@ -3950,12 +3957,12 @@ async def _resolve_incomplete_native_sse(
     byte_count: int,
     telemetry,
     downstream: _DeferredDownstream,
-) -> tuple[bool, int]:
+) -> int:
     """Journal one clean-EOF-without-terminal attempt and pick its ending.
 
-    Returns whether nothing reached the client yet (so the caller should
-    raise ``UpstreamStreamReplayable``) plus the downstream byte count
-    adjusted for any held bytes the commit flushed.
+    Returns the downstream byte count adjusted for any held bytes the commit
+    flushed. Raises ``UpstreamStreamReplayable`` when the client never saw a
+    byte of this attempt, so a fresh one can still answer invisibly.
     """
     if not downstream.started:
         # The client never saw a byte of this attempt, and every payload so
@@ -3980,7 +3987,9 @@ async def _resolve_incomplete_native_sse(
                 downstream_bytes=byte_count,
             )
         )
-        return True, byte_count
+        raise UpstreamStreamReplayable(
+            "upstream SSE ended before any content was forwarded"
+        )
     # A clean EOF after real content is the upstream's own malformed answer
     # about work the client has already seen. Hand over what arrived and let
     # the caller close with a named error event instead of a bare abort.
@@ -4000,7 +4009,7 @@ async def _resolve_incomplete_native_sse(
         exc_type="IncompleteSSE",
         telemetry=telemetry.snapshot(),
     )
-    return False, byte_count
+    return byte_count
 
 
 async def _write_truncated_native_terminal(
@@ -4008,15 +4017,18 @@ async def _write_truncated_native_terminal(
     response,
     downstream,
     byte_count: int,
+    *,
+    reason: str,
 ) -> None:
     """Close a truncated native SSE stream with an explicit error event.
 
-    The upstream's clean EOF without a terminal is a failure, and it stays a
-    failure: no message_stop is fabricated.  But a bare transport abort leaves
-    the client with an anonymous dropped connection, so the stream instead ends
-    with a named api_error the client can render and hook on.  The
-    "mid-response" wording is load-bearing; client-side continuation hooks
-    match on it.
+    The upstream's failure to finish is a failure, and it stays a failure:
+    no message_stop is fabricated.  But a bare transport abort leaves the
+    client with an anonymous dropped connection, so the stream instead ends
+    with a named api_error the client can render and hook on.  ``reason``
+    carries the actual failure fact (clean EOF vs read stall) so the wording
+    never claims an EOF that did not happen.  The "mid-response" wording is
+    load-bearing; client-side continuation hooks match on it.
     """
     terminal_error = sse_event(
         "error",
@@ -4026,9 +4038,8 @@ async def _write_truncated_native_terminal(
                 "type": "api_error",
                 "message": (
                     "hub: upstream ended the stream mid-response "
-                    "without message_stop or error after "
-                    f"{byte_count}B; the partial content above is "
-                    "real but incomplete"
+                    f"({reason}) after {byte_count}B; the partial "
+                    "content above is real but incomplete"
                 ),
             },
         },
@@ -4065,6 +4076,9 @@ async def _resolve_broken_native_stream(
     named terminal; anything else keeps the bare abort. This function either
     raises (replayable/aborted) or returns the ended response.
     """
+    transport_will_be_replayed = not downstream.started and isinstance(
+        exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
+    )
     _journal_broken_native_stream(
         journal,
         account_id=journal_account,
@@ -4072,27 +4086,30 @@ async def _resolve_broken_native_stream(
         byte_count=byte_count,
         telemetry=telemetry,
         exc=exc,
+        replayed=transport_will_be_replayed,
     )
-    if not downstream.started and isinstance(
-        exc, (aiohttp.ClientError, asyncio.TimeoutError, OSError)
-    ):
+    if transport_will_be_replayed:
         # The client never saw this attempt and the upstream broke
         # at the transport rather than inside its own output, so a
         # fresh connection can still answer differently and the
         # transport must survive for it. Malformed output -- an SSE
         # ordering violation, a corrupt compression member -- is the
         # upstream's deterministic answer by the same reasoning the
-        # clean-EOF branch below applies, so it keeps falling
-        # through to the abort instead of buying three of them.
+        # clean-EOF path applies, so it keeps falling through to the
+        # abort instead of buying three of them.
         raise UpstreamStreamReplayable(
             "upstream stalled before the downstream response started"
         ) from exc
     if sse_tracker is not None and isinstance(exc, asyncio.TimeoutError):
         # A read stall after commit is the same client-visible truncation
-        # as the clean EOF the caller resolves below: hand over what arrived
-        # and close with the named error event, not a dropped connection.
+        # as a clean EOF: hand over what arrived and close with the named
+        # error event, not a dropped connection.
         await _write_truncated_native_terminal(
-            request, response, downstream, byte_count
+            request,
+            response,
+            downstream,
+            byte_count,
+            reason="upstream read stalled",
         )
         return response
     transport = request.transport
@@ -4428,7 +4445,7 @@ async def _forward_to_channel_attempt(
                 )
 
             if sse_tracker is not None and not sse_tracker.complete:
-                replayable, byte_count = await _resolve_incomplete_native_sse(
+                byte_count = await _resolve_incomplete_native_sse(
                     journal=journal,
                     journal_account=journal_account,
                     log_prefix=log_prefix,
@@ -4436,12 +4453,12 @@ async def _forward_to_channel_attempt(
                     telemetry=stream_telemetry,
                     downstream=downstream,
                 )
-                if replayable:
-                    raise UpstreamStreamReplayable(
-                        "upstream SSE ended before any content was forwarded"
-                    )
                 await _write_truncated_native_terminal(
-                    request, response, downstream, byte_count
+                    request,
+                    response,
+                    downstream,
+                    byte_count,
+                    reason="clean EOF without message_stop or error",
                 )
                 return response
 

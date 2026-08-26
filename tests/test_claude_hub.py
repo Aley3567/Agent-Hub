@@ -5864,7 +5864,10 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(row["exc"], "ClientPayloadError")
         self.assertEqual(
             row["deg"],
-            ["HUB_DEGRADE_SYSTEM_ROLE_PROMOTED"],
+            [
+                "HUB_DEGRADE_SYSTEM_ROLE_PROMOTED",
+                "HUB_DEGRADE_STREAM_REPLAYED",
+            ],
         )
         self.assertFalse(self.usage_file.exists())
 
