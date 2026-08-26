@@ -1527,7 +1527,7 @@ class ProviderModelEffortOverrideTests(unittest.TestCase):
         )
         self.assertEqual(settings["env"]["CLAUDE1_API_FORMAT"], "anthropic")
         self.assertEqual(settings["model"], "fixture-env-model")
-        self.assertEqual(settings["effortLevel"], "medium")
+        self.assertEqual(settings["effortLevel"], "high")
 
     def test_build_settings_ignores_invalid_override_values(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -1548,7 +1548,7 @@ class ProviderModelEffortOverrideTests(unittest.TestCase):
 
         self.assertEqual(settings["env"]["ANTHROPIC_MODEL"], "fixture-env-model")
         self.assertEqual(settings["model"], "fixture-env-model")
-        self.assertEqual(settings["effortLevel"], "medium")
+        self.assertEqual(settings["effortLevel"], "high")
 
     def test_resolve_effective_model_priority(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -2198,7 +2198,7 @@ class LauncherSafetyTests(unittest.TestCase):
         self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "claude-opus-5[1M]")
         self.assertEqual(env["CLAUDE_CODE_SUBAGENT_MODEL"], "")
         self.assertEqual(settings["model"], "claude-opus-5[1M]")
-        self.assertEqual(settings["effortLevel"], "medium")
+        self.assertEqual(settings["effortLevel"], "high")
 
     def test_explicit_proxy_removes_the_api_host_from_no_proxy_case_insensitively(self) -> None:
         provider = {

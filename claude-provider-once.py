@@ -1188,7 +1188,7 @@ def build_settings(provider: dict) -> dict:
     if effort_override:
         cfg["effortLevel"] = effort_override
     elif configured_effort not in HUB_EFFORT_LEVELS:
-        cfg["effortLevel"] = "medium"
+        cfg["effortLevel"] = "high"
 
     return cfg
 
