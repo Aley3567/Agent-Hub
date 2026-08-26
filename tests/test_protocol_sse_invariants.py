@@ -14,6 +14,12 @@ SSE_FIXTURE_ROOT = (
 )
 
 
+def _read_sse_fixture(path: Path) -> bytes:
+    """Encode a text fixture as a complete SSE wire sequence."""
+    wire = path.read_bytes()
+    return wire if wire.endswith(b"\n\n") else wire + b"\n"
+
+
 def _payloads(chunks: list[bytes]) -> list[dict]:
     payloads: list[dict] = []
     for chunk in chunks:
@@ -64,20 +70,23 @@ class SSEParserContractTests(unittest.TestCase):
     def test_fixture_backed_golden_streams(self) -> None:
         cases = (
             ("chat_utf8_crlf", "openai_chat", True),
+            ("chat_done_without_finish_reason", "openai_chat", False),
             ("responses_tool_partial", "openai_responses", False),
             ("responses_refusal", "openai_responses", False),
         )
         for name, api_format, use_crlf in cases:
             with self.subTest(name=name, api_format=api_format):
-                wire = (SSE_FIXTURE_ROOT / f"{name}.input.sse").read_bytes()
+                wire = _read_sse_fixture(
+                    SSE_FIXTURE_ROOT / f"{name}.input.sse"
+                )
                 if use_crlf:
                     wire = wire.replace(b"\n", b"\r\n")
                 rendered = b"".join(
                     protocol.translate_sse_chunks(api_format, [wire])
                 )
-                expected = (
+                expected = _read_sse_fixture(
                     SSE_FIXTURE_ROOT / f"{name}.anthropic.golden.sse"
-                ).read_bytes()
+                )
                 self.assertEqual(rendered, expected)
                 _assert_anthropic_stream_invariants(self, rendered)
 
@@ -520,6 +529,139 @@ class SSEParserContractTests(unittest.TestCase):
                     raised.exception.code,
                     "HUB_SSE_MISSING_TERMINAL",
                 )
+
+    def test_chat_done_without_finish_reason_synthesizes_honest_terminal(self) -> None:
+        relay_chunks = [
+            (
+                'data: {"id":"chatcmpl-relay","model":"deepseek-v4f",'
+                '"choices":[{"index":0,"delta":{"role":"assistant"},'
+                '"finish_reason":null}]}\n\n'
+            ).encode("utf-8"),
+            (
+                'data: {"id":"chatcmpl-relay","model":"deepseek-v4f",'
+                '"choices":[{"index":0,"delta":{"content":"第一句正常。"},'
+                '"finish_reason":null}]}\n\n'
+            ).encode("utf-8"),
+            (
+                'data: {"id":"chatcmpl-relay","model":"deepseek-v4f",'
+                '"choices":[{"index":0,"delta":{"content":"正文完整。"},'
+                '"finish_reason":null}]}\n\n'
+            ).encode("utf-8"),
+            b"data: [DONE]\n\n",
+        ]
+        rendered = b"".join(
+            protocol.translate_sse_chunks("openai_chat", relay_chunks)
+        )
+        _assert_anthropic_stream_invariants(self, rendered)
+        self.assertNotIn(b"event: error", rendered)
+        events = []
+        for frame in rendered.split(b"\n\n"):
+            if not frame.strip():
+                continue
+            lines = frame.decode("utf-8").splitlines()
+            data = next(line[6:] for line in lines if line.startswith("data: "))
+            events.append(json.loads(data))
+        message_delta = next(
+            event for event in events if event["type"] == "message_delta"
+        )
+        self.assertEqual(message_delta["delta"]["stop_reason"], "end_turn")
+        self.assertTrue(
+            any(event["type"] == "message_stop" for event in events)
+        )
+
+    def test_chat_done_without_finish_reason_records_degradation(self) -> None:
+        bridge = protocol.AnthropicStreamBridge("openai_chat")
+        rendered = b"".join(
+            [
+                *bridge.feed(
+                    "message",
+                    json.dumps(
+                        {
+                            "id": "chatcmpl-relay",
+                            "model": "deepseek-v4f",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"role": "assistant"},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    ),
+                ),
+                *bridge.feed(
+                    "message",
+                    json.dumps(
+                        {
+                            "id": "chatcmpl-relay",
+                            "model": "deepseek-v4f",
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": "正文"},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    ),
+                ),
+                *bridge.feed("message", "[DONE]"),
+            ]
+        )
+        self.assertTrue(bridge.upstream_terminal)
+        self.assertIn(
+            "HUB_DEGRADE_CHAT_FINISH_REASON_MISSING", bridge.observations
+        )
+        _assert_anthropic_stream_invariants(self, rendered)
+
+    def test_chat_done_without_finish_reason_mirrors_stop_reason_path(
+        self,
+    ) -> None:
+        # A reasoning-only stream closed by a bare [DONE] must behave exactly
+        # like the same stream closed by finish_reason="stop": completed with
+        # a thinking block, no visible text, and end_turn — never a new
+        # failure mode the finish_reason path does not have.
+        def _stream(closing: list[bytes]) -> list[bytes]:
+            reasoning_chunk = (
+                'data: {"id":"chatcmpl-relay","model":"deepseek-v4f",'
+                '"choices":[{"index":0,"delta":{"reasoning_content":"思考"},'
+                '"finish_reason":null}]}\n\n'
+            ).encode("utf-8")
+            return [reasoning_chunk, *closing]
+
+        done_only = _stream([b"data: [DONE]\n\n"])
+        stop_reason = _stream(
+            [
+                (
+                    'data: {"id":"chatcmpl-relay","model":"deepseek-v4f",'
+                    '"choices":[{"index":0,"delta":{},'
+                    '"finish_reason":"stop"}]}\n\n'
+                ).encode("utf-8"),
+                b"data: [DONE]\n\n",
+            ]
+        )
+        for wire in (done_only, stop_reason):
+            with self.subTest(wire=wire[-2:]):
+                rendered = b"".join(
+                    protocol.translate_sse_chunks("openai_chat", wire)
+                )
+                _assert_anthropic_stream_invariants(self, rendered)
+                self.assertNotIn(b"event: error", rendered)
+                self.assertIn(b'"type":"thinking"', rendered)
+                self.assertIn(b'"stop_reason":"end_turn"', rendered)
+
+    def test_responses_done_without_terminal_still_fails_closed(self) -> None:
+        wire = (
+            b"event: response.created\n"
+            b'data: {"type":"response.created","response":{"id":"resp_partial"}}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        with self.assertRaises(protocol.ProtocolTransformError) as raised:
+            list(protocol.translate_sse_chunks("openai_responses", [wire]))
+        self.assertEqual(
+            raised.exception.code,
+            "HUB_SSE_MISSING_TERMINAL",
+        )
 
 
 class StreamStateMachineContractTests(unittest.TestCase):

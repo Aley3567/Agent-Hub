@@ -6433,10 +6433,21 @@ class AnthropicStreamBridge:
             )
         if data == "[DONE]":
             if not self.upstream_terminal:
-                raise ProtocolTransformError(
-                    "upstream SSE transport ended before a semantic terminal event",
-                    code="HUB_SSE_MISSING_TERMINAL",
+                if self.api_format != "openai_chat":
+                    raise ProtocolTransformError(
+                        "upstream SSE transport ended before a semantic terminal event",
+                        code="HUB_SSE_MISSING_TERMINAL",
+                    )
+                # OpenAI-compatible relays (observed on new-api instances)
+                # close every chat stream with a bare [DONE] and never relay
+                # a finish_reason. The transport close is real; only the
+                # semantic reason is lost, so the neutral end_turn is
+                # synthesized and the loss stays observable.
+                pending = self._apply_chat_terminal(
+                    None,
+                    synthesized_from_done=True,
                 )
+                return pending + self.finish()
             return self.finish()
         try:
             payload = json.loads(data)
@@ -6830,25 +6841,49 @@ class AnthropicStreamBridge:
                     "upstream Chat finish_reason must be a non-empty string or null",
                     code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
                 )
-            chunks.extend(self._flush_chat_inline_content())
-            if (
-                self.inline_reasoning_emitted
-                and not self.visible_text_emitted
-                and not self.has_tool
-                and not self.refused
-            ):
-                raise ProtocolTransformError(
-                    "OpenAI Chat stream contained reasoning but no visible output",
-                    code="HUB_UPSTREAM_VISIBLE_OUTPUT_MISSING",
-                    path="$.choices[0].delta.content",
-                )
-            self.upstream_terminal = True
-            self.stop = _stop_reason(
-                finish_reason,
-                has_tool=self.has_tool,
-                refused=self.refused,
+            chunks.extend(self._apply_chat_terminal(finish_reason))
+        return chunks
+
+    def _apply_chat_terminal(
+        self,
+        reason: str | None,
+        *,
+        synthesized_from_done: bool = False,
+    ) -> list[bytes]:
+        """Close the chat stream and derive the Anthropic stop reason.
+
+        ``reason`` is ``None`` when the upstream closed the stream with a
+        bare ``[DONE]`` and never relayed a finish_reason (observed on
+        new-api relays). The transport close is real, so the stream still
+        completes: the unknown reason degrades to the neutral ``end_turn``
+        and the loss stays observable as
+        ``HUB_DEGRADE_CHAT_FINISH_REASON_MISSING``.
+        """
+        if synthesized_from_done:
+            self._observe_stream_degradation(
+                "HUB_DEGRADE_CHAT_FINISH_REASON_MISSING",
+                "upstream Chat stream closed with [DONE] but no finish_reason; "
+                "end_turn synthesized",
             )
-            self.fsm.mark_success()
+        chunks = self._flush_chat_inline_content()
+        if (
+            self.inline_reasoning_emitted
+            and not self.visible_text_emitted
+            and not self.has_tool
+            and not self.refused
+        ):
+            raise ProtocolTransformError(
+                "OpenAI Chat stream contained reasoning but no visible output",
+                code="HUB_UPSTREAM_VISIBLE_OUTPUT_MISSING",
+                path="$.choices[0].delta.content",
+            )
+        self.upstream_terminal = True
+        self.stop = _stop_reason(
+            reason,
+            has_tool=self.has_tool,
+            refused=self.refused,
+        )
+        self.fsm.mark_success()
         return chunks
 
     def _feed_responses(self, event: str, payload: dict) -> list[bytes]:

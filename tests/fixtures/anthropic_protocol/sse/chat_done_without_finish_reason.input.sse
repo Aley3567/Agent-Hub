@@ -1,0 +1,11 @@
+data:{"id":"chatcmpl-relay","model":"deepseek-v4f","choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}
+
+data:{"id":"chatcmpl-relay","model":"deepseek-v4f","choices":[{"delta":{"reasoning_content":"先想清楚再写。"},"finish_reason":null}]}
+
+data:{"id":"chatcmpl-relay","model":"deepseek-v4f","choices":[{"delta":{"content":"第一句正常。"},"finish_reason":null}]}
+
+data:{"id":"chatcmpl-relay","model":"deepseek-v4f","choices":[{"delta":{"content":"正文完整。"},"finish_reason":null}]}
+
+data:{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":7}}
+
+data: [DONE]
