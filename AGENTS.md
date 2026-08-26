@@ -12,6 +12,17 @@
 
 ## Change Management
 
+- For any turn that edits files, report the current branch, upstream divergence,
+  relevant pre-existing changes, and the intended checkpoint before editing.
+- After a requested change forms one coherent behavior and its relevant checks
+  pass, create a local commit by default and report its hash. Do not wait for
+  the user to translate a completed change into Git operations.
+- If the change cannot be isolated from pre-existing work, leave it unstaged,
+  report the exact overlap, and update the change ledger instead of creating a
+  mixed commit.
+- Never push, merge, rebase, amend, force-update refs, delete branches, or prune
+  worktrees without an explicit request. A local behavior-level commit is the
+  proactive default; publishing and history rewriting are not.
 - Use `$change-to-commit` when the worktree mixes multiple issues or product
   lines, when a file contains unrelated hunks, or when preparing recovery
   commits. Do not equate a clean status with a correct history.
@@ -22,6 +33,8 @@
   stash, `git clean`, or reset/checkout operations that can overwrite it.
 - Create one worktree per future issue or product line only after the current
   state has durable, reviewable checkpoints.
+- Finish every editing turn with the branch, commits created, checks run,
+  remaining unstaged workstreams, and whether anything was pushed.
 
 ## Module Routing
 

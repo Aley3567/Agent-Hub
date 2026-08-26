@@ -19,6 +19,11 @@
 变更账本,再精确暂存与验证;未分类期间禁止 `git add .`、全量 stash、`git clean` 和会覆盖
 工作树的 reset/checkout。提交表达一个行为与证据,不是为了把 status 清空。
 
+涉及文件修改的任务,开工时主动报告分支、与 upstream 的差异及相关既有修改;一个行为完成且
+相关检查通过后,默认主动创建本地 commit 并报告 hash,无需等用户再下 Git 指令。无法从既有
+修改中安全分离时保持未暂存并说明重叠。push、merge、rebase、amend、改写 ref、删分支和
+清理 worktree 均不属于该默认授权,必须另行确认。
+
 根 Python 文件是当前运行时,协议语义只由 `claude-hub.py` / `claude1_protocol.py` 所有;
 `crates/agent-hub/` 是 Rust 管理面;`UI/macos/` 与 `UI/windows/` 独立验证;
 `gateway/` 在产品身份明确前视为独立 Go 实验,不得静默成为第二套 canonical 协议实现。
