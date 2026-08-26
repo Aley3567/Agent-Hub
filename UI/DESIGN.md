@@ -204,6 +204,8 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 --sp-1: 4px;  --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
 --sp-5: 20px; --sp-6: 24px;  --sp-8: 32px;  --sp-10: 40px;
 
+--chat-list-w: 240px;   /* 对话视图会话列表固定宽（§4.5）；视图级尺寸，不进通用间距阶梯 */
+
 --radius-sm / --radius-md / --radius-lg / --radius-full: 999px;  /* 数值见 §5 */
 
 --shadow-sm: 0 1px 2px rgba(0,0,0,.24);
@@ -255,6 +257,7 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 /* 以下两个不是过渡时长，不受下面的过渡上限约束，理由见「上限与例外」 */
 --dur-progress-loop: 1100ms;   /* 顶部 1px 加载进度线的 indeterminate 循环周期 */
 --dur-spin-loop: 720ms;        /* Spinner 旋转的循环周期 */
+--dur-caret-loop: 1100ms;      /* 对话视图流式光标 caret-pulse 的呼吸周期（§4.5） */
 ```
 
 **时长语义（强制映射）**
@@ -283,17 +286,21 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 **过渡上限 320ms**，没有比 `--dur-slow` 更慢的过渡。
 
 唯一的例外是 **indeterminate 指示器的循环周期**：它不是过渡，不表达「A 变成了 B」，
-而是表达「还在进行」，所以不受上限约束。全工程只有两处合法循环，各自有 token——
-`--dur-progress-loop`（1100ms，顶部加载进度线）与 `--dur-spin-loop`（720ms，`Spinner`；
-组件里目前仍写着字面值 720ms，换成 token 即可）。除这两处之外出现 >320ms 的时长，
+而是表达「还在进行」，所以不受上限约束。全工程只有三处合法循环，各自有 token——
+`--dur-progress-loop`（1100ms，顶部加载进度线）、`--dur-spin-loop`（720ms，`Spinner`；
+组件里目前仍写着字面值 720ms，换成 token 即可）与 `--dur-caret-loop`（1100ms，对话视图
+流式/思考态光标 `caret-pulse`，§4.5）。除这三处之外出现 >320ms 的时长，
 一律按违规处理。
+
+对话视图里逐字出现的流式文本同理：它是**数据到达**，不是过渡，不占循环名额，
+也不受 320ms 上限约束（§4.5）。
 
 不做视差、不做弹跳、不做循环装饰动画、不做骨架屏闪烁——加载态用一条 1px 顶部进度线
 （accent 色）。**「不做骨架屏闪烁」是明文禁令**：`skeleton-shimmer` 这类微光扫过的关键帧
 不许出现在本工程，需要加载态就用进度线或 `Spinner`。这是运维工具，动效服务于「状态变化
 被看见」，不是炫技。
 
-**关键帧清单（白名单，全工程只允许这 8 个）**
+**关键帧清单（白名单，全工程只允许这 9 个）**
 
 新增关键帧一律进 `styles/global.css` 并配一个工具类，让调用方用类名而不是各自写
 `@keyframes`；已有的三处组件模块（`CommandPalette` / `Dialog` / `Spinner`）归各自 owner，
@@ -309,6 +316,7 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 | `list-stagger-in` | `styles/global.css` | 列表项错峰入场：opacity 0→1 + `translateY(2px)`→0；容器挂 `.stagger`，逐项 20ms delay，8 项封顶 | `--dur-normal` `--ease-out` | 有 |
 | `value-flash` | `styles/global.css` | 数值变化高亮：`background-color` 从 `--accent-muted` 回到元素自身底色 | `--dur-normal` `--ease-out` | 无 |
 | `accent-bar-in` | `styles/global.css` | 选中态 accent 竖条入场：`scaleY(0)`→1 | `--dur-fast` `--ease-out` | 有（缩放） |
+| `caret-pulse` | `styles/global.css` | 对话视图流式/思考态光标：纯 opacity 呼吸（§4.5） | `--dur-caret-loop` `--ease-in-out` `infinite` | 无 |
 
 **reduced-motion 的精细规则**
 
@@ -325,7 +333,9 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
    「状态变了」这个信息，全关掉等于连可读性一起关了。
 3. **关掉循环之后，指示器必须仍有静态可见形态。** `Spinner` 停转后仍是一个可见的环，
    进度线停走后仍是一条可见的 accent 条。**不允许出现「关掉动画等于加载态消失」**——
-   那是把可达性做成了功能缺失。
+   那是把可达性做成了功能缺失。`caret-pulse` 属第 2 条的纯透明度变化，reduced-motion 下
+   可以保留；若实现选择关掉，光标必须回落为**静态可见的插入符**——「关掉动画等于
+   思考态消失」同样不允许（§4.5）。
 4. **兜底优先于精细。** 通配的 `animation: none !important` 保留：它保证任何后来新增的
    关键帧都默认被关掉，包括 CSS Modules 里 global.css 够不到的哈希类名。然后只对
    global.css 自己提供的**无位移**工具类显式恢复。代价是 `Dialog` 的 `fade` 这类模块内的
@@ -352,8 +362,9 @@ mono 与 tabular-nums 是两件事，都要给：mono（§1 第 3 条）保证�
 ```
 
 - **Sidebar** 232px，可折叠至 56px（只留图标）。顶部固定品牌区：渐变 Agent Hub mark
-  + "Agent Hub" 字标（`--fs-16` `--fw-semibold`）；折叠态只留 32px mark。下方分两组：
-  `会话`（渠道、槽位、启动）与 `观测`（用量、诊断、账号池、体检）。底部固定「设置」与主题切换。
+  + "Agent Hub" 字标（`--fs-16` `--fw-semibold`）；折叠态只留 32px mark。下方分三组：
+  `会话`（对话、渠道、槽位）、`观测`（用量、诊断、账号池、体检）、`扩展`（插件、任务）。
+  底部固定「设置」与主题切换。
   选中项：内缩圆角块（左右各留 `--sp-2`、`--radius-md`）+ `--bg-selected` 底 + 图标与文字转 accent 色；
   渠道表的「当前」行仍用左侧 2px accent 竖条标记（信息密度高的表格里，竖条比整块底色更好扫）。
 - **TitleBar** 右侧放一个太阳/月亮 IconButton 做深浅色一键快切（显示的是「点它会变成什么」；
@@ -539,6 +550,107 @@ Esc 关闭。模糊匹配（子序列匹配即可，不引 fuse.js）。命中�
 - 严重度映射颜色：`info`=灰点、`notice`=青点、`degraded`=琥珀点、`lossy`=琥珀点+粗体标题。
 - 同一回合的多个降级码折叠成一行「+N」，展开看全部。
 
+### 4.5 对话视图（ViewId `chat`）
+
+Agent 对话模式。本轮交付的是 **UI 骨架 + 演示数据**：会话、消息、流式回复全是前端假数据，
+后端尚未接入。结构是工作台三件套：左侧会话列表 + 右侧消息流 + 底部 composer。
+本视图**满宽**（同表格类视图，不走 1120px 居中），且自身接管滚动——会话列表与消息流是
+两个独立滚动容器，内容区外壳不滚。这是 §3「唯一滚动容器」的唯一视图级例外。
+
+**演示数据横幅（强制）**
+
+视图顶部、双栏之上一条单行细横幅：`--warn-muted` 底、`--warn` 文字、`--fs-12`，文案固定为
+「演示数据——对话尚未接入后端」。假数据必须显式标明，对齐 `CONTRACT.md` §4
+「绝不让假数据冒充真实数据」的徽章精神；接入后端后整条移除，不留开关。
+
+**会话列表（左栏，固定宽 `--chat-list-w` 240px）**
+
+- 与消息流之间 1px `--border-subtle`（兄弟分隔线，同 §2.2.1 外壳条带口径）。
+- 每项两行：标题一行截断；副行「渠道名 · 相对时间」mono `--fs-12` `--text-tertiary`。
+- 选中项沿用侧栏的「内缩圆角块」规范（§2.4.1 selected 行、§3），不另造选中标识，
+  也不补竖条。
+- 行间不画分隔线，靠间距分组；hover `--bg-hover`，五态按 §2.4.1。
+
+**消息流（右栏，独立滚动容器）**
+
+- 用户消息：右对齐窄块，`--bg-elevated` 底 + `--border-default` 描边 + `--radius-md`，
+  最大宽为消息流宽度的 70%。这是全站仅有的「气泡」，且**不自造彩色底**。
+- 助手消息：无气泡，正文流左对齐全宽（ChatGPT / Codex 的克制做法），正文 `--fs-14`。
+- system / 演示提示：`--bg-inset` 小条（`--radius-sm`）+ `--fs-12` `--text-tertiary`。
+- 模型名、token 数、时间戳一律 mono + tabular-nums（§1 第 3 条、§2.3）；时间戳
+  `--fs-12` `--text-tertiary`。
+- 自动跟随：新消息到达时列表滚到底部；**用户上翻后停止跟随**，滚回底部才恢复。
+
+**流式呈现（演示回复逐字出现）**
+
+逐字出现是**数据到达**不是过渡，不受 320ms 上限约束（§2.5「上限与例外」）。到达过程中的
+等待指示**只允许 `caret-pulse`**（§2.5 白名单）：一个纯透明度呼吸的插入符光标，无位移。
+不许再出现打字机圆点、旋转图标等第二套等待动画。新消息按 §6 走 `aria-live="polite"`，
+但只在整条消息完成时播报一次，不逐字播报。
+
+**composer（底部固定）**
+
+- 输入区沿用 §4.1 `Input` / `Textarea` 规范：`--bg-inset` 底、`--border-default` 描边，
+  focus 转 `--accent`。
+- 发送按钮是本视图的主行动，用 `Button primary`（渐变 + `--accent-glow` 发光——
+  这正是它该出现的地方，§4.1）。
+- 键位写死：**Enter 发送、Shift+Enter 换行**，不做设置项。
+
+**空态与思考态**
+
+- 空态按 `EmptyState` 规范给下一步动作：「选一个渠道，说第一句话」。不写「暂无对话」。
+- 助手回复到达前的思考态就是 `caret-pulse` 光标本身；reduced-motion 下它是静态可见的
+  插入符（§2.5 第 3 条）。
+
+### 4.6 插件视图（ViewId `plugins`）
+
+管理 Claude Code 配置项（hooks / outputStyle / statusLine / permissions / mcp）的清单与
+启用开关。来自渠道级 `settings_config` 的项**只读**——所有权在渠道，不在本视图。
+
+**按 kind 分组的列表（不用表格）**
+
+- 组头用 `SectionHeader`（标题 + `count`）。
+- 每行从左到右：`StatusDot` + 名称（mono `--fs-14`）+ kind `Badge` + 一行 summary
+  （`--fs-13` `--text-secondary`，一行截断）+ 右侧操作位。
+- `StatusDot` 语义沿用 §4.1 既有映射，不新增：绿=启用、灰=未启用、**琥珀=只读不可改**。
+- 行高 40，行间 1px `--border-subtle`，hover `--bg-hover`；五态与 focus 环全部按
+  §2.4.1 / §4.1，本视图不造新态。
+
+**可写与只读的分叉**
+
+- 可写项：右侧 `Switch`（§4.1）。
+- 只读项：右侧「只读」字样（`--fs-12` `--text-tertiary`），**不给禁用的 Switch**——
+  禁用开关暗示「满足某条件就能开」，而渠道级项在这里永远不可开。
+- 「为什么不可改」用 `Tooltip` 承载（如「来自渠道的 settings_config，到渠道视图改」）。
+- 琥珀点 + 「只读」文字 + Tooltip 三重编码，满足 §6「状态不只靠颜色」。
+
+### 4.7 计划任务视图（ViewId `tasks`）
+
+计划任务（定时启动会话 / 体检提醒）的 CRUD 与下次运行时间展示。形态是**卡片列表**
+（`Card`），不用表格——任务字段异构、数量少，卡片比定宽列好扫，也免去 §4.1.1 的
+列宽预算。
+
+**每卡的固定结构**
+
+- 头部：名称（`--fs-14` `--fw-medium`）+ kind `Badge`。
+- 正文：`scheduleText` 一行（人话排程，`--fs-14`）；其下 cron 原串 mono `--fs-12`
+  `--text-tertiary`——人话在前、原串不隐藏（同 §4.4 降级码原则）。
+- 右上：**下次运行倒计时**，mono + tabular-nums、右对齐，格式为「3 天 2 小时后」式的
+  人话相对时间，复用 `formatRelative` 家族，不新写格式化函数。
+- 动作位：启用 `Switch` + 删除 `IconButton`（danger 变体，`aria-label` + Tooltip 按 §4.1；
+  删除前走 `Dialog` 确认）。
+- 到点未跑的任务显示「已错过」，配琥珀 `StatusDot`——不是红：任务是错过，不是失败。
+
+**新建 / 编辑**
+
+走 `Dialog`（§4.1：居中、最大宽 520、Esc 关闭、焦点陷阱），表单控件全部用 §4.1 原语。
+空态按 `EmptyState` 给下一步动作（如「新建一个每天 9 点的体检提醒」），不写「暂无任务」。
+
+**前后端分工（写死）**
+
+`nextRunAt` 由后端计算，前端只做展示与倒计时渲染，**不在前端解析或推算 cron**——
+时区与夏令时的坑留在后端一处。
+
 ## 5. 平台差异（两个目录存在的理由）
 
 | 维度 | macOS | Windows |
@@ -558,6 +670,10 @@ Esc 关闭。模糊匹配（子序列匹配即可，不引 fuse.js）。命中�
 | 动效时长 | 表内基准值 | **过渡四档**（`--dur-instant/fast/normal/slow`）全部 ×0.85（Windows 惯例更快），即 68 / 119 / 187 / 272ms；**indeterminate 循环周期**（`--dur-progress-loop` / `--dur-spin-loop`）两侧取相同值，不缩放——它们不是过渡，缩了只会让循环更抢眼（现状可查：两侧 `--dur-progress-loop` 都是 1100ms） |
 | 焦点环 | 2px offset 2px | 1px offset 1px（Fluent 更贴合） |
 | 控件密度 | 表内基准 | 行高 -2px（40→38），按钮高 -2px |
+
+`chat` / `plugins` / `tasks` 三视图在上表之外**无平台差异项**。唯一要按上表执行的是：
+chat 的会话列表与消息流是两个独立滚动容器（§4.5），滚动条遵循上表「滚动条」行——
+macOS 隐藏，Windows 常显 8px 细滚动条；两个容器都遵守，不只消息流一个。
 
 **共同底线**：两侧的功能、信息架构、文案、token 命名完全一致。差异只在上表列出的维度；
 任何其他不一致都是 bug。

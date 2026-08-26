@@ -15,6 +15,7 @@
 | `claude-hub.json` | 读写 | 默认 hub 配置（槽位、端口、channels、routes） | — |
 | `claude-hubs.json` | 只读 | 命名 hub 注册表 | — |
 | `hubs/<name>.json` | 读写 | 命名 hub 各自配置，结构同 `claude-hub.json` | — |
+| `agent-hub-tasks.json` | 读写 | 桌面端自有的计划任务清单（`ScheduledTask[]`，见 §2）。**唯一新增的可写文件**；写入纪律与 hub json 相同：原子替换 + 保留未知键 | `AGENT_HUB_TASKS_PATH` |
 | `claude1-account-pools.json` | **只读**（首版） | 账号池 | — |
 | `model-pricing.json` | 只读 | `{version, models: []}`，**当前为空**；为空时回退读 `cc-switch.db` 的 `model_pricing` 表，仍无价才不显示成本 | — |
 | `logs/claude-hub-usage.jsonl` + `.bak-*` | 只读 | 用量 journal | — |
@@ -91,6 +92,8 @@ Rust 侧构造 `Channel` 时**先剥离后返回**，凭证不允许出现在任
 - `notes` 字段可能被用户塞过 key：整段过一遍
   `[A-Za-z0-9_\-]{24,}` 正则，命中即替换为 `••••`。
 - 错误 journal 的 `message` 已由 Python 侧脱敏，但 UI 渲染前**再过一次同样的正则**。
+- 上述剥离规则对 §2 的全部类型一体适用，包括后增的对话 / 插件 / 计划任务类型：
+  `PluginItem.detail`、`ChatMessage.content` 等任何来自源数据的字符串，进 IPC 响应前都要过同一套剥离。
 
 ## 2. TypeScript 类型（`src/types/contract.ts`，两侧各一份，内容逐字相同）
 
@@ -281,6 +284,76 @@ export interface DegradeEntry {
   action: string;       // 建议动作
   severity: DegradeSeverity;
 }
+
+/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content）；
+    本轮为演示数据，后端 seam 在 IPC 层，未来直连 claude-hub 时签名与形状不变 */
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  /** 文本内容；进 IPC 前按 §1.2 过一遍凭证剥离 */
+  content: string;
+  /** unix 秒 */
+  ts: number;
+}
+
+/** 对话会话。本轮只做 UI 骨架 + 演示数据，不接真实后端 */
+export interface ChatSession {
+  id: string;
+  title: string;
+  /** 关联 Channel.id，未绑定渠道为 null */
+  channelId: string | null;
+  model: string;
+  messages: ChatMessage[];
+  createdAt: number;    // unix 秒
+  updatedAt: number;    // unix 秒
+}
+
+/** Claude Code 配置扩展点（hooks / outputStyle / statusLine / permissions / mcp）。
+    边界：DB 只读 → 渠道级 settings_config 里的扩展点只读展示，不可写；
+    可写项（enabled 切换）只落到 `claude1-config.json` 的本地覆盖，绝不写 DB */
+export interface PluginItem {
+  id: string;
+  kind: 'hook' | 'outputStyle' | 'statusLine' | 'permissions' | 'mcp';
+  name: string;
+  /** 'global' = 全局配置；'channel' = 渠道级（来自 settings_config，只读） */
+  scope: 'global' | 'channel';
+  /** scope 为 'channel' 时是 Channel.id，否则为 null */
+  channelId: string | null;
+  enabled: boolean;
+  /** 一行人话说明这是什么 */
+  summary: string;
+  /** 展开的原始配置摘要（已按 §1.2 剥离凭证），无则 null */
+  detail: string | null;
+}
+
+/** 计划任务：定时启动会话 / 定时体检提醒。桌面端只管本地任务清单（CRUD + 展示），
+    持久化到 `agent-hub-tasks.json`；执行层本轮不做 */
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  kind: 'launch-channel' | 'launch-slot' | 'doctor-reminder';
+  /** 复用 LaunchTarget 的形状（子集）：launch-channel → {kind:'channel', channelId, model?}；
+      launch-slot → {kind:'slot', hubName?, slot, model?}；doctor-reminder 为 null */
+  target: LaunchTarget | null;
+  /** cron 五字段字符串（分 时 日 月 周），解析与计算都在 Rust 侧 */
+  schedule: string;
+  /** schedule 的中文人话，如「每工作日 09:00」，由 Rust 侧生成 */
+  scheduleText: string;
+  enabled: boolean;
+  /** unix 秒，未跑过为 null */
+  lastRunAt: number | null;
+  /** unix 秒，由 Rust 侧按 cron 计算返回，前端不自算；disabled 时为 null */
+  nextRunAt: number | null;
+  createdAt: number;    // unix 秒
+}
+
+/** create_task 的入参：id / 时间戳 / scheduleText / nextRunAt 都由 Rust 侧补全 */
+export interface NewScheduledTask {
+  name: string;
+  kind: ScheduledTask['kind'];
+  target: LaunchTarget | null;
+  schedule: string;
+  enabled: boolean;
+}
 ```
 
 ## 3. IPC 命令（Rust `#[tauri::command]`）
@@ -308,6 +381,14 @@ export interface DegradeEntry {
 | `app_env` | — | `{ platform, appVersion, tauriVersion, dbPath, configPath, logsDir, hasClaudeBin, pythonVersion }` | 设置页与 doctor 用 |
 | `open_path` | `path` | `()` | 用系统默认程序打开（只允许 `~/.cc-switch/` 下路径） |
 | `reveal_in_folder` | `path` | `()` | 同上白名单 |
+| `list_chat_sessions` | — | `ChatSession[]` | 本轮恒走演示实现：返回内置演示会话，不连任何上游；真后端接入时签名不变 |
+| `send_chat_message` | `sessionId, content` | `ChatMessage` | 本轮恒走演示实现：Rust 侧返回内置演示回复（内容按 Anthropic 消息形状构造，前端模拟流式逐字呈现），不连任何上游；真后端接入时签名不变 |
+| `list_plugins` | — | `PluginItem[]` | 聚合全局与渠道级扩展点：只读源 + `claude1-config.json` 本地覆盖合并后返回 |
+| `set_plugin_enabled` | `id, enabled` | `()` | 只写 `claude1-config.json` 的本地覆盖；对只读来源（渠道级 settings_config）的项返回中文错误说明不可写 |
+| `list_tasks` | — | `ScheduledTask[]` | 读 `agent-hub-tasks.json`，文件缺失返回空数组，不报错 |
+| `create_task` | `task: NewScheduledTask` | `ScheduledTask` | 写 `agent-hub-tasks.json`（原子替换 + 保留未知键）；`nextRunAt` 由 Rust 侧按 cron 计算返回，前端不自算 |
+| `update_task` | `id, patch: {enabled?, schedule?, name?}` | `ScheduledTask` | 同上；改了 `schedule` 或 `enabled` 时重算 `nextRunAt` |
+| `delete_task` | `id` | `()` | 同上；id 不存在返回中文错误 |
 
 ### 3.1 `launch` 的实现边界
 
@@ -329,6 +410,9 @@ StatusBar 显示琥珀色 `离线示例数据` 徽章——**绝不让假数据�
 mock 至少提供：8 个渠道（覆盖三种 apiFormat、1 个 hidden、1 个 incompatible、1 个 isCurrent）、
 2 个 hub（一个 running）、400 行 usage（跨 7 天、含 6 种降级码）、30 行 errors（含 4xx/5xx/超时/
 连接失败）、2 个账号池、10 条 doctor 结果（含 2 个 fail）。
+另需：3 个对话会话（合计 ≥12 条消息，覆盖 user/assistant/system 三种 role，含一条演示降级提示，
+如「当前为演示数据，未连接真实后端」）、10 个插件项（五种 kind 全覆盖，含只读与可写两态）、
+4 个计划任务（三种 kind 全覆盖、1 个 disabled、`nextRunAt` 为过去与将来各一）。
 
 ## 5. 降级码目录
 
@@ -352,8 +436,14 @@ import，不去改它。
 | `view-slots` | `UI/macos/src/views/slots/**` |
 | `view-observability` | `UI/macos/src/views/usage/**`、`src/views/diagnostics/**` |
 | `view-ops` | `UI/macos/src/views/accounts/**`、`src/views/doctor/**`、`src/views/settings/**` |
+| `view-chat` | `UI/macos/src/views/chat/**` |
+| `view-plugins` | `UI/macos/src/views/plugins/**` |
+| `view-tasks` | `UI/macos/src/views/tasks/**` |
 | `win-shell` | `UI/windows/**`（除 `src/views/**`） |
 | `win-views` | `UI/windows/src/views/**` |
+
+三个新视图在 Windows 侧的对应目录（`UI/windows/src/views/{chat,plugins,tasks}/**`）同归
+`win-views`，沿用 `src/views/<name>/index.tsx` 默认导出无 props 组件的形式。
 
 ### 6.1 视图的统一契约
 
@@ -364,19 +454,24 @@ import，不去改它。
 export default function ChannelsView() { /* ... */ }
 ```
 
-`mac-shell` 的路由表按固定路径 lazy import 这七个视图，因此**目录名与导出形式不可更改**：
+`mac-shell` 的路由表按固定路径 lazy import 这十个视图，因此**目录名与导出形式不可更改**：
 
 ```ts
 const VIEWS = {
+  chat:        () => import('../views/chat'),
   channels:    () => import('../views/channels'),
   slots:       () => import('../views/slots'),
   usage:       () => import('../views/usage'),
   diagnostics: () => import('../views/diagnostics'),
   accounts:    () => import('../views/accounts'),
   doctor:      () => import('../views/doctor'),
+  plugins:     () => import('../views/plugins'),
+  tasks:       () => import('../views/tasks'),
   settings:    () => import('../views/settings'),
 } as const;
 ```
+
+键的顺序即侧栏分组顺序：chat 在 channels 前，plugins/tasks 在 doctor 后、settings 前。
 
 ### 6.2 Store 契约（`mac-shell` 提供，视图消费）
 
@@ -386,6 +481,7 @@ export interface AppState {
   channels: Channel[]; hubs: HubConfig[]; pools: AccountPool[];
   usage: UsageSummary | null; recentUsage: UsageRow[]; errors: ErrorRow[];
   doctor: DoctorCheck[];
+  chatSessions: ChatSession[]; plugins: PluginItem[]; tasks: ScheduledTask[];
   env: AppEnv | null;
   offline: boolean;                 // 使用 mock 数据
   loading: Record<string, boolean>; // 按 key 的加载态
@@ -393,7 +489,7 @@ export interface AppState {
   loadedKeys: Record<string, boolean>; // 该 key 是否至少完成过一次加载（成败都算）；
                                        // 空态只准在 loadedKeys[key]===true 且数据为空时出现
   // refresh 永不抛出；await 后读 error[key]===null 即成功，非 null 即失败原因原文
-  refresh(key: 'channels'|'hubs'|'pools'|'usage'|'errors'|'doctor'|'env'): Promise<void>;
+  refresh(key: 'channels'|'hubs'|'pools'|'usage'|'errors'|'doctor'|'env'|'chat'|'plugins'|'tasks'): Promise<void>;
   refreshAll(): Promise<void>;
   // 动作直通 IPC，成功后自动 refresh 相关 key
   setHidden(id: string, hidden: boolean): Promise<void>;
@@ -402,6 +498,11 @@ export interface AppState {
   setSlot(hub: string, slot: SlotName, channel: string | null, model: string | null): Promise<void>;
   setSlotEffort(hub: string, slot: SlotName, effort: Effort | null): Promise<void>;
   launch(target: LaunchTarget): Promise<LaunchResult>;
+  sendChatMessage(sessionId: string, content: string): Promise<ChatMessage>;   // 成功后自动 refresh('chat')
+  setPluginEnabled(id: string, enabled: boolean): Promise<void>;               // 成功后自动 refresh('plugins')
+  createTask(task: NewScheduledTask): Promise<ScheduledTask>;                  // 成功后自动 refresh('tasks')
+  updateTask(id: string, patch: {enabled?: boolean; schedule?: string; name?: string}): Promise<ScheduledTask>; // 成功后自动 refresh('tasks')
+  deleteTask(id: string): Promise<void>;                                       // 成功后自动 refresh('tasks')
   // 以下失败时抛出，原因原文在 error.<方法名>
   doctorFixSubagentPins(): Promise<DoctorCheck[]>; // 成功后直接落 state.doctor
   openPath(path: string): Promise<void>;
@@ -416,6 +517,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>>;
 
 ```ts
 // src/store/nav.ts
+// VIEWS 扩为十项后，ViewId 自动包含 'chat' | 'plugins' | 'tasks'，此处无需手写联合类型
 export type ViewId = keyof typeof VIEWS;
 export interface NavState {
   view: ViewId; setView(v: ViewId): void;
@@ -456,9 +558,10 @@ export const useNav: UseBoundStore<StoreApi<NavState>>;
 export type IconName =
   // 导航
   | 'channels' | 'slots' | 'usage' | 'diagnostics' | 'accounts' | 'doctor' | 'settings'
+  | 'chat' | 'plugins' | 'tasks'
   // 动作
   | 'search' | 'plus' | 'close' | 'check' | 'refresh' | 'play' | 'copy' | 'edit'
-  | 'trash' | 'external' | 'filter' | 'download' | 'reveal'
+  | 'trash' | 'external' | 'filter' | 'download' | 'reveal' | 'send' | 'puzzle' | 'calendar'
   // 状态与语义
   | 'warning' | 'error' | 'info' | 'success' | 'dot' | 'clock' | 'zap' | 'lock'
   | 'star' | 'eye' | 'eye-off' | 'pin'
@@ -473,14 +576,17 @@ export type IconName =
 
 ### 6.5 视图内的固定文案锚点
 
-七个视图的标题与副标题固定如下，命令面板与侧栏都引用它们（`src/shell/views.ts` 导出）：
+十个视图的标题与副标题固定如下，命令面板与侧栏都引用它们（`src/shell/views.ts` 导出）：
 
 | view | 侧栏标签 | 视图标题 | 副标题（一句话说清这页在回答什么问题） |
 |---|---|---|---|
+| `chat` | 对话 | 对话 | 和当前渠道直接说上话，验证配置是不是真的能用 |
 | `channels` | 渠道 | 渠道 | 哪些渠道可用、各自说什么协议、这次用哪个 |
 | `slots` | 槽位 | 模型槽位 | 四个槽位分别绑到哪个渠道的哪个模型 |
 | `usage` | 用量 | 用量与成本 | token 花在哪儿、缓存命中多少 |
 | `diagnostics` | 诊断 | 诊断 | 失败了什么、悄悄降级了什么 |
 | `accounts` | 账号池 | 账号池 | 同一渠道的多个账号怎么轮换 |
 | `doctor` | 体检 | 本机体检 | 本机配置有没有问题，只读不联网 |
+| `plugins` | 插件 | 插件 | hooks、输出风格、状态栏、权限这些扩展点各自是什么状态 |
+| `tasks` | 任务 | 计划任务 | 哪些事被定时触发，下一次什么时候跑 |
 | `settings` | 设置 | 设置 | 外观、路径与本机环境 |

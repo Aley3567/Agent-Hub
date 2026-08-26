@@ -525,3 +525,4 @@ thinking_delta、正文零字节 → 客户端 Ctrl+O 可见思维链但回复�
 **明确不做**：不伪造 `message_stop`；不对已见字节的回合重放；不动 transform 路径
 （openai_chat 同类截断另行开卡）；不换 h2 客户端（实测该网关 h2 在 ~64KB 处截断，
 aiohttp h1.1 不受影响）。
+- 2026-08-26 UI 契约扩展 chat/plugins/tasks 三视图，实施中。
