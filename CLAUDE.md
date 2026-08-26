@@ -65,6 +65,10 @@
 
 **宪法与设计**(几乎不变;动手前对照):
 
+- `claude-hub-0.1-0.3-overview.md` — 0.1–0.3 路线总览、版本边界与统一交付门
+- `claude-hub-0.1-task-pack.md` — 0.1 可安装、可调用、Companion 只读任务包
+- `claude-hub-0.2-task-pack.md` — 0.2 Standalone 安全快速启动任务包
+- `claude-hub-0.3-task-pack.md` — 0.3 发现、计划、批准与安全写入任务包
 - `claude1-refactor-design.md` — 重构宪法
 - `agent-hub-design.md` — Agent-Hub（Rust 管理面 + TUI/CLI + 编排式对话）决策树与架构
 - `product-definition.md` — 产品定位与三档口径(现状/部分/待建)
