@@ -420,8 +420,16 @@ def record_usage(
     account_id: str | None = None,
     source: str = "upstream",
     degrade_codes: tuple[str, ...] = (),
+    stream_metrics: dict | None = None,
 ) -> None:
-    """把一条请求的 token 用量追加到 JSONL。统计绝不能搞挂转发主路径，全部异常静默。"""
+    """把一条请求的 token 用量追加到 JSONL。统计绝不能搞挂转发主路径，全部异常静默。
+
+    ``stream_metrics`` 收 ``StreamTelemetry.snapshot()``（调用方须已 ``seal``），
+    把成功请求的首字延迟与流时长一并落盘——此前这些计时只在失败行出现，成功
+    请求的速度画像无处可查。键名映射：``first_chunk_ms``→``ttft_ms``，其余
+    （``stream_ms``/``chunks``/``upstream_bytes``）同名。缺流计时的调用点不传，
+    行里便没有这些键，分析器据此把非流式与未计时请求分开统计。
+    """
     try:
         usage = usage if isinstance(usage, dict) else {}
         row = {
@@ -456,6 +464,16 @@ def record_usage(
             row["account"] = account_id
         if degrade_codes:
             row["deg"] = list(dict.fromkeys(degrade_codes))
+        if stream_metrics:
+            for source_key, target_key in (
+                ("first_chunk_ms", "ttft_ms"),
+                ("stream_ms", "stream_ms"),
+                ("chunks", "chunks"),
+                ("upstream_bytes", "upstream_bytes"),
+            ):
+                value = _usage_int(stream_metrics.get(source_key))
+                if value is not None:
+                    row[target_key] = value
         global _usage_fp
         if _usage_fp is None:
             _usage_fp = _open_usage_log()
@@ -3321,9 +3339,7 @@ async def _handle_transformed_messages(
                 for translated in bridge.finish():
                     await response.write(translated)
                     byte_count += len(translated)
-                runtime_warning_codes = tuple(
-                    getattr(bridge, "warning_codes", ())
-                )
+                runtime_warning_codes = tuple(getattr(bridge, "warning_codes", ()))
                 warning_codes = tuple(
                     dict.fromkeys(
                         (*request_warning_codes, *runtime_warning_codes)
@@ -3332,8 +3348,7 @@ async def _handle_transformed_messages(
                 if runtime_warning_codes:
                     log(
                         f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                        f"protocol warnings "
-                        f"{_format_protocol_warnings(runtime_warning_codes)}"
+                        f"protocol warnings {_format_protocol_warnings(runtime_warning_codes)}"
                     )
                 await response.write_eof()
                 if bridge.error_terminal:
@@ -3347,7 +3362,9 @@ async def _handle_transformed_messages(
                     )
                 else:
                     # Same receipt the downstream stream was built from, so
-                    # the ledger cannot disagree with what the client was told.
+                    # the ledger cannot disagree with what the client was told;
+                    # write_eof 已过，此处 seal 即流的终点，速度画像同行落盘。
+                    stream_telemetry.seal()
                     stream_usage = bridge.usage_for_accounting()
                     record_usage(
                         alias,
@@ -3358,6 +3375,7 @@ async def _handle_transformed_messages(
                         account_id=account_attempt.lease.member,
                         source=("upstream" if stream_usage else "unavailable"),
                         degrade_codes=warning_codes,
+                        stream_metrics=stream_telemetry.snapshot(),
                     )
             except (
                 aiohttp.ClientError,
@@ -3701,8 +3719,23 @@ class _TurnJournal(NamedTuple):
             **fields,
         )
 
-    def usage(self, usage: dict | None, *, account_id: str, source: str) -> None:
-        """Append one usage row for a turn that reached a real terminal."""
+    def usage(
+        self,
+        usage: dict | None,
+        *,
+        account_id: str,
+        source: str,
+        telemetry: StreamTelemetry | None = None,
+    ) -> None:
+        """Append one usage row for a turn that reached a real terminal.
+
+        ``telemetry`` 存在时先 seal——usage 臂就是流的终点，没有别人再补
+        seal——成功请求的速度画像与 token 账本同落一行。
+        """
+        stream_metrics = None
+        if telemetry is not None:
+            telemetry.seal()
+            stream_metrics = telemetry.snapshot()
         record_usage(
             self.alias,
             self.model_out,
@@ -3712,6 +3745,7 @@ class _TurnJournal(NamedTuple):
             account_id=account_id,
             source=source,
             degrade_codes=self.degrade_codes,
+            stream_metrics=stream_metrics,
         )
 
 
@@ -4493,6 +4527,7 @@ async def _forward_to_channel_attempt(
                         if native_stream_usage
                         else "unavailable"
                     ),
+                    telemetry=stream_telemetry,
                 )
             elif not streamed and upstream.status == 200 and not is_count:
                 # count_tokens is a pre-flight probe, not a message turn: its

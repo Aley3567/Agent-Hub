@@ -468,6 +468,98 @@ class ClaudeHubTests(unittest.TestCase):
         row = json.loads(self.usage_file.read_text(encoding="utf-8"))
         self.assertNotIn("deg", row)
 
+    def test_usage_row_carries_stream_metrics_when_provided(self):
+        # 成功请求的速度画像此前只住在失败行里；接进 usage 行后 TPS、
+        # 首字延迟分布才有了全量数据来源。
+        hub.record_usage(
+            "fast",
+            "fixture-model",
+            "anthropic",
+            {"input_tokens": 11, "output_tokens": 300},
+            stream_metrics={
+                "headers_ms": 800,
+                "first_chunk_ms": 1200,
+                "max_gap_ms": 90,
+                "tail_gap_ms": 15,
+                "stream_ms": 5400,
+                "chunks": 42,
+                "upstream_bytes": 61000,
+            },
+        )
+
+        row = json.loads(self.usage_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["ttft_ms"], 1200)
+        self.assertEqual(row["stream_ms"], 5400)
+        self.assertEqual(row["chunks"], 42)
+        self.assertEqual(row["upstream_bytes"], 61000)
+
+    def test_usage_row_without_first_chunk_still_carries_the_duration(self):
+        # 有 seal 而无 chunk（首字节前就终局）的流：ttft 无从谈起不落键，
+        # 但总时长必须照常落盘，否则 JSON 臂之外的首字节前退出不可见。
+        hub.record_usage(
+            "fast",
+            "fixture-model",
+            "anthropic",
+            {"output_tokens": 1},
+            stream_metrics={
+                "headers_ms": 900,
+                "first_chunk_ms": None,
+                "stream_ms": 1000,
+                "chunks": 0,
+                "upstream_bytes": 0,
+            },
+        )
+
+        row = json.loads(self.usage_file.read_text(encoding="utf-8"))
+        self.assertNotIn("ttft_ms", row)
+        self.assertEqual(row["stream_ms"], 1000)
+        self.assertEqual(row["chunks"], 0)
+
+    def test_usage_row_omits_stream_metrics_without_a_stream(self):
+        # 非流式调用点不传 stream_metrics：行里不能长出 None 键或伪零值，
+        # 分析器靠「这些键不存在」区分非流式与已计时流式。
+        hub.record_usage(
+            "fast",
+            "fixture-model",
+            "anthropic",
+            {"input_tokens": 2},
+        )
+
+        row = json.loads(self.usage_file.read_text(encoding="utf-8"))
+        for key in ("ttft_ms", "stream_ms", "chunks", "upstream_bytes"):
+            self.assertNotIn(key, row)
+
+    def test_turn_journal_usage_seals_telemetry_into_the_row(self):
+        # journal.usage 是流的终点臂：调用方没 seal 也要在这里补上，
+        # 否则成功行的 stream_ms 会因「无人量过终点」而永远缺失。
+        timestamps = iter((0.2, 0.5, 4.5))
+        telemetry = hub.StreamTelemetry(
+            started_at=0.0,
+            clock=lambda: next(timestamps),
+        )
+        telemetry.observe(b"event: message_stop\n\n")
+        journal = hub._TurnJournal(
+            alias="fast",
+            model_out="fixture-model",
+            api_format="anthropic",
+            route_name=None,
+            instance_id=None,
+            started=0.0,
+            degrade_codes=(),
+        )
+
+        journal.usage(
+            {"input_tokens": 7, "output_tokens": 9},
+            account_id="acct",
+            source="upstream",
+            telemetry=telemetry,
+        )
+
+        row = json.loads(self.usage_file.read_text(encoding="utf-8"))
+        self.assertEqual((row["in"], row["out"]), (7, 9))
+        self.assertEqual(row["ttft_ms"], 500)
+        self.assertEqual(row["stream_ms"], 4500)
+
     def test_native_compressed_json_usage_is_shadow_decoded_with_provenance(self):
         encoded = gzip.compress(
             json.dumps(
