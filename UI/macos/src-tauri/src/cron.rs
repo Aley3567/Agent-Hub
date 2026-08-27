@@ -153,7 +153,13 @@ fn parse_field(raw: &str, spec: &FieldSpec) -> Result<(u64, bool), String> {
                 value
             };
             bits |= 1u64 << folded;
-            value += step;
+            // checked_add 而不是 +=：step 只校验了 >=1 没设上限（u32::MAX 是合法步长），
+            // 溢出在 debug 构建 panic 会卡死 IPC 线程，release 回绕成错误位图
+            //（`5/4294967295` 会把 00-05 分全部置位）。溢出即到达 hi 上限，直接停。
+            value = match value.checked_add(step) {
+                Some(next) => next,
+                None => break,
+            };
         }
     }
     Ok((bits, restricted))
@@ -482,5 +488,15 @@ mod tests {
             schedule_text(&parse("0 9 1 3 *").unwrap(), "0 9 1 3 *"),
             "按 cron「0 9 1 3 *」"
         );
+    }
+
+    #[test]
+    fn huge_step_does_not_overflow_or_wrap() {
+        // step 只校验 >=1，u32::MAX 是合法步长：溢出在 debug 构建 panic 卡死 IPC
+        // 线程，release 回绕成错误位图。溢出即停：只置位起始值本身。
+        let schedule = parse("5/4294967295 * * * *").unwrap();
+        let next = next_run(&schedule, at(2026, 8, 26, 9, 0)).unwrap();
+        let (_, _, _, _, mi, _) = fields(next);
+        assert_eq!(mi, 5, "只在第 5 分触发，不得回绕出 00-05 的错误位图");
     }
 }
