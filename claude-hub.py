@@ -155,6 +155,15 @@ STREAM_REPLAY_BUFFER_BYTES = 256 * 1024
 # which a truncation is reported to the client instead of replayed.
 THINKING_HOLD_BUFFER_BYTES = 1024 * 1024
 THINKING_HOLD_MAX_SECONDS = 45.0
+# A queueing gateway family answers headers fast, then sits on the first byte
+# while an internal retry lottery shuffles channels (field data on glm-5.3
+# via ps.air-outer.com: TTFT p50 4.6s, p90 12.8s, degraded to 32s under
+# concurrency; their own relay code sets no header timeout at all). Aborting
+# before any byte reached the client converts that wait into a fresh attempt
+# instead of wall-clock loss -- and costs the upstream nothing, since no token
+# was ever produced. Must stay below THINKING_HOLD_MAX_SECONDS (a hold trip
+# commits instead of aborting); pinned by a test. 0 disables.
+FIRST_CHUNK_ABORT_SECONDS = 20.0
 # Keep this well below the upstream sock_read timeout (600s, set where the
 # client session is built): the read watchdog inside _DeferredDownstream tells
 # its hold trip apart from a real read timeout by wall clock alone.
@@ -614,6 +623,57 @@ class UpstreamStreamReplayable(RuntimeError):
     Holding the downstream response back until real content arrives keeps that
     failure invisible, so the request can be replayed on a fresh connection.
     """
+
+
+class SlowUpstreamFirstByte(asyncio.TimeoutError):
+    """No first upstream byte within FIRST_CHUNK_ABORT_SECONDS.
+
+    Subclassing asyncio.TimeoutError means every existing transport-replay
+    isinstance check treats this as broken transport with zero edits; the
+    distinct name keeps journal rows and log lines attributable to the abort
+    decision instead of blurring into generic read timeouts.
+    """
+
+
+class _FirstChunkGuard:
+    """Bound only the wait for the upstream's very first chunk.
+
+    Once bytes are flowing, pacing belongs to sock_read: a genuinely slow TPS
+    stream is healthy, so a per-chunk limit would kill normal traffic.
+
+    Deliberately a method-based async iterator, not an async generator: the
+    hold watchdog cancels a pending ``__anext__`` and calls again on the same
+    object every loop round, and a cancelled generator frame is closed for
+    good -- it would turn that legitimate cancellation into a phantom EOF.
+    An empty upstream still ends as plain ``StopAsyncIteration``, which reads
+    downstream as the same clean EOF as before this wrapper existed.
+    """
+
+    __slots__ = ("_stream", "_seconds", "_first_seen")
+
+    def __init__(self, stream, seconds: float) -> None:
+        self._stream = stream
+        self._seconds = seconds
+        self._first_seen = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._first_seen:
+            return await self._stream.__anext__()
+        try:
+            chunk = await asyncio.wait_for(
+                self._stream.__anext__(), timeout=self._seconds
+            )
+        except StopAsyncIteration:
+            raise
+        except asyncio.TimeoutError as exc:
+            raise SlowUpstreamFirstByte(
+                f"upstream sent no first byte within {self._seconds:g}s"
+            ) from exc
+        self._first_seen = True
+        return chunk
 
 
 class UpstreamStreamAborted(RuntimeError):
@@ -4426,6 +4486,12 @@ async def _forward_to_channel_attempt(
             json_buf = bytearray() if not streamed else None
             try:
                 chunk_stream = upstream.content.iter_any()
+                if streamed and FIRST_CHUNK_ABORT_SECONDS > 0:
+                    # 弃队：首字节超过阈值仍不来时 abort 本次 attempt，
+                    # 经既有 replay 管线换路重来；错过后不再逐块限时。
+                    chunk_stream = _FirstChunkGuard(
+                        chunk_stream, FIRST_CHUNK_ABORT_SECONDS
+                    )
                 while True:
                     chunk, hold_tripped = await downstream.read_chunk(
                         chunk_stream

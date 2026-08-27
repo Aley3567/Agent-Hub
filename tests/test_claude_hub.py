@@ -6087,6 +6087,114 @@ class ClaudeHubTests(unittest.TestCase):
             self.assertEqual(row["exc"], "IncompleteSSE")
             self.assertIn("HUB_DEGRADE_STREAM_REPLAYED", row["deg"])
 
+    def test_first_chunk_abort_stays_below_the_thinking_hold_watchdog(self):
+        # 弃队只在 hold 窗口内才有意义：若 hold 看门狗先到期，流会被 commit
+        # 转 live 直传而不再可弃，守卫永远轮不到触发。任何把守卫调大的改参
+        # 都必须显式面对这条先后关系，而不是悄悄失效。
+        self.assertGreater(hub.FIRST_CHUNK_ABORT_SECONDS, 0)
+        self.assertLess(
+            hub.FIRST_CHUNK_ABORT_SECONDS,
+            hub.THINKING_HOLD_MAX_SECONDS,
+        )
+
+    def test_first_chunk_guard_bounds_only_the_wait_for_the_first_byte(self):
+        # 快流后续每块的节奏属于 sock_read：慢 TPS 是健康流，逐块限时会把
+        # 正常流量杀掉。守卫必须只看「第一个字节等了多久」。
+        async def healthy_stream():
+            yield b"a"
+            await asyncio.sleep(0.08)
+            yield b"b"
+            await asyncio.sleep(0.08)
+            yield b"c"
+
+        async def collect():
+            return [
+                chunk
+                async for chunk in hub._FirstChunkGuard(healthy_stream(), 0.03)
+            ]
+
+        self.assertEqual(asyncio.run(collect()), [b"a", b"b", b"c"])
+
+    def test_first_chunk_guard_leaves_clean_eof_clean(self):
+        async def empty_stream():
+            return
+            yield b""  # pragma: no cover -- 使其成为 async generator
+
+        async def collect():
+            return [
+                chunk
+                async for chunk in hub._FirstChunkGuard(empty_stream(), 0.03)
+            ]
+
+        self.assertEqual(asyncio.run(collect()), [])
+
+    def test_slow_first_byte_is_aborted_and_replayed_onto_a_fast_attempt(self):
+        # 队列型网关的真实形态：收下请求后在内部排队/换渠道抽奖，首字节
+        # 迟迟不来。守卫在阈值处 abort 本次 attempt（客户端零字节可见、
+        # 上游零 token 计费），replay 循环换全新尝试拿完整答复。
+        self._set_provider_endpoint(
+            "Fixture HTTPS", "http://127.0.0.1:19090/v1/messages", "anthropic"
+        )
+        delayed_read = asyncio.Event()
+
+        class _FirstByteStalls:
+            async def iter_any(self):
+                await asyncio.sleep(0.3)
+                delayed_read.set()
+                yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+
+        stalled = _FakeUpstream(200, {"Content-Type": "text/event-stream"}, [])
+        stalled.content = _FirstByteStalls()
+        complete_chunks = [
+            b'event: message_start\ndata: {"type":"message_start",'
+            b'"message":{"type":"message"}}\n\n',
+            b'event: content_block_start\ndata: {"type":"content_block_start",'
+            b'"index":0,"content_block":{"type":"text","text":""}}\n\n',
+            b'event: content_block_delta\ndata: {"type":"content_block_delta",'
+            b'"index":0,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+            b'event: content_block_stop\ndata: {"type":"content_block_stop",'
+            b'"index":0}\n\n',
+            b'event: message_delta\ndata: {"type":"message_delta",'
+            b'"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n',
+            b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+        ]
+        complete = _FakeUpstream(
+            200, {"Content-Type": "text/event-stream"}, complete_chunks
+        )
+        session = _SequencedFakeSession([stalled, complete])
+        request = self._request(
+            {
+                "model": "fast,custom-model",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hello"}],
+            },
+            session=session,
+        )
+
+        downstream = _FakeDownstream(200)
+        with mock.patch.object(
+            hub, "FIRST_CHUNK_ABORT_SECONDS", 0.05
+        ), mock.patch.object(hub.web, "StreamResponse", return_value=downstream):
+            response = asyncio.run(hub.handle_messages(request))
+
+        self.assertIs(response, downstream)
+        self.assertEqual(len(session.calls), 2)
+        self.assertFalse(delayed_read.is_set())  # 上游从未等到机会吐出首字节
+        self.assertEqual(downstream.writes, complete_chunks)
+        rows = [
+            json.loads(line)
+            for line in self.errors_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["exc"], "SlowUpstreamFirstByte")
+        self.assertIn("HUB_DEGRADE_STREAM_REPLAYED", rows[0]["deg"])
+        usage_rows = [
+            json.loads(line)
+            for line in self.usage_file.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(len(usage_rows), 1)
+        self.assertEqual(usage_rows[0].get("out"), 3)
+
     def test_thinking_hold_past_buffer_cap_commits_and_reports_truncation(self):
         # 扣留有字节上限：超限即提交，之后的截断回到「具名错误收尾」路径，
         # 不再重放——宁可可见地失败，也不无限扣留。
@@ -6262,7 +6370,11 @@ class ClaudeHubTests(unittest.TestCase):
             for line in self.errors_file.read_text(encoding="utf-8").splitlines()
         ]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["exc"], "TimeoutError")
+        # 零字节静默如今由首块守卫先行判名：无论 fake 的原生超时还是
+        # 守卫自己的墙钟先到，事实都是「上游没给过任何首字节」，
+        # 因此终局归入 SlowUpstreamFirstByte 而非泛化的 read timeout；
+        # commit-then-truncate 的其他断言保持原样，未变。
+        self.assertEqual(rows[0]["exc"], "SlowUpstreamFirstByte")
 
     def test_held_thinking_bytes_flush_on_deadline_trip(self):
         # 思考字节扣留中遭遇死线跳闸：已扣留的字节必须如实冲刷给客户端，
