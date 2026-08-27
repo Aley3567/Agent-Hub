@@ -49,6 +49,9 @@ export default function DoctorView() {
 
   const [pending, setPending] = useState<DoctorCheck | null>(null);
   const [fixingId, setFixingId] = useState<string | null>(null);
+  /** 修复结论的持久留痕：toast 只有 3 秒，半失败结论（清理跑了但项仍失败）
+   *  不能 3 秒后无影无踪——这里留一份直到下一次修复或刷新覆盖它 */
+  const [fixNote, setFixNote] = useState<string | null>(null);
 
   const grouped = useMemo(() => {
     const out: Record<DoctorLevel, DoctorCheck[]> = { fail: [], info: [], ok: [] };
@@ -76,10 +79,12 @@ export default function DoctorView() {
             .join('，');
   const conclusionTone: DoctorLevel | null = total === 0 ? null : failCount > 0 ? 'fail' : warnCount > 0 ? 'info' : 'ok';
 
-  /** 即时结论同时进 toast 与播报区；失败时原因原文还会留在对应行里（fixReason） */
+  /** 即时结论同时进 toast 与播报区并留持久一份（fixNote）；半失败按失败口径走，
+   *  「清理跑完了但仍是失败」不是成功，不许顶着 success 样式 3 秒后无痕消失 */
   function reportFix(text: string, ok: boolean): void {
     if (ok) toastSuccess(text);
     else toastError(text);
+    setFixNote(text);
     announce(text);
   }
 
@@ -89,14 +94,13 @@ export default function DoctorView() {
     try {
       const fresh = await fixSubagentPins();
       const after = fresh.find((item) => item.id === target.id) ?? null;
-      reportFix(
-        after === null
-          ? '清理跑完了：重跑的体检里已经没有这一项。'
-          : after.level === 'fail'
-            ? `清理跑完了，但「${after.title}」仍然是失败，展开这一项看原因。`
-            : `清理跑完了，「${after.title}」现在是${LEVEL_LABEL[after.level]}。`,
-        true,
-      );
+      if (after === null) {
+        reportFix('清理跑完了：重跑的体检里已经没有这一项。', true);
+      } else if (after.level === 'fail') {
+        reportFix(`清理跑完了，但「${after.title}」仍然是失败，展开这一项看原因。`, false);
+      } else {
+        reportFix(`清理跑完了，「${after.title}」现在是${LEVEL_LABEL[after.level]}。`, true);
+      }
     } catch (cause) {
       // 原因原文不包装成「操作失败」；持久的一份由对应行读 error.doctorFixSubagentPins 就地呈现
       reportFix(`清理未成功：${errorText(cause)}`, false);
@@ -137,6 +141,8 @@ export default function DoctorView() {
               </li>
             </ul>
           )}
+
+          {fixNote === null ? null : <p className={styles.fixNote}>{fixNote}</p>}
         </div>
 
         <Button

@@ -210,6 +210,19 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
         .and_then(Value::as_str)
         .unwrap_or("doctor-reminder")
         .to_string();
+    // 手改文件可能写出 KINDS 之外的 kind：原样透传会在前端变成不可观测的静默降级
+    //（空徽章、编辑对话框无选中段）。按「有损但可观测」原则收进最近似的合法值
+    //（无 target 就是纯提醒类），并在 scheduleText 里说明原值，让用户看到并改回来。
+    let mut notes: Vec<String> = Vec::new();
+    let kind = if KINDS.contains(&kind.as_str()) {
+        kind
+    } else {
+        notes.push(format!(
+            "kind「{kind}」不在支持列表（{}），已按 doctor-reminder 展示",
+            KINDS.join("、")
+        ));
+        "doctor-reminder".to_string()
+    };
     let target = match entry.get("target") {
         Some(value) if !value.is_null() => Some(
             serde_json::from_value::<LaunchTarget>(value.clone())
@@ -231,12 +244,15 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
 
     // 老文件里手写出无法解析的表达式时，不掀翻整个清单：
     // scheduleText 说明问题、nextRunAt 置 null，让用户看到并改回来。
-    let (schedule_text, mut next_run_at) = match cron::parse(&schedule) {
+    let (mut schedule_text, mut next_run_at) = match cron::parse(&schedule) {
         Ok(parsed) => (cron::schedule_text(&parsed, &schedule), cron::next_run(&parsed, now_ts())),
         Err(err) => (format!("cron 表达式无法解析：{err}"), None),
     };
     if !enabled {
         next_run_at = None;
+    }
+    if !notes.is_empty() {
+        schedule_text = format!("{schedule_text}（{}）", notes.join("；"));
     }
 
     Ok(ScheduledTask {
@@ -501,5 +517,22 @@ mod tests {
         assert_eq!(list[0].id, created.id);
         assert_eq!(list[0].next_run_at, None);
         assert!(list[0].schedule_text.contains("无法解析"), "{}", list[0].schedule_text);
+    }
+
+    #[test]
+    fn unknown_kind_in_file_degrades_observably() {
+        let _env = TasksEnv::new("unknown-kind");
+        create_task(new_task("x", "doctor-reminder", "0 9 * * *")).unwrap();
+        // 模拟手改文件写进 KINDS 之外的 kind
+        let path = paths::tasks_path().unwrap();
+        let mut raw: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        raw[0]["kind"] = Value::from("future-kind");
+        paths::write_json_atomic(&path, &raw).unwrap();
+
+        let list = list_tasks().unwrap();
+        // 不掀翻清单，但必须留下可观测的降级记号，前端徽章/编辑对话框不落空
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].kind, "doctor-reminder");
+        assert!(list[0].schedule_text.contains("future-kind"), "{}", list[0].schedule_text);
     }
 }

@@ -60,6 +60,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 修复结论的持久留痕：toast 只有 3 秒，半失败结论不能 3 秒后无影无踪 */
+.fixNote {
+  color: var(--text-secondary);
+  font-size: var(--fs-12);
+  line-height: var(--lh-12);
+}
+
 /* IPC 的中文原因原样显示（AGENTS.md：错误原样暴露） */
 .error {
   padding: var(--sp-3) var(--sp-4);

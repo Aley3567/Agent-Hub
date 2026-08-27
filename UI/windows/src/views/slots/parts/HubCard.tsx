@@ -71,14 +71,21 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
     });
   }
 
-  // 聚合最近 24 小时的降级回合数
-  let degraded = 0;
-  for (const slot of SLOT_ORDER) {
-    const binding = hub.slots[slot] ?? null;
-    if (binding === null) continue;
-    degraded += slotUsage(usageRows, binding, now).degraded;
+  // 聚合最近 24 小时的降级回合数。
+  // 命名 hub 的降级数不在手边（usageRows 是默认 hub 的 journal，见下方 usageGap 的
+  // 口径声明）——拿它算出来的数字冒充命名 hub 的降级数就是伪装成功，这里同样
+  // 如实声明口径覆盖不到。
+  let degraded: number | null = null;
+  if (hub.isDefault) {
+    let count = 0;
+    for (const slot of SLOT_ORDER) {
+      const binding = hub.slots[slot] ?? null;
+      if (binding === null) continue;
+      count += slotUsage(usageRows, binding, now).degraded;
+    }
+    degraded = count;
   }
-  if (degraded > 0) {
+  if (degraded !== null && degraded > 0) {
     out.push({
       key: 'degraded',
       text: (
@@ -87,6 +94,11 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
           HUB_DEGRADE_* 降级码。
         </>
       ),
+    });
+  } else if (degraded === null) {
+    out.push({
+      key: 'degraded-gap',
+      text: <>命名 hub 的降级流水不在默认 hub 的 journal 里，这里的降级统计覆盖不到。</>,
     });
   }
 

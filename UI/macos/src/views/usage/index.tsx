@@ -198,7 +198,9 @@ export default function UsageView() {
         label: '缓存命中率',
         value: formatPercent(usage.cacheHitRate),
         caption: '缓存读 ÷（总输入 + 缓存读）',
-        progress: usage.cacheHitRate ?? 0,
+        // 缺失时不画进度条（progress 可选）：数值侧 formatPercent(null) 显示「—」，
+        // 图形侧画 0% 就是「数值说不存在、图形说零命中」的口径自相矛盾
+        progress: usage.cacheHitRate ?? undefined,
       },
     ];
     return { hero: heroItem, side: sideItems, bars: barItems };

@@ -49,11 +49,13 @@
 
 /* sticky 小节头：长列表滚动时标题钉住，用户滚到中段也不失去方位。
    底必须不透明（--bg-base）——半透明会让滚过去的列表行透出来。
-   top 偏移 = 吸顶工具条高（SearchInput 34 + 上下 padding 16 + 分隔线 1 = 51）+ 1px 余量；
+   top 偏移 = 吸顶工具条高（SearchInput 的 --control-h-md + Toolbar 上下 padding
+   --sp-2 ×2 + 分隔线 1px）+ 1px 余量，全部从 token 推导——Windows 的控件高度
+   与 macOS 不同，写死 px 就会在两条吸顶栏之间露出一条缝，列表行从缝里穿过。
    密度缩放（body zoom）对所有 px 等比生效，这个偏移跟着走，不用另算。 */
 .sectionHead {
   position: sticky;
-  top: calc(var(--sp-10) + var(--sp-3));
+  top: calc(var(--control-h-md) + var(--sp-2) * 2 + 2px);
   z-index: var(--z-sticky);
   background: var(--bg-base);
   padding: var(--sp-2) 0;
@@ -64,7 +66,8 @@
 .rail {
   --diag-rail-w: 132px;
   position: sticky;
-  top: calc(var(--sp-10) + var(--sp-3) + var(--sp-3));
+  /* sectionHead 的 top 之上再叠一条小节头的呼吸位，跟随同一套 token 推导 */
+  top: calc(var(--control-h-md) + var(--sp-2) * 2 + var(--sp-3) + 2px);
   flex: 0 0 var(--diag-rail-w);
   display: flex;
   flex-direction: column;

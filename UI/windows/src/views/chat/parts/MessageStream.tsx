@@ -12,7 +12,7 @@
  * 正在发送的消息（pending）由本组件做去重拼接：mock 会把用户消息与回复就地追加进
  * session.messages（同一数组引用，store 不触发重渲染），真实后端则等 refresh 后才有，
  * 所以渲染时先从 store 消息里剔除与 pending 相同的最后一条，再把 pending 追加到末尾——
- * 两种数据源下都不重不漏。匹配口径是 role + ts + content 全等，只剔最后一次出现，
+ * 两种数据源下都不重不漏。匹配口径见 sameMessage 的注释，只剔最后一次出现，
  * 同一秒连发两条相同文本不会误删前一条。
  */
 import { memo, useLayoutEffect, useMemo, useRef } from 'react';
@@ -40,8 +40,11 @@ export interface MessageStreamProps {
 /** 距底小于这个值视为「用户就在底部」，新内容到达时继续跟随 */
 const FOLLOW_THRESHOLD_PX = 48;
 
+/** 匹配口径是 role + content，不含 ts：pending 的 ts 客户端取、库内消息的 ts 由
+ *  Rust 取，双源时钟恰跨秒边界就全等失配，同一条用户消息流式期间显示两遍。正文
+ *  一致即同一条；同一秒连发两条相同文本的极端情形由「只剔最后一次出现」兜住。 */
 function sameMessage(a: ChatMessage, b: ChatMessage): boolean {
-  return a.role === b.role && a.ts === b.ts && a.content === b.content;
+  return a.role === b.role && a.content === b.content;
 }
 
 /** 剔除与 target 全等的最后一次出现；没有匹配时原样返回 */

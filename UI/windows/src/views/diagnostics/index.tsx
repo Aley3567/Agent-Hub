@@ -314,8 +314,9 @@ export default function DiagnosticsView() {
       </Toolbar>
 
       {journalEmpty ? (
-        !loaded ? (
-          // 两份流水一次都没加载过时（首帧 busy 还没置真）也走加载态，不闪空态
+        !loaded || busy ? (
+          // 两份流水一次都没加载过时（首帧 busy 还没置真）也走加载态；已空的数据
+          // 再刷新时请求在途同样不得下空态结论（上方 settled 的同一口径）
           <div className={styles.loading}>
             <Spinner size="md" label="正在读取诊断流水" />
           </div>

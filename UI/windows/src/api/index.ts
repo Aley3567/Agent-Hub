@@ -211,7 +211,7 @@ export function revealInFolder(path: string): Promise<void> {
 // 「离线示例数据」徽章照亮，假数据不会冒充真实数据。
 
 export function listChatSessions(): Promise<ChatSession[]> {
-  return read('list_chat_sessions', {}, () => MOCK_CHAT_SESSIONS);
+  return read('list_chat_sessions', {}, () => [...MOCK_CHAT_SESSIONS]);
 }
 
 export function sendChatMessage(sessionId: string, content: string): Promise<ChatMessage> {
@@ -229,7 +229,9 @@ export function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
 }
 
 export function listTasks(): Promise<ScheduledTask[]> {
-  return read('list_tasks', {}, () => MOCK_TASKS);
+  // 离线回退必须返回浅拷贝：mock 的增删改就地在 MOCK_TASKS 上做，同一数组引用
+  // 会让 zustand 的引用相等判定跳过重渲染——建/删任务 toast 报成功但界面不动
+  return read('list_tasks', {}, () => [...MOCK_TASKS]);
 }
 
 export function createTask(task: NewScheduledTask): Promise<ScheduledTask> {

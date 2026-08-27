@@ -58,8 +58,10 @@ const MAX_RECENT = 5;
 /** 复制进诊断报告的错误流水条数上限：报告是摘要，不是整条 journal 的搬运 */
 const REPORT_ERROR_LIMIT = 20;
 
-/** 每组最多显示的条数：再多就靠继续输入筛，而不是让面板长到屏幕外 */
-const MAX_PER_GROUP = 8;
+/** 每组最多显示的条数：再多就靠继续输入筛，而不是让面板长到屏幕外。
+ *  导航组有全部十视图，上限必须 ≥ VIEW_LIST 长度，否则「转到 任务」「转到 设置」
+ *  这类尾部的视图只剩「还有 N 条未显示」提示（7 视图时代的 8 就是这么过期的）。 */
+const MAX_PER_GROUP = 12;
 
 /** refresh key 的人话名字：刷新播报失败时要说清是哪一路失败 */
 const REFRESH_KEY_LABEL: Record<RefreshKey, string> = {

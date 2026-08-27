@@ -44,6 +44,11 @@ pub struct PluginItem {
 pub fn list_plugins() -> Result<Vec<PluginItem>, String> {
     let mut items = global_items();
     items.extend(channel_items()?);
+    // 全局两个来源可能登记同一个 MCP server（settings.json 的 mcpServers/mcp 与
+    // ~/.claude.json 的 mcpServers），id 都是 `global:mcp:{name}`——不去重的话前端
+    // 拿到重复 React key，一次开关翻转两行。settings.json 先入列，故保留它那份。
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|item| seen.insert(item.id.clone()));
     apply_enabled_overrides(&mut items)?;
     Ok(items)
 }

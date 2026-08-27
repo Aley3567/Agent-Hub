@@ -106,7 +106,7 @@ export default function SettingsView() {
         }
       >
         <div className={styles.fields}>
-          <Field label="主题" hint="跟随系统时由 Windows 的外观设置决定深浅色；标题栏右侧的太阳/月亮图标可以一键快切。">
+          <Field label="主题" hint="跟随系统时由 Windows 的外观设置决定深浅色。">
             <SegmentedControl
               options={THEME_OPTIONS}
               value={theme}
