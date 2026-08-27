@@ -150,6 +150,21 @@ function defaultUsageRange(): AppState['usageRange'] {
 }
 
 /**
+ * 刷新 usage 前滚动时间窗。预设窗口（今天/7 天/30 天）的 toTs 在选定时就固定为
+ * 「当时的 now」，journal 是追加型，新数据 ts 全部大于它——不滚窗的话自动刷新
+ * 在数学上不可能改变聚合结果，还会制造「明细表在涨、KPI 与走势图不动」的双源
+ * 失配。起点命中任一预设就把它滚成当下（起点零点对齐不变，跨零点后自动滚进
+ * 新一天）；不命中（自定义窗口）说明用户钉死了这段历史，原样保留。
+ */
+function rollUsageRange(range: AppState['usageRange']): AppState['usageRange'] {
+  const presets = [1, 7, 30];
+  const today = startOfTodaySeconds();
+  const matched = presets.some((days) => today - (days - 1) * SECONDS_PER_DAY === range.fromTs);
+  if (!matched) return range;
+  return { ...range, toTs: Math.floor(Date.now() / 1000) };
+}
+
+/**
  * 取错误的人话文本。IPC 的 reject 值本身就是中文字符串，原样返回；
  * 其余情况尽量不丢信息，但不编造「未知错误」之外的解释。
  */
@@ -166,14 +181,27 @@ export function pickDefaultHub(hubs: HubConfig[]): HubConfig | null {
 }
 
 export const useApp = create<AppState>()((set, get) => {
-  const begin = (key: string): void => {
+  /** 每个 refresh key 的请求序号：慢的旧响应后到时序号已过期，结果作废丢弃，
+   *  不许把旧 range 的数据盖在新 range 的状态上——界面顶着新标签显示旧数据
+   *  就是失败被伪装成成功。 */
+  const seq: Record<string, number> = {};
+
+  const begin = (key: string): number => {
+    const ticket = (seq[key] ?? 0) + 1;
+    seq[key] = ticket;
     set((state) => ({
       loading: { ...state.loading, [key]: true },
       error: { ...state.error, [key]: null },
     }));
+    return ticket;
   };
 
-  const finish = (key: string, reason: string | null): void => {
+  /** begin 时取的序号已过期（期间又有新请求）则丢弃结果：过期请求既不写数据，
+   *  也不碰 loading/error——那些归接管了状态的新请求管。 */
+  const isStale = (key: string, ticket: number): boolean => seq[key] !== ticket;
+
+  const finish = (key: string, ticket: number, reason: string | null): void => {
+    if (isStale(key, ticket)) return;
     set((state) => ({
       loading: { ...state.loading, [key]: false },
       error: { ...state.error, [key]: reason },
@@ -184,12 +212,12 @@ export const useApp = create<AppState>()((set, get) => {
 
   /** 动作方法的公共流程：直通 IPC → 成功后刷新受影响的 key → 失败记原文并抛回 */
   const runAction = async (key: string, call: () => Promise<void>, after: RefreshKey[]): Promise<void> => {
-    begin(key);
+    const ticket = begin(key);
     try {
       await call();
-      finish(key, null);
+      finish(key, ticket, null);
     } catch (cause) {
-      finish(key, errorText(cause));
+      finish(key, ticket, errorText(cause));
       throw cause;
     }
     await Promise.all(after.map((next) => get().refresh(next)));
@@ -197,13 +225,13 @@ export const useApp = create<AppState>()((set, get) => {
 
   /** 与 runAction 同一流程，但动作本身有返回值要交还调用方（如 sendChatMessage 的回复本体） */
   const runActionResult = async <T>(key: string, call: () => Promise<T>, after: RefreshKey[]): Promise<T> => {
-    begin(key);
+    const ticket = begin(key);
     let result: T;
     try {
       result = await call();
-      finish(key, null);
+      finish(key, ticket, null);
     } catch (cause) {
-      finish(key, errorText(cause));
+      finish(key, ticket, errorText(cause));
       throw cause;
     }
     await Promise.all(after.map((next) => get().refresh(next)));
@@ -229,50 +257,70 @@ export const useApp = create<AppState>()((set, get) => {
     usageRange: defaultUsageRange(),
 
     refresh: async (key) => {
-      begin(key);
+      const ticket = begin(key);
       try {
         switch (key) {
-          case 'channels':
-            set({ channels: await listChannels() });
-            break;
-          case 'hubs':
-            set({ hubs: await listHubs() });
-            break;
-          case 'pools':
-            set({ pools: await listAccountPools() });
-            break;
-          case 'usage': {
-            const range = get().usageRange;
-            const [summary, rows] = await Promise.all([
-              usageSummary(range.fromTs, range.toTs, range.granularity),
-              recentUsage(RECENT_LIMIT),
-            ]);
-            set({ usage: summary, recentUsage: rows });
+          case 'channels': {
+            const value = await listChannels();
+            if (!isStale(key, ticket)) set({ channels: value });
             break;
           }
-          case 'errors':
-            set({ errors: await recentErrors(RECENT_LIMIT) });
+          case 'hubs': {
+            const value = await listHubs();
+            if (!isStale(key, ticket)) set({ hubs: value });
             break;
-          case 'doctor':
-            set({ doctor: await runDoctor() });
+          }
+          case 'pools': {
+            const value = await listAccountPools();
+            if (!isStale(key, ticket)) set({ pools: value });
             break;
-          case 'chat':
-            set({ chatSessions: await listChatSessions() });
+          }
+          case 'usage': {
+            // 请求前滚窗（rollUsageRange 注释）：预设窗口的 toTs 固定在选定时刻，
+            // 不滚的话追加型 journal 的新数据全部落在窗外，自动刷新对聚合零效果
+            const rolled = rollUsageRange(get().usageRange);
+            const [summary, rows] = await Promise.all([
+              usageSummary(rolled.fromTs, rolled.toTs, rolled.granularity),
+              recentUsage(RECENT_LIMIT),
+            ]);
+            if (!isStale(key, ticket)) set({ usage: summary, recentUsage: rows, usageRange: rolled });
             break;
-          case 'plugins':
-            set({ plugins: await listPlugins() });
+          }
+          case 'errors': {
+            const value = await recentErrors(RECENT_LIMIT);
+            if (!isStale(key, ticket)) set({ errors: value });
             break;
-          case 'tasks':
-            set({ tasks: await listTasks() });
+          }
+          case 'doctor': {
+            const value = await runDoctor();
+            if (!isStale(key, ticket)) set({ doctor: value });
             break;
-          case 'env':
-            set({ env: await appEnv() });
+          }
+          case 'chat': {
+            const value = await listChatSessions();
+            if (!isStale(key, ticket)) set({ chatSessions: value });
             break;
+          }
+          case 'plugins': {
+            const value = await listPlugins();
+            if (!isStale(key, ticket)) set({ plugins: value });
+            break;
+          }
+          case 'tasks': {
+            const value = await listTasks();
+            if (!isStale(key, ticket)) set({ tasks: value });
+            break;
+          }
+          case 'env': {
+            const value = await appEnv();
+            if (!isStale(key, ticket)) set({ env: value });
+            break;
+          }
         }
-        finish(key, null);
+        finish(key, ticket, null);
       } catch (cause) {
         // 单个 key 失败不影响其他 key：原因记在 error[key]，视图各自呈现
-        finish(key, errorText(cause));
+        finish(key, ticket, errorText(cause));
       }
     },
 
@@ -294,16 +342,16 @@ export const useApp = create<AppState>()((set, get) => {
       runAction('setSlotEffort', () => setHubSlotEffort(hub, slot, effort), ['hubs']),
 
     launch: async (target) => {
-      begin('launch');
+      const ticket = begin('launch');
       let result: LaunchResult;
       try {
         result = await launchSession(target);
       } catch (cause) {
-        finish('launch', errorText(cause));
+        finish('launch', ticket, errorText(cause));
         throw cause;
       }
       // ok 为 false 也要留痕：失败不许伪装成成功（AGENTS.md）
-      finish('launch', result.ok ? null : result.message);
+      finish('launch', ticket, result.ok ? null : result.message);
       if (target.kind !== 'channel') {
         // 起的是 hub 或槽位会话，hub 的运行状态可能已经变了
         await get().refresh('hubs');
@@ -324,15 +372,15 @@ export const useApp = create<AppState>()((set, get) => {
     deleteTask: (id) => runAction('deleteTask', () => deleteTaskIpc(id), ['tasks']),
 
     doctorFixSubagentPins: async () => {
-      begin('doctorFixSubagentPins');
+      const ticket = begin('doctorFixSubagentPins');
       let checks: DoctorCheck[];
       try {
         checks = await fixSubagentPins();
       } catch (cause) {
-        finish('doctorFixSubagentPins', errorText(cause));
+        finish('doctorFixSubagentPins', ticket, errorText(cause));
         throw cause;
       }
-      finish('doctorFixSubagentPins', null);
+      finish('doctorFixSubagentPins', ticket, null);
       // 返回值就是修复后的完整体检结果，直接落库并视作 doctor 完成过一次加载，省一次重复体检
       set((state) => ({ doctor: checks, loadedKeys: { ...state.loadedKeys, doctor: true } }));
       return checks;
