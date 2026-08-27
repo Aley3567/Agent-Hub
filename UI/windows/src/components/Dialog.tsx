@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import { cx } from '../lib';
 import { IconButton } from './IconButton';
 import styles from './Dialog.module.css';
-
 export interface DialogProps {
   open: boolean;
   /** Esc、遮罩点击、右上角关闭都走这里 */
@@ -52,6 +51,13 @@ export function Dialog({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
+  // onClose 进 ref 而不是 effect 依赖：消费方都传内联箭头函数，身份随父组件每次
+  // 重渲染变化（tasks 视图有 30s 倒计时定时器），进了依赖数组会让 effect 周期性
+  // 重跑——cleanup 把焦点还给 restoreTo、setup 又抢回第一个输入框，对话框开着
+  // 超过一个定时器周期，正在打字的焦点就被拽走；restoreTo 还会被重捕获成面板内
+  // 元素，关闭后焦点落到已卸载节点。开/关行为只应取决于 open。
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -63,9 +69,11 @@ export function Dialog({
     }
 
     function handleKeyDown(event: KeyboardEvent) {
+      // IME 组合中的 Esc 是取消候选词，不是关闭对话框（Composer 同款守卫）
+      if (event.isComposing) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab') return;
@@ -94,7 +102,7 @@ export function Dialog({
       document.removeEventListener('keydown', handleKeyDown, true);
       if (restoreTo && typeof restoreTo.focus === 'function') restoreTo.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

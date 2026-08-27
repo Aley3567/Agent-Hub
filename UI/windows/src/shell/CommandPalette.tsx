@@ -968,6 +968,9 @@ export default function CommandPalette() {
   };
 
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    // IME 组合中的按键是选词不是命令（Composer 同款守卫）：拼音里按 Enter/Esc
+    // 只该作用于候选窗，执行高亮命令或关面板都会把用户输入截走。
+    if (event.nativeEvent.isComposing) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       if (rows.length === 0) return;
@@ -994,6 +997,8 @@ export default function CommandPalette() {
    * 但也不能像「一律吞掉 Tab」那样让二级面板的返回按钮键盘不可达（DESIGN.md 第 6 节）。
    */
   const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    // 同上：IME 组合中的 Esc 是取消候选词，不该退级/关面板
+    if (event.nativeEvent.isComposing) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       if (mode.kind !== 'root') backToRoot();
