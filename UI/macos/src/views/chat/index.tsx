@@ -59,7 +59,11 @@ export default function ChatView() {
   /* 让本视图正好填满壳层滚动容器的可视高，使滚动只发生在会话列表与消息流内部 */
   useEffect(() => {
     const el = rootRef.current;
-    const scroller = el?.parentElement?.parentElement ?? null;
+    // DOM 链是 .scroll > .container > .view-enter > 视图根（App.tsx 的挂载结构），
+    // 要量的目标是带上下 padding 的 .scroll——少走一层会量到 .container：它没有
+    // padding（减法空转），高度又被内容撑死，窗口 resize 时 ResizeObserver 量的是
+    // 自己，fit 永不重算，整页跟着 .scroll 滚、composer 滚出屏幕。
+    const scroller = el?.parentElement?.parentElement?.parentElement ?? null;
     if (el === null || scroller === null) return;
     const fit = (): void => {
       const cs = getComputedStyle(scroller);
