@@ -180,7 +180,10 @@ export function TimeSeries({
 
   function handleMove(event: MouseEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX - rect.left;
+    // rect 是缩放后的视觉像素（body zoom / max-width 收缩都会让渲染宽 ≠ viewBox 宽），
+    // stepX 是 viewBox 单位——直接相减会把商放大缩放倍数，「大」档下悬停右半段
+    // 读到的是错桶的数据。先换算回 viewBox 坐标系再定位。
+    const x = (event.clientX - rect.left) * (width / (rect.width || width));
     if (rows.length === 1 || stepX === 0) {
       setHover(0);
       return;
