@@ -135,7 +135,7 @@ hover 的背景渐入、面板的位移入场、列表项的错峰出现、数�
    （surface 4.15→4.77、base 4.42→5.07）；浅色 #72747e → `#6c6e78`
    （base 4.23→4.61、surface 4.50→4.91）。DESIGN.md 第 2.1/2.2 节与 macos `tokens.css`
    已同步，比值写进了注释。漂移由 `UI/tools/token-drift.py` 守卫，改完 token 跑一遍即可。
-   **windows 侧尚未同步**，见第 4 节。
+   windows 侧已同步（tokens.css 同值，见第 6 节验收表）。
 4. 引入 elevated 的**顶部高光**（`inset 0 1px 0 rgba(255,255,255,.06)`）与真实投影。
    仅靠背景色区分浮层在深色主题里永远不够，光照线索比色差廉价且有效。
 5. 浅色主题不是深色的机械反相，但**同样不要把 surface 改成纯白**。DESIGN.md 原本把
@@ -285,10 +285,10 @@ refreshView 数组口径、命令面板动作补全、SEVERITY_TONE 单点化、
 | `--dur-fast` 使用次数 | 3（重测口径） | ≥ 8 | **已达 30**（第四批改动已落盘，复核未跑） |
 | `--dur-normal` 使用次数 | 2（重测口径） | ≥ 8 | **已达 18**（同上） |
 | `@keyframes` 总数 | 4 | ≥ 8 | **已达 8**（`palette-in` / `app-progress-slide` / `view-enter` / `list-stagger-in` / `value-flash` / `accent-bar-in` / `fade` / `spin`，全在白名单文件内。**数的时候要剔除注释**——`grep '@keyframes'` 会得到 16，多出的 8 处是注释提到这个词） |
-| 诊断视图单段最大高度 | 3744px | ≤ 2 屏且有锚点导航 | 待第五批 |
-| windows 缺失文件 | 1（store/ui.ts） | 0 | 待第六批 |
-| windows token 对等违规 | 47（`UI/tools/token-parity.py` 2026-08-21 实测） | 0 | 待第六批 |
-| windows 内容差异文件数 | 63（会随 macos 侧改动继续增长） | 仅剩 DESIGN.md 第 5 节白名单内的差异 | 待第六批 |
+| 诊断视图单段最大高度 | 3744px | ≤ 2 屏且有锚点导航 | **已达成**（sticky 小节头 + 锚点导航已落地，第五批） |
+| windows 缺失文件 | 1（store/ui.ts） | 0 | **已达 0**（第六批） |
+| windows token 对等违规 | 47（`UI/tools/token-parity.py` 2026-08-21 实测） | 0 | **已达 0**（第六批） |
+| windows 内容差异文件数 | 63（会随 macos 侧改动继续增长） | 仅剩 DESIGN.md 第 5 节白名单内的差异 | **已收敛**（第六批后实测 28+10，余量归 work-queue S4 对账口径） |
 
 复测脚手架（浏览器控制台可直接跑，与本文数字同源）：
 
@@ -396,10 +396,13 @@ refreshView 数组口径、命令面板动作补全、SEVERITY_TONE 单点化、
      项目根 `unittest` 917 例中 4 例失败，全部位于 ccswitch/switchctl，成因是
      `src/claude_hub/ccswitch.py` 的**他人未提交改动**（stable_provider_id 哈希派生）
      与既有断言冲突，与本批 UI 改动无关。
-5. **第五批（UX 与文案）**：脚本就绪 `UI/.orchestration/batch5-ux.mjs`（10 agent）。
-   诊断分段、命令面板**只补三项**、toast store、降级码文案、空态三件套。
-6. **第六批（windows 追平）**：脚本就绪 `UI/.orchestration/batch6-windows.mjs`（12 agent）。
-   `token-parity.py` 基线 47 项违规，目标 0。
+5. **第五批（UX 与文案）**：已落地（79e1a3a toast store 与命令面板补三项、
+   3f2b7a7 诊断分段锚点等）。
+6. **第六批（windows 追平）**：已落地（9c99c8a / e3f500a / f063175），
+   `token-parity.py` 从 47 项违规收敛到 0。
+
+全部批次已跑完，编排脚本目录 `UI/.orchestration/` 已按其 README 自述的生命周期
+删除（脚本曾入库，需要时可从 git 历史恢复）。
 
 每批结束后更新 DESIGN.md 对应章节与 CONTRACT.md 第 6.2 节（若涉及所有权变更），
 并把实测数字写回本文第 5 节的「当前实测」列——让下一轮重构者看到的是真实基线，不是历史陈述。

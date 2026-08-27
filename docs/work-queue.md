@@ -34,7 +34,8 @@
 - 断流 64 条**全部**是 `phase=stream` + `format=anthropic` + `model=claude-opus-5` + `channel=direct`。
 - `504` 的日分布：08-16 = 0，08-17 = 67，08-18 = 0，08-19 = 22 —— 间歇性，不是恒定配置问题。
 - `UI/` 两端都已实现（`macos/src` 11910 行 + Rust 4981；`windows/src` 11533 行 + Rust 5162），
-  但已漂移：40 个前端文件 + 7 个 Rust 文件内容不同；**整个 `UI/` 尚未纳入 git**。
+  但已漂移：当前实测前端 28 个 + Rust 10 个文件内容不同（多为 DESIGN §5 平台白名单
+  项与平台 FFI 分层，token 层已归零，见 S9/S4）。
 - **现行 system 处理**：Hub 渠道默认 `passthrough`，仅显式 `native_system_role_mode: promote`
   的严格上游才保留提升。真实 Claude CLI 两轮验收：`cr=3840 / cw=0`，无
   `HUB_DEGRADE_SYSTEM_ROLE_PROMOTED`（S1 卡体已于 2026-08-21 压缩，原文见 git）。
@@ -77,22 +78,9 @@
 
 ## S2 · `UI/` 纳入版本控制
 
-**目的**：约 33000 行代码完全在版本控制之外——没历史、没备份、漂移不可见。
-这也是"Windows 端没做好"难受的根源：没有 diff 可看，只能靠记忆。
-
-**做法**
-1. 处理 15 处 `secret_guard` 命中：改占位符，或加精确类别的
-   `secret-guard: allow <category>` 注释（私密指纹还需追加报告中的短哈希）。
-   **不使用 `--no-verify` 绕过。**
-2. `.gitignore` 排除 `node_modules/`、`dist/`、`src-tauri/target/`。
-3. `git add UI/` 并提交。
-
-**验收合同**
-1. `python3 scripts/secret_guard.py --staged` 通过。
-2. 提交后 `git status` 干净；构建产物与依赖目录未入库。
-3. 两端 `npm run typecheck` 各自通过（或记录当前失败项，不假装通过）。
-
-**明确不做**：修漂移、同步那 14 项只落在 `macos/` 的修复（S4 负责）。
+**状态**：✅ 2026-08-26 (f9fc80a)。`UI/` 33k 行基线已入库（415 个文件被跟踪），
+secret_guard 17 处命中全部处置（2 处真私有信息改写、其余误报标记），`.gitignore`
+已排除构建产物。后续 UI 演进按行为级 commit 走正常版本控制；漂移对账归 S4。
 
 ---
 
@@ -120,13 +108,14 @@
 
 **前置**：S2（不入库就没有可靠 diff 基线）
 
-**目的**：40 个前端文件 + 7 个 Rust 文件的差异里，分清**平台必要差异**
+**目的**：当前实测前端 28 个 + Rust 10 个差异文件（S9 追平后余量）里，分清
+**平台必要差异**
 （圆角、字体、动效时长、亚克力层、路径处理——`UI/README.md` 明说两端可以偏离）
 与**漏同步的修复**。
 
 **做法**：逐文件对账，产出表：文件 | 差异性质（平台必要 / 漏同步 / 待判定）| 处理动作。
 
-**验收合同**：表覆盖全部 47 个差异文件；"漏同步"项各有对应修复卡或直接修掉；
+**验收合同**：表覆盖全部差异文件（以对账当时的 `diff -rq` 实测为准，不沿用历史数字）；"漏同步"项各有对应修复卡或直接修掉；
 "平台必要"项在 `UI/DESIGN.md` 有依据。
 
 **明确不做**：把两端强行统一——分目录本身就是为了允许偏离。
@@ -175,20 +164,11 @@ T0.0d ⚠️（Nebius 语义不兼容，已结论）、T0.0e ✅；**T0.1–T0.6
 
 ## S9 · Windows 端同步 2026-08-20 视觉翻新
 
-**状态**：【待建】。2026-08-20 对 `UI/macos/` 做了一轮视觉翻新（侧栏内缩圆角选中块、
-基准字号 13→14、图标 16→18、控件/行高/徽章整体上调、深浅色板拉开层次），
-`UI/DESIGN.md` 已同步为新数值的唯一真理来源。**`UI/windows/` 的 tokens 与组件
-样式仍是旧数值**，已落后于 DESIGN.md。
-
-**做法**：按 DESIGN.md §2/§3/§4 重新生成 `UI/windows/src/styles/tokens.css`
-（注意 §5 平台差异表：Windows 圆角更方、行高 -2px=38、按钮高 -2px、字号基准同档），
-再逐个对账 windows 侧组件 .module.css 中与 macOS 侧本次改动对应的写法
-（侧栏内缩块、Button/Table/Badge/Input/Select/Switch 尺寸与圆角、Card 阴影）。
-
-**验收合同**：windows 端 `npm run typecheck` 与 `build:renderer` 绿；
-两端同视图截图对比，差异都能指到 DESIGN.md §5 的某一行。
-
-**明确不做**：改 Windows 的平台差异本身（Mica、自绘标题栏、可见滚动条等保持原样）。
+**状态**：✅ 2026-08-26 (9c99c8a, e3f500a, f063175)。token-parity 归零（49→0）、
+壳层（十视图路由/三组侧栏/Ctrl 系快捷键/toast/命令面板）与十视图已全部追平，
+`windows/src/store/ui.ts` 已存在，`--text-tertiary` 等关键 token 与 DESIGN 一致。
+余下的两侧文件差异（前端 27 + Rust 9，多为 DESIGN §5 平台白名单项与平台 FFI 分层）
+归 S4 对账口径管理。
 
 ---
 
