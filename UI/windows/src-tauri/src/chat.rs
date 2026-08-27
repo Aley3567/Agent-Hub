@@ -175,12 +175,12 @@ pub fn send_chat_message(session_id: &str, content: &str) -> Result<ChatMessage,
         })?;
 
     let now = now_ts();
-    // 用户输入是自由文本，入会话前过一遍长串清洗（CONTRACT.md §1.2 对 ChatMessage.content 的要求）
-    session
-        .messages
-        .push(message("user", &redact::redact_text(content), now));
+    // 用户输入是自由文本，入会话前过一遍长串清洗（CONTRACT.md §1.2 对 ChatMessage.content 的要求）。
+    // 回复模板引用的也是这份脱敏文本——摘要把原始输入嵌进回复回显，等于绕过同一道闸。
+    let sanitized = redact::redact_text(content);
+    session.messages.push(message("user", &sanitized, now));
 
-    let reply = message("assistant", &demo_reply(session, content), now);
+    let reply = message("assistant", &demo_reply(session, &sanitized), now);
     session.messages.push(reply.clone());
     session.updated_at = now;
     Ok(reply)
@@ -264,5 +264,15 @@ mod tests {
         let stored = &session.messages[session.messages.len() - 2];
         assert!(!stored.content.contains(&"x".repeat(30)));
         assert!(stored.content.contains(redact::MASK));
+    }
+
+    #[test]
+    fn long_token_like_input_is_masked_in_demo_reply_too() {
+        // demo_reply 会把输入前 40 字符嵌进回复：摘录必须取脱敏后文本，
+        // 否则用户气泡有掩码、助手回复却原样回显（CONTRACT.md §1.2）。
+        let fake = format!("sk-demo-{}", "x".repeat(30));
+        let reply = send_chat_message("demo-slot-compare", &fake).unwrap();
+        assert!(!reply.content.contains(&"x".repeat(30)), "{}", reply.content);
+        assert!(reply.content.contains(redact::MASK));
     }
 }

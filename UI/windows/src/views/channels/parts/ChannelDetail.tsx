@@ -98,7 +98,7 @@ export default function ChannelDetail({
               {COMPATIBILITY_LABEL[channel.compatibility]}
             </StatusDot>
             {channel.compatibilityReason === null ? null : (
-              <span className={styles.reason}>{channel.compatibilityReason}</span>
+              <span className={styles.reason}>{redactSecrets(channel.compatibilityReason)}</span>
             )}
             {channel.compatibility === 'unassessed' ? (
               <span className={styles.hint}>{UNASSESSED_EXPLAINER}</span>
@@ -128,14 +128,14 @@ export default function ChannelDetail({
             {channel.declaredModel === null ? (
               <span className={styles.muted}>渠道未声明 env.ANTHROPIC_MODEL</span>
             ) : (
-              <span className={styles.mono}>{channel.declaredModel}</span>
+              <span className={styles.mono}>{redactSecrets(channel.declaredModel)}</span>
             )}
             {channel.modelOverride === null ? (
               <span className={styles.hint}>没有本地覆盖</span>
             ) : (
               <span className={styles.hint}>
                 <span>本地覆盖成 </span>
-                <span className={styles.mono}>{channel.modelOverride}</span>
+                <span className={styles.mono}>{redactSecrets(channel.modelOverride)}</span>
               </span>
             )}
           </Fact>

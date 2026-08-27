@@ -17,7 +17,7 @@
  */
 import { memo, useLayoutEffect, useMemo, useRef } from 'react';
 import type { ChatMessage, ChatSession } from '../../../types/contract';
-import { cx, formatTime } from '../../../lib';
+import { cx, formatTime, redactSecrets } from '../../../lib';
 import styles from './MessageStream.module.css';
 
 /** 一次进行中的发送：用户消息已本地回显；reply 到位后按 shown 逐字渲染 */
@@ -111,7 +111,8 @@ function MessageStream({ session, pending, followSignal }: MessageStreamProps) {
         ) : (
           <div className={cx(styles.row, styles.assistantRow)}>
             <p className={styles.assistantText}>
-              {pending.reply.content.slice(0, pending.shown)}
+              {/* 先过闸再截断：截断后再脱敏会让 token 前 24 个字符的片段逃过 LONG_RUN */}
+              {redactSecrets(pending.reply.content).slice(0, pending.shown)}
               {/* 逐字出现是数据到达不是过渡；渲染中光标挂 caret-pulse（DESIGN.md 2.5 / 4.5） */}
               <span className={cx(styles.caret, 'caret-pulse')} aria-hidden="true" />
             </p>
@@ -126,24 +127,27 @@ function MessageStream({ session, pending, followSignal }: MessageStreamProps) {
 }
 
 function MessageRow({ session, message }: { session: ChatSession; message: ChatMessage }) {
+  // content 过第二道闸（CONTRACT.md §1.2）：第一道在 Rust/mock 落库前，这里兜底渲染前——
+  // pending 本地回显的消息没过第一道，更不能裸渲。
+  const content = redactSecrets(message.content);
   if (message.role === 'system') {
     return (
       <div className={cx(styles.row, styles.systemRow)}>
-        <p className={styles.systemBar}>{message.content}</p>
+        <p className={styles.systemBar}>{content}</p>
       </div>
     );
   }
   if (message.role === 'user') {
     return (
       <div className={cx(styles.row, styles.userRow)}>
-        <p className={styles.bubble}>{message.content}</p>
+        <p className={styles.bubble}>{content}</p>
         <p className={styles.meta}>{formatTime(message.ts, { seconds: false })}</p>
       </div>
     );
   }
   return (
     <div className={cx(styles.row, styles.assistantRow)}>
-      <p className={styles.assistantText}>{message.content}</p>
+      <p className={styles.assistantText}>{content}</p>
       <p className={styles.meta}>
         {session.model} · {formatTime(message.ts, { seconds: false })}
       </p>

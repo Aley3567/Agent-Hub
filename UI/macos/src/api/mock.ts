@@ -39,6 +39,7 @@ import type {
   UsageRow,
   UsageSummary,
 } from '../types/contract';
+import { redactSecrets } from '../lib/redact';
 
 const HOUR = 3600;
 const DAY = 86400;
@@ -924,9 +925,12 @@ export function mockSendChatMessage(sessionId: string, content: string): Promise
     return Promise.reject(new Error('消息内容为空，没有可发送的文本。'));
   }
   const ts = Math.floor(Date.now() / 1000);
-  session.messages.push({ role: 'user', content: trimmed, ts });
+  // 与 Rust 侧 send_chat_message 同口径：入库消息与回复摘录都取脱敏后文本，
+  // 不能只有用户气泡过闸、助手回复原样回显（CONTRACT.md §1.2）。
+  const sanitized = redactSecrets(trimmed);
+  session.messages.push({ role: 'user', content: sanitized, ts });
   const channelName = MOCK_CHANNELS.find((channel) => channel.id === session.channelId)?.name ?? '（未绑定渠道）';
-  const excerpt = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+  const excerpt = sanitized.length > 40 ? `${sanitized.slice(0, 40)}…` : sanitized;
   const reply: ChatMessage = {
     role: 'assistant',
     content: `（演示回复）你刚才说：「${excerpt}」。这个会话绑定渠道「${channelName}」、模型 ${session.model}。${DEMO_NOTICE}`,
