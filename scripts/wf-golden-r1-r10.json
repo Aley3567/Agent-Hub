@@ -1,0 +1,85 @@
+[
+ {
+  "id": 1,
+  "hash": "94d2dbb0e2768c6d69b8fe054f9741f8c202ca25",
+  "file": "UI/macos/src/views/chat/index.tsx",
+  "verdict": "confirmed",
+  "match": [
+   "pending"
+  ],
+  "note": "R1 pending 回显脱敏缺口(LONG_RUN 不含 -/_,未过第一道闸)",
+  "severity": "medium"
+ },
+ {
+  "id": 2,
+  "hash": "3056433a5628d0a5804b66d1e19472effc7cfa60",
+  "file": "UI/macos/src/store/index.ts",
+  "verdict": "confirmed",
+  "match": [
+   "跨零点",
+   "滚窗"
+  ],
+  "note": "R7 rollUsageRange 跨零点锚点失配冻结",
+  "severity": "medium"
+ },
+ {
+  "id": 3,
+  "hash": "4101111f2114736fdf4c3d94458a4088bd0b201b",
+  "file": "MessageStream.tsx",
+  "verdict": "confirmed",
+  "match": [
+   "sameMessage"
+  ],
+  "note": "重发同文本旧消息短暂消失",
+  "severity": "low"
+ },
+ {
+  "id": 4,
+  "hash": "76e5fac5df344bbc467973ae3a3e70af81cab232",
+  "file": "CommandPalette.tsx",
+  "verdict": "confirmed",
+  "match": [
+   "229",
+   "WKWebView",
+   "compositionend",
+   "IME"
+  ],
+  "note": "IME 守卫未查 keyCode 229(当前 WKWebView 部署面)",
+  "severity": "low"
+ },
+ {
+  "id": 5,
+  "hash": "4101111f2114736fdf4c3d94458a4088bd0b201b",
+  "file": "doctor/index.tsx",
+  "verdict": "confirmed",
+  "match": [
+   "fixNote"
+  ],
+  "note": "fixNote 不随重新体检清除,注释口径反事实",
+  "severity": "low"
+ },
+ {
+  "id": 6,
+  "hash": "4101111f2114736fdf4c3d94458a4088bd0b201b",
+  "file": "api/index.ts",
+  "verdict": "refuted",
+  "match": [
+   "MOCK_PLUGINS",
+   "插件"
+  ],
+  "note": "R9 插件开关引用相等不动(PluginRow busy 本地态兜住)",
+  "severity": "medium"
+ },
+ {
+  "id": 7,
+  "hash": "3056433a5628d0a5804b66d1e19472effc7cfa60",
+  "file": "store/index.ts",
+  "verdict": "refuted",
+  "match": [
+   "doctorFixSubagentPins",
+   "doctor 写回"
+  ],
+  "note": "doctor 写回竞态(Tauri 同步 command 串行,交错不可能)",
+  "severity": "low"
+ }
+]
