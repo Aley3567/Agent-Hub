@@ -156,52 +156,104 @@ pub struct UsageSummary {
 }
 
 // ---------------------------------------------------------------------------
-// 本地时区分桶
+// 本地时区分桶（本文件唯一的平台相关层）
+//
+// 与 cron.rs 同一套模式：Windows 用 UCRT 的 _localtime64_s（UCRT 没有 POSIX 的
+// localtime_r，struct tm 也只有 9 个 int，没有 macOS libSystem 布局尾部的
+// tm_gmtoff / tm_zone），其它平台（macOS / Linux）用 libc 的 localtime_r。
+// 只读 hour/min/sec 三个字段，其余成员只为对上 struct tm 内存布局。
 // ---------------------------------------------------------------------------
 
-// 只读 hour/min/sec 三个字段，其余成员只为对上 macOS 的 struct tm 内存布局。
-#[allow(dead_code)]
-#[repr(C)]
-struct CTm {
-    sec: i32,
-    min: i32,
-    hour: i32,
-    mday: i32,
-    mon: i32,
-    year: i32,
-    wday: i32,
-    yday: i32,
-    isdst: i32,
-    gmtoff: i64,
-    zone: *const std::os::raw::c_char,
-}
-
-extern "C" {
-    fn localtime_r(clock: *const i64, result: *mut CTm) -> *mut CTm;
-}
-
-/// 取某个时刻的本地 时/分/秒。用 libSystem 的 localtime_r，不引第三方时间库。
-fn local_hms(ts: i64) -> Option<(i64, i64, i64)> {
-    let clock: i64 = ts;
-    let mut out = CTm {
-        sec: 0,
-        min: 0,
-        hour: 0,
-        mday: 0,
-        mon: 0,
-        year: 0,
-        wday: 0,
-        yday: 0,
-        isdst: 0,
-        gmtoff: 0,
-        zone: std::ptr::null(),
-    };
-    let result = unsafe { localtime_r(&clock as *const i64, &mut out as *mut CTm) };
-    if result.is_null() {
-        return None;
+#[cfg(target_os = "windows")]
+mod local_time {
+    // UCRT 的 struct tm 布局：9 个 int（cron.rs 的 Windows 分支是同一份）。
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct CTm {
+        sec: i32,
+        min: i32,
+        hour: i32,
+        mday: i32,
+        mon: i32,
+        year: i32,
+        wday: i32,
+        yday: i32,
+        isdst: i32,
     }
-    Some((out.hour as i64, out.min as i64, out.sec as i64))
+
+    extern "C" {
+        fn _localtime64_s(result: *mut CTm, clock: *const i64) -> i32;
+    }
+
+    /// 取某个时刻的本地 时/分/秒。errno_t：0 为成功，非 0 时 out 不可用。
+    pub fn local_hms(ts: i64) -> Option<(i64, i64, i64)> {
+        let clock: i64 = ts;
+        let mut out = CTm {
+            sec: 0,
+            min: 0,
+            hour: 0,
+            mday: 0,
+            mon: 0,
+            year: 0,
+            wday: 0,
+            yday: 0,
+            isdst: 0,
+        };
+        if unsafe { _localtime64_s(&mut out, &clock) } != 0 {
+            return None;
+        }
+        Some((out.hour as i64, out.min as i64, out.sec as i64))
+    }
 }
+
+#[cfg(not(target_os = "windows"))]
+mod local_time {
+    // libSystem / glibc 的 struct tm 布局。
+    #[allow(dead_code)]
+    #[repr(C)]
+    struct CTm {
+        sec: i32,
+        min: i32,
+        hour: i32,
+        mday: i32,
+        mon: i32,
+        year: i32,
+        wday: i32,
+        yday: i32,
+        isdst: i32,
+        gmtoff: i64,
+        zone: *const std::os::raw::c_char,
+    }
+
+    extern "C" {
+        fn localtime_r(clock: *const i64, result: *mut CTm) -> *mut CTm;
+    }
+
+    /// 取某个时刻的本地 时/分/秒。
+    pub fn local_hms(ts: i64) -> Option<(i64, i64, i64)> {
+        let clock: i64 = ts;
+        let mut out = CTm {
+            sec: 0,
+            min: 0,
+            hour: 0,
+            mday: 0,
+            mon: 0,
+            year: 0,
+            wday: 0,
+            yday: 0,
+            isdst: 0,
+            gmtoff: 0,
+            zone: std::ptr::null(),
+        };
+        let result = unsafe { localtime_r(&clock as *const i64, &mut out as *mut CTm) };
+        if result.is_null() {
+            return None;
+        }
+        Some((out.hour as i64, out.min as i64, out.sec as i64))
+    }
+}
+
+use local_time::local_hms;
 
 /// 桶起点：小时桶对齐到本地整点，天桶对齐到本地零点。
 ///
