@@ -346,6 +346,43 @@ class StatuslineModelTests(unittest.TestCase):
 
             self.assertEqual(statusline.resolve_model(payload, env), "DB Model")
 
+    def test_official_shaped_slot_value_belongs_to_its_slot_not_the_prefix_tier(
+        self,
+    ) -> None:
+        # CC Switch mapping fable -> a real Anthropic id makes /model report
+        # that concrete id; the ``claude-opus-`` prefix must not hand it to the
+        # opus slot (glm-5.3) while the session actually runs opus 5.
+        env = {
+            "CLAUDE1_SESSION_SOURCE": "provider",
+            "ANTHROPIC_MODEL": "glm-5.3",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.3",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME": "glm-5.3",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.3",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.3",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-20260820",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL_NAME": "claude-opus-5-20260820",
+        }
+        payload = {
+            "model": {"id": "claude-opus-5-20260820", "display_name": "Opus 5"},
+        }
+
+        self.assertEqual(
+            statusline.resolve_model(payload, env),
+            "claude-opus-5-20260820",
+        )
+
+    def test_official_shaped_slot_value_survives_without_slot_names(self) -> None:
+        env = {
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.3",
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-opus-5-20260820",
+        }
+        payload = {"model": {"id": "claude-opus-5-20260820"}}
+
+        self.assertEqual(
+            statusline.resolve_model(payload, env),
+            "claude-opus-5-20260820",
+        )
+
     def test_db_connect_failure_returns_empty_without_unbound_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             db = Path(raw) / "cc-switch.db"

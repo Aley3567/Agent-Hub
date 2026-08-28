@@ -134,16 +134,29 @@ def _string_env(raw: object) -> dict[str, str]:
     }
 
 
-def _model_from_env(model_id: str, env: dict[str, str]) -> str:
+def _exact_slot_model(model_id: str, env: dict[str, str]) -> str:
+    """Return the owning slot's display value when ``model_id`` is configured.
+
+    An official-shaped id is not automatically a tier placeholder: a slot
+    mapped to a real Anthropic model (e.g. fable -> claude-opus-5-*) makes
+    /model report that concrete id, and only exact equality with a slot value
+    ties it back to the slot that actually serves it.
+    """
     if not model_id:
-        return env.get("ANTHROPIC_MODEL", "")
+        return ""
     for tier in MODEL_TIERS:
         model_key = f"ANTHROPIC_DEFAULT_{tier}_MODEL"
         if env.get(model_key) == model_id:
             return env.get(f"{model_key}_NAME") or model_id
     if env.get("ANTHROPIC_CUSTOM_MODEL_OPTION") == model_id:
         return env.get("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME") or model_id
-    return model_id
+    return ""
+
+
+def _model_from_env(model_id: str, env: dict[str, str]) -> str:
+    if not model_id:
+        return env.get("ANTHROPIC_MODEL", "")
+    return _exact_slot_model(model_id, env) or model_id
 
 
 def _gateway_selector_model(model_id: str) -> str:
@@ -301,6 +314,13 @@ def resolve_model(
     gateway_route = _gateway_selector_model(model_id)
     if gateway_route:
         return gateway_route
+    # Exact slot-value equality is a stronger signal than the tier-word guess
+    # below: a slot mapped to a real Anthropic id (fable -> claude-opus-5-*)
+    # reports that official-shaped id, and it belongs to the slot that serves
+    # it, not to the tier named by its prefix.
+    exact_route = _exact_slot_model(model_id, env)
+    if exact_route:
+        return exact_route
     slot_route = _slot_model_from_placeholder(model_id, env)
     if slot_route:
         return slot_route
