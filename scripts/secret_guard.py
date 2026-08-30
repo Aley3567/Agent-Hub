@@ -49,6 +49,13 @@ FILE_EXEMPTIONS: dict[str, frozenset[tuple[str, str]]] = {
             ("private-provider-name", "07f1896758"),
         }
     ),
+    # History blobs of this file predate their per-line markers; the word was
+    # already public on origin/main, so blocking it locally adds no secrecy.
+    "docs/work-queue.md": frozenset(
+        {
+            ("private-provider-name", "97985df2c2"),
+        }
+    ),
 }
 ZERO_SHA = "0" * 40
 SENSITIVE_KEY_RE = re.compile(
