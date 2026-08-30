@@ -89,6 +89,13 @@ def _validate_upstream_usage_fields(
         if detail_key not in raw_usage:
             continue
         detail = raw_usage[detail_key]
+        if detail is None:
+            # ``null`` is how OpenAI-compatible upstreams (Nebius, DeepSeek)  # secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，方言溯源标记）
+            # spell "no split available", the same reading the top-level usage
+            # object already gets.  Aborting here would kill a stream whose
+            # content already reached the client.
+            degraded_paths.append(f"$.usage.{detail_key}")
+            continue
         if not isinstance(detail, dict):
             raise ProtocolTransformError(
                 f"upstream usage field {detail_key!r} must be an object",
@@ -103,6 +110,11 @@ def _validate_upstream_usage_fields(
         )
         for field_name in sorted(set(detail) & detail_fields):
             counter = detail[field_name]
+            if counter is None:
+                # Same null reading as the detail object itself: unreported,
+                # not malformed.  Non-null junk stays fatal below.
+                degraded_paths.append(f"$.usage.{detail_key}.{field_name}")
+                continue
             if _token_count(counter, -1) < 0:
                 raise ProtocolTransformError(
                     f"upstream usage counter {detail_key}.{field_name} is invalid",
@@ -329,12 +341,15 @@ def _cache_read(raw_usage: dict) -> object:
         if key not in raw_usage:
             continue
         details = raw_usage[key]
+        if details is None:
+            # Absent evidence, not malformed evidence: no carrier to coalesce.
+            continue
         if not isinstance(details, dict):
             raise ProtocolTransformError(
                 f"upstream cache-read usage field {key!r} must be an object",
                 code="HUB_UPSTREAM_USAGE_INVALID",
             )
-        if "cached_tokens" in details:
+        if details.get("cached_tokens") is not None:
             carriers.append((f"{key}.cached_tokens", details["cached_tokens"]))
     for key in ("cache_read_input_tokens", "cache_read_tokens"):
         if key in raw_usage:
@@ -359,6 +374,8 @@ def _usage_detail(
     if key not in raw_usage:
         return _MISSING
     value = raw_usage[key]
+    if value is None:
+        return _MISSING
     if not isinstance(value, dict) or set(value) - allowed_fields:
         raise ProtocolTransformError(
             f"upstream usage field {key!r} has an unsupported shape",
@@ -366,6 +383,8 @@ def _usage_detail(
         )
     normalized: dict[str, int] = {}
     for field_name, counter in value.items():
+        if counter is None:
+            continue
         parsed = _token_count(counter, -1)
         if parsed < 0:
             raise ProtocolTransformError(

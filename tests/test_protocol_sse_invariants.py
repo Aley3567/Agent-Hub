@@ -1296,6 +1296,100 @@ class StreamStateMachineContractTests(unittest.TestCase):
             invalid.finish()
         self.assertEqual(raised.exception.code, "HUB_SSE_TOOL_ARGUMENTS_INVALID")
 
+    def test_streamed_tool_call_null_identity_continues_the_open_call(self) -> None:
+        """Null id/name on a continuation fragment means "same call".
+
+        Verbatim fragment shape from Nebius Token Factory  # secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，方言溯源标记）
+        (deepseek-ai/DeepSeek-V4-Flash-0731): the opening fragment carries the
+        identity, every later fragment repeats the keys as ``null`` instead of
+        omitting them.  Rejecting those aborted the stream mid-response.
+        """
+        bridge = protocol.AnthropicStreamBridge("openai_chat")
+        fragments = (
+            ("call_6842deb50e6343dc9f6c3319", "get_weather", ""),
+            (None, None, "{"),
+            (None, None, '"city": "北京"}'),
+        )
+        chunks: list[bytes] = []
+        for call_id, name, arguments in fragments:
+            chunks.extend(
+                bridge.feed(
+                    "message",
+                    json.dumps(
+                        {
+                            "id": "84c5699c8fba47c99b32217c9b43bf7a",
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": None,
+                                        "role": None,
+                                        "reasoning_content": None,
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "id": call_id,
+                                                "type": "function",
+                                                "function": {
+                                                    "arguments": arguments,
+                                                    "name": name,
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    "index": 0,
+                                }
+                            ],
+                            "usage": None,
+                        }
+                    ),
+                )
+            )
+        chunks.extend(
+            bridge.feed(
+                "message",
+                json.dumps(
+                    {
+                        "choices": [
+                            {
+                                "delta": {"content": None},
+                                "finish_reason": "tool_calls",
+                                "index": 0,
+                            }
+                        ]
+                    }
+                ),
+            )
+        )
+        chunks.extend(bridge.finish())
+        rendered = b"".join(chunks)
+        _assert_anthropic_stream_invariants(self, rendered)
+        events = [
+            json.loads(data) for _, data in protocol.SSEParser().feed(rendered)
+        ]
+        starts = [
+            event
+            for event in events
+            if event["type"] == "content_block_start"
+            and event["content_block"]["type"] == "tool_use"
+        ]
+        self.assertEqual(len(starts), 1)
+        self.assertEqual(starts[0]["content_block"]["name"], "get_weather")
+        self.assertEqual(
+            starts[0]["content_block"]["id"],
+            "call_6842deb50e6343dc9f6c3319",
+        )
+        arguments = "".join(
+            event["delta"]["partial_json"]
+            for event in events
+            if event["type"] == "content_block_delta"
+            and event["delta"]["type"] == "input_json_delta"
+        )
+        self.assertEqual(json.loads(arguments), {"city": "北京"})
+        stop = next(
+            event for event in events if event["type"] == "message_delta"
+        )
+        self.assertEqual(stop["delta"]["stop_reason"], "tool_use")
+
     def test_streamed_tool_calls_require_an_explicit_json_object(self) -> None:
         chat = protocol.AnthropicStreamBridge("openai_chat")
         chat.feed(
@@ -3997,6 +4091,88 @@ class StreamStateMachineContractTests(unittest.TestCase):
             for _, data in protocol.SSEParser().feed(b"".join(chunks))
         ]
         self.assertEqual(events[-1]["type"], "message_stop")
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            bridge.warning_codes,
+        )
+
+    def test_stream_usage_null_detail_degrades_instead_of_killing_stream(self) -> None:
+        """A null usage detail is absent evidence, not malformed evidence.
+
+        Verbatim usage shape from Nebius Token Factory  # secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，方言溯源标记）
+        (deepseek-ai/DeepSeek-V4-Flash-0731): the split carriers arrive as
+        ``null``.  Rejecting it aborted streams whose content had already
+        reached the client, which reads downstream as a mid-response cutoff.
+        """
+        # The launcher runs the default "visible_lossy" mode; strict turns every
+        # degradation fatal by design and would not exercise this path.
+        bridge = protocol.AnthropicStreamBridge("openai_chat")
+        chunks = bridge.feed(
+            "message",
+            json.dumps(
+                {
+                    "id": "605d0fad8ed64158aae59d97b94e0447",
+                    "choices": [
+                        {"delta": {"role": "assistant", "content": "你好"}, "index": 0}
+                    ],
+                }
+            ),
+        )
+        chunks.extend(bridge.feed(
+            "message",
+            json.dumps(
+                {
+                    "id": "605d0fad8ed64158aae59d97b94e0447",
+                    "choices": [
+                        {
+                            "delta": {"reasoning_content": None},
+                            "finish_reason": "stop",
+                            "index": 0,
+                            "matched_stop": 1,
+                        }
+                    ],
+                }
+            ),
+        ))
+        chunks.extend(
+            bridge.feed(
+                "message",
+                json.dumps(
+                    {
+                        "choices": [],
+                        "usage": {
+                            "completion_tokens": 13,
+                            "prompt_tokens": 90,
+                            "total_tokens": 103,
+                            "completion_tokens_details": {"reasoning_tokens": 10},
+                            "prompt_tokens_details": None,
+                            "prompt_cache_hit_tokens": 0,
+                            "prompt_cache_miss_tokens": 90,
+                            "reasoning_tokens": 10,
+                        },
+                    }
+                ),
+            )
+        )
+        chunks.extend(bridge.finish())
+        rendered = b"".join(chunks)
+        _assert_anthropic_stream_invariants(self, rendered)
+        events = [
+            json.loads(data)
+            for _, data in protocol.SSEParser().feed(rendered)
+        ]
+        self.assertEqual(events[-1]["type"], "message_stop")
+        deltas = [
+            event
+            for event in events
+            if event["type"] == "message_delta" and event.get("usage")
+        ]
+        self.assertTrue(deltas)
+        usage = deltas[-1]["usage"]
+        self.assertEqual(usage["input_tokens"], 90)
+        self.assertEqual(usage["output_tokens"], 13)
+        # No nested carrier arrived, so no cache-read may be fabricated.
+        self.assertNotIn("cache_read_input_tokens", usage)
         self.assertIn(
             "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
             bridge.warning_codes,

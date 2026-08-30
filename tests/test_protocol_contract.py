@@ -2230,6 +2230,67 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                 self.assertNotIn("input_tokens_details", usage)
                 self.assertNotIn("prompt_tokens_details", usage)
 
+    def test_usage_null_details_and_counters_degrade_without_rejecting(self) -> None:
+        """Null usage carriers mean "unreported", the same as absent ones.
+
+        Verbatim non-stream usage from Nebius Token Factory  # secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，方言溯源标记）
+        (deepseek-ai/DeepSeek-V4-Flash-0731): the detail object is ``null`` and
+        the unreported counters inside a present detail object are ``null`` too.
+        """
+        body = {
+            "choices": [
+                {"message": {"content": "answer"}, "finish_reason": "stop"}
+            ],
+            "usage": {
+                "completion_tokens": 1,
+                "prompt_tokens": 120086,
+                "total_tokens": 120087,
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": None,
+                    "audio_tokens": None,
+                    "reasoning_tokens": 1,
+                    "rejected_prediction_tokens": None,
+                },
+                "prompt_tokens_details": None,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 120086,
+                "reasoning_tokens": 1,
+            },
+        }
+        prepared = protocol.prepare_response(body, "openai_chat")
+        usage = prepared.payload["usage"]
+        self.assertEqual(usage["input_tokens"], 120086)
+        self.assertEqual(usage["output_tokens"], 1)
+        # A null cache carrier proves nothing, so no cache-read may appear.
+        self.assertNotIn("cache_read_input_tokens", usage)
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            prepared.plan.warning_codes,
+        )
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED"
+            "@$.usage.prompt_tokens_details",
+            prepared.plan.warning_details,
+        )
+
+    def test_usage_null_cached_tokens_is_not_cache_evidence(self) -> None:
+        body = {
+            "choices": [
+                {"message": {"content": "answer"}, "finish_reason": "stop"}
+            ],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 5,
+                "prompt_tokens_details": {"cached_tokens": None},
+            },
+        }
+        prepared = protocol.prepare_response(body, "openai_chat")
+        usage = prepared.payload["usage"]
+        # The base input counter stays untouched: without a nested carrier
+        # there is nothing to subtract and nothing to report as cached.
+        self.assertEqual(usage["input_tokens"], 100)
+        self.assertNotIn("cache_read_input_tokens", usage)
+
     def test_usage_total_tokens_must_be_a_non_negative_counter(self) -> None:
         cases = (
             (

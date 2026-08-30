@@ -6790,6 +6790,16 @@ class AnthropicStreamBridge:
                 )
             call_id_value = call.get("id", "")
             name_value = function.get("name", "")
+            # A continuation fragment carries no new identity.  OpenAI omits the
+            # keys; Nebius/SGLang send an explicit ``null`` for the same thing.  # secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，方言溯源标记）
+            # Both fold into the empty-string path below, which appends to the
+            # call already opened at this index instead of restating it.  Any
+            # other non-text identity stays fatal: a wrong identity would route
+            # arguments into the wrong tool.
+            if call_id_value is None:
+                call_id_value = ""
+            if name_value is None:
+                name_value = ""
             if not isinstance(call_id_value, str) or not isinstance(name_value, str):
                 raise ProtocolTransformError(
                     "OpenAI Chat streamed tool identity must be text",
