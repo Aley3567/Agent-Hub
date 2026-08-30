@@ -6,6 +6,7 @@ import hmac
 import io
 import json
 import os
+import signal
 import socket
 import sqlite3
 import stat
@@ -67,6 +68,8 @@ def isolated_env(home: Path, **overrides: str) -> dict[str, str]:
         "CLAUDE1_BACKEND_STATE": str(state / "last-session.json"),
         "CLAUDE1_BACKEND_STICKY": str(state / "sticky"),
         "CLAUDE1_SESSION_ROUTES_PATH": str(state / "session-routes.json"),
+        "CLAUDE1_BRIDGE_STATE": str(state / "bridge-state.json"),
+        "CLAUDE1_BRIDGE_ROOT": str(state / "bridge"),
         "CLAUDE1_ANYROUTER_OBSERVER": str(home / "bin" / "observer"),
         "CLAUDE1_ANYROUTER_SETTINGS": str(home / "settings" / "anyrouter.json"),
         "CLAUDE1_NOTION_MCP": str(home / "settings" / "notion.json"),
@@ -3179,21 +3182,30 @@ class LauncherSafetyTests(unittest.TestCase):
             write_executable(script, "#!/bin/sh\nexec sleep 30\n")
             with loaded_launcher(env) as launcher:
                 port = free_local_port()
+                log_path = Path(raw_home) / "bridge.log"
+                child_env = {
+                    "CLAUDE_HUB_LOCAL_TOKEN": "fixture-token",
+                    "PATH": os.environ["PATH"],
+                }
+                # acquire 路径先拉起桥进程，supervisor 只负责看护与恢复。
                 listener = launcher._reserve_loopback_port(port)
+                with mock.patch.object(launcher, "hub_healthy", return_value=True):
+                    first = launcher._start_protocol_bridge(
+                        port=port,
+                        log_path=log_path,
+                        child_env=child_env,
+                        listener=listener,
+                    )
                 supervisor = launcher._ProtocolBridgeSupervisor(
                     port=port,
-                    log_path=Path(raw_home) / "bridge.log",
-                    child_env={
-                        "CLAUDE_HUB_LOCAL_TOKEN": "fixture-token",
-                        "PATH": os.environ["PATH"],
-                    },
-                    initial_listener=listener,
+                    log_path=log_path,
+                    child_env=child_env,
+                    process=first,
                 )
+                replacement = None
                 try:
                     with mock.patch.object(launcher, "hub_healthy", return_value=True):
                         supervisor.start()
-                        first = supervisor._process
-                        assert first is not None
                         first.terminate()
                         first.wait(timeout=5)
                         deadline = time.monotonic() + 3
@@ -3209,10 +3221,13 @@ class LauncherSafetyTests(unittest.TestCase):
                     self.assertIsNone(replacement.poll())
                     self.assertIn(
                         f"restored on {port}",
-                        (Path(raw_home) / "bridge.log").read_text(encoding="utf-8"),
+                        log_path.read_text(encoding="utf-8"),
                     )
                 finally:
                     supervisor.close()
+                    if replacement is not None and replacement.poll() is None:
+                        replacement.terminate()
+                        replacement.wait(timeout=5)
 
     def test_protocol_bridge_errors_journal_outlives_the_temp_dir(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
@@ -3238,11 +3253,259 @@ class LauncherSafetyTests(unittest.TestCase):
                 env = popen.call_args.kwargs["env"]
                 log_file = Path(env["CLAUDE_HUB_LOG"])
                 errors_file = Path(env["CLAUDE_HUB_ERRORS"])
-                # hub.log 随临时目录销毁；errors journal 必须落在目录外的
-                # 持久位置，否则桥路径的上游错误随会话退出被抹掉，
-                # `claude-hub errors` 永远读不到。
+                # errors journal 必须落在桥运行目录之外的持久位置，否则
+                # 桥路径的上游错误无法被 `claude-hub errors` 读到。
                 self.assertEqual(errors_file, launcher.BRIDGE_ERRORS_PATH)
                 self.assertFalse(errors_file.is_relative_to(log_file.parent))
+
+    def test_protocol_bridge_reuses_a_healthy_persistent_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                process = mock.Mock()
+                process.pid = 4242
+                process.poll.return_value = None
+                process.wait.return_value = 0
+                provider = {"id": "chat-provider", "name": "Chat Provider"}
+                with mock.patch.object(
+                    launcher.subprocess, "Popen", return_value=process
+                ) as popen, mock.patch.object(
+                    launcher, "hub_healthy", return_value=True
+                ), mock.patch.object(
+                    launcher, "launch_with_settings", return_value=0
+                ):
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        launcher.launch_with_protocol_bridge(
+                            provider, {"env": {}}, "openai_chat", []
+                        )
+                    self.assertIn("隔离端口", output.getvalue())
+                    self.assertEqual(popen.call_count, 1)
+
+                    # 第二次启动同 key：必须零 spawn，直接复用常驻桥。
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        launcher.launch_with_protocol_bridge(
+                            provider, {"env": {}}, "openai_chat", []
+                        )
+                    self.assertIn("复用常驻桥", output.getvalue())
+                    self.assertEqual(popen.call_count, 1)
+
+                state = json.loads(
+                    Path(launcher.BRIDGE_STATE_PATH).read_text(encoding="utf-8")
+                )
+                self.assertEqual(len(state["bridges"]), 1)
+
+    def test_protocol_bridge_rebuilds_after_the_hub_code_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            env = self._bridge_fixture(raw_home)
+            script = Path(env["CLAUDE1_HUB_SCRIPT"])
+            with loaded_launcher(env) as launcher:
+                process = mock.Mock()
+                process.pid = 4242
+                process.poll.return_value = None
+                process.wait.return_value = 0
+                provider = {"id": "chat-provider", "name": "Chat Provider"}
+                with mock.patch.object(
+                    launcher.subprocess, "Popen", return_value=process
+                ) as popen, mock.patch.object(
+                    launcher, "hub_healthy", return_value=True
+                ), mock.patch.object(
+                    launcher, "launch_with_settings", return_value=0
+                ):
+                    launcher.launch_with_protocol_bridge(
+                        provider, {"env": {}}, "openai_chat", []
+                    )
+                    self.assertEqual(popen.call_count, 1)
+
+                    # 部署更新改变 mtime → 指纹失效 → 必须重建而不是复用。
+                    os.utime(script, None)
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        launcher.launch_with_protocol_bridge(
+                            provider, {"env": {}}, "openai_chat", []
+                        )
+                    self.assertEqual(popen.call_count, 2)
+                    self.assertNotIn("复用常驻桥", output.getvalue())
+
+    def test_protocol_bridge_concurrent_cold_start_yields_one_bridge(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                process = mock.Mock()
+                process.pid = 4242
+                process.poll.return_value = None
+                process.wait.return_value = 0
+                provider = {"id": "chat-provider", "name": "Chat Provider"}
+                results: list[mock.Mock] = []
+                errors: list[BaseException] = []
+                barrier = threading.Barrier(2)
+
+                def acquire() -> None:
+                    try:
+                        barrier.wait(timeout=5)
+                        lease = launcher._acquire_protocol_bridge(
+                            provider, "openai_chat", {}, {"env": {}}
+                        )
+                        results.append(lease)
+                    except BaseException as exc:  # noqa: BLE001 - 收集给断言
+                        errors.append(exc)
+
+                with mock.patch.object(
+                    launcher.subprocess, "Popen", return_value=process
+                ) as popen, mock.patch.object(
+                    launcher, "hub_healthy", return_value=True
+                ):
+                    threads = [
+                        threading.Thread(target=acquire) for _ in range(2)
+                    ]
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join(timeout=10)
+
+                self.assertEqual(errors, [])
+                # 锁 + 双检：两个并发冷启动终态只有一个桥、一个状态条目。
+                self.assertEqual(popen.call_count, 1)
+                self.assertEqual(len(results), 2)
+                self.assertEqual(
+                    sorted(lease.reused for lease in results), [False, True]
+                )
+                state = json.loads(
+                    Path(launcher.BRIDGE_STATE_PATH).read_text(encoding="utf-8")
+                )
+                self.assertEqual(len(state["bridges"]), 1)
+
+    def test_protocol_bridge_survives_claude_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            env = self._bridge_fixture(raw_home)
+            write_executable(
+                Path(env["CLAUDE1_HUB_SCRIPT"]), "#!/bin/sh\nexec sleep 30\n"
+            )
+            with loaded_launcher(env) as launcher:
+                with mock.patch.object(
+                    launcher, "hub_healthy", return_value=True
+                ), mock.patch.object(
+                    launcher, "launch_with_settings", return_value=0
+                ):
+                    launcher.launch_with_protocol_bridge(
+                        {"id": "chat-provider", "name": "Chat Provider"},
+                        {"env": {}},
+                        "openai_chat",
+                        [],
+                    )
+                state = json.loads(
+                    Path(launcher.BRIDGE_STATE_PATH).read_text(encoding="utf-8")
+                )
+                entry = next(iter(state["bridges"].values()))
+                try:
+                    # claude 退出后桥必须存活，供下一个会话复用。
+                    os.kill(entry["pid"], 0)
+                finally:
+                    os.kill(entry["pid"], signal.SIGTERM)
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        try:
+                            os.kill(entry["pid"], 0)
+                            time.sleep(0.05)
+                        except OSError:
+                            break
+
+    def test_protocol_bridge_supervisor_restores_a_reused_bridge(self) -> None:
+        # 复用的桥没有本会话进程句柄：连续两次探测失败后必须在原端口恢复。
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                port = free_local_port()
+                log_path = Path(raw_home) / "bridge.log"
+                supervisor = launcher._ProtocolBridgeSupervisor(
+                    port=port,
+                    log_path=log_path,
+                    child_env={"CLAUDE_HUB_LOCAL_TOKEN": "fixture-token"},
+                )
+                replacement = mock.Mock()
+                replacement.poll.return_value = None
+                try:
+                    with mock.patch.object(
+                        launcher, "hub_healthy", return_value=False
+                    ), mock.patch.object(
+                        launcher,
+                        "_start_protocol_bridge",
+                        return_value=replacement,
+                    ):
+                        # 第一次探测失败只记一次 miss，不触发重启。
+                        self.assertFalse(supervisor.recover_if_needed())
+                        self.assertTrue(supervisor.recover_if_needed())
+                    self.assertIs(supervisor._process, replacement)
+                    self.assertIn(
+                        f"restored on {port}",
+                        log_path.read_text(encoding="utf-8"),
+                    )
+                finally:
+                    supervisor.close()
+
+    def test_protocol_bridge_supervisor_defers_to_a_peer_restore(self) -> None:
+        # 两个会话同看一个复用桥：一方先恢复后，另一方在锁内看到健康
+        # 直接让位，不再抢同端口重启。
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                port = free_local_port()
+                log_path = Path(raw_home) / "bridge.log"
+                key = launcher._bridge_key(
+                    {"id": "chat-provider"}, "openai_chat", {}
+                )
+                supervisor = launcher._ProtocolBridgeSupervisor(
+                    port=port,
+                    log_path=log_path,
+                    child_env={"CLAUDE_HUB_LOCAL_TOKEN": "fixture-token"},
+                    key=key,
+                )
+                try:
+                    with mock.patch.object(
+                        launcher,
+                        "hub_healthy",
+                        side_effect=[False, False, True],
+                    ), mock.patch.object(
+                        launcher, "_start_protocol_bridge"
+                    ) as start_bridge:
+                        self.assertFalse(supervisor.recover_if_needed())
+                        self.assertTrue(supervisor.recover_if_needed())
+                    start_bridge.assert_not_called()
+                    self.assertIsNone(supervisor._process)
+                    self.assertIn(
+                        f"restored on {port}",
+                        log_path.read_text(encoding="utf-8"),
+                    )
+                finally:
+                    supervisor.close()
+
+    def test_doctor_prunes_unhealthy_bridge_state_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(self._bridge_fixture(raw_home)) as launcher:
+                launcher._save_bridge_state(
+                    {
+                        "version": 1,
+                        "bridges": {
+                            "deadkey": {
+                                "pid": 424242,
+                                "port": 1,
+                                "token": "fixture-token",
+                                "fingerprint": launcher._bridge_code_fingerprint(),
+                                "used": time.time(),
+                                "provider_name": "Dead Provider",
+                            }
+                        },
+                    }
+                )
+                output = io.StringIO()
+                with mock.patch.object(
+                    launcher, "hub_healthy", return_value=False
+                ), redirect_stdout(output):
+                    launcher.cli_doctor()
+
+                self.assertIn("已不健康，清扫状态记录", output.getvalue())
+                state = json.loads(
+                    Path(launcher.BRIDGE_STATE_PATH).read_text(encoding="utf-8")
+                )
+                self.assertEqual(state["bridges"], {})
+
 
     def test_protocol_bridge_ensures_the_local_gateway_for_the_original_url(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:

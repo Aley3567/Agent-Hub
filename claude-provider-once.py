@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import hmac
 import math
@@ -135,6 +136,17 @@ ANYROUTER_OBSERVER = _env_path(
 # 协议桥的脱敏错误日记：落在 Hub 默认 journal 同一持久路径，
 # 不随桥的临时目录销毁，`claude-hub errors` 可直接读到。
 BRIDGE_ERRORS_PATH = HOME / ".cc-switch" / "logs" / "claude-hub-errors.jsonl"
+# 协议桥持久化复用：同 (provider, api_format, transport) 的桥跨会话常驻，
+# 状态与运行时配置都在稳定路径，不再随临时目录销毁。状态文件是纯缓存——
+# 删除它只会失去复用，绝不影响正确性。
+BRIDGE_STATE_PATH = _env_path(
+    "CLAUDE1_BRIDGE_STATE", HOME / ".cc-switch" / "claude1-bridge-state.json"
+)
+BRIDGE_RUNTIME_ROOT = _env_path(
+    "CLAUDE1_BRIDGE_ROOT", HOME / ".cc-switch" / "claude1-bridge"
+)
+BRIDGE_STATE_VERSION = 1
+BRIDGE_POOL_LIMIT = 3
 
 # Composable backends & overlays (claude1 [backend] [overlay...] -- <claude args>)
 ANYROUTER_SETTINGS = _env_path(
@@ -6312,6 +6324,263 @@ def _bridge_log_tail(log_path: Path, limit: int = 4096) -> str:
     return f"，日志尾部: {tail}" if tail else ""
 
 
+def _bridge_code_fingerprint() -> str:
+    """Identify the deployed Hub code so reinstalling invalidates reused bridges."""
+    try:
+        info = HUB_SCRIPT.stat()
+    except OSError:
+        return "missing"
+    return f"{info.st_size}:{info.st_mtime_ns}"
+
+
+def _bridge_key(provider: dict, api_format: str, transport: dict) -> str:
+    material = json.dumps(
+        {
+            "provider_id": str(provider.get("id", "")),
+            "api_format": api_format,
+            "transport": transport,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def _load_bridge_state() -> dict:
+    try:
+        data = json.loads(BRIDGE_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"version": BRIDGE_STATE_VERSION, "bridges": {}}
+    if (
+        not isinstance(data, dict)
+        or data.get("version") != BRIDGE_STATE_VERSION
+        or not isinstance(data.get("bridges"), dict)
+    ):
+        # schema 变了就当空处理；状态只是复用缓存，重建即可。
+        return {"version": BRIDGE_STATE_VERSION, "bridges": {}}
+    return data
+
+
+def _save_bridge_state(state: dict) -> None:
+    """Best-effort persist; the state is a cache, never a correctness source."""
+    try:
+        _atomic_private_write(
+            BRIDGE_STATE_PATH,
+            json.dumps(state, ensure_ascii=False, indent=1),
+        )
+    except (OSError, TypeError, ValueError):
+        pass
+
+
+def _valid_bridge_entry(entry: object) -> bool:
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("port"), int)
+        and not isinstance(entry.get("port"), bool)
+        and 1 <= entry["port"] <= 65535
+        and isinstance(entry.get("token"), str)
+        and bool(entry["token"])
+        and isinstance(entry.get("pid"), int)
+        and not isinstance(entry.get("pid"), bool)
+        and isinstance(entry.get("fingerprint"), str)
+    )
+
+
+def _entry_used(entry: dict) -> float:
+    try:
+        return float(entry.get("used") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _terminate_stale_bridge(pid: object) -> None:
+    """Best-effort stop of a stale bridge, identity-checked before any signal."""
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1:
+        return
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return
+    # PID 复用防护：命令行不含 hub 脚本时绝不误杀无关进程。
+    command = result.stdout
+    if result.returncode != 0 or (
+        str(HUB_SCRIPT) not in command and HUB_SCRIPT.name not in command
+    ):
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+@contextmanager
+def _bridge_start_lock(key: str):
+    """Serialize bridge startup/reuse between independently launched claude1s."""
+    lock_path = BRIDGE_RUNTIME_ROOT / f"bridge-{key}.lock"
+    with _private_file_lock(lock_path, "协议桥启动"):
+        yield
+
+
+def _write_bridge_config(
+    config_path: Path,
+    port: int,
+    provider: dict,
+    api_format: str,
+    transport: dict,
+    settings: dict,
+) -> None:
+    config = {
+        "version": 1,
+        "port": port,
+        "local_token_env": "CLAUDE_HUB_LOCAL_TOKEN",
+        "default_channel": "direct",
+        "transport": transport,
+        "channels": {
+            "direct": {
+                "provider": f"id:{provider['id']}",
+                "api_format": api_format,
+                "models": _provider_models(settings),
+                # 隔离单渠道桥:Claude Code 内置默认模型名透传到 default channel。
+                "route_unknown_to_default": True,
+            }
+        },
+    }
+    _atomic_private_write(
+        config_path,
+        json.dumps(config, ensure_ascii=False, separators=(",", ":")),
+    )
+
+
+def _prune_bridge_entries(state: dict, keep: str) -> dict:
+    """LRU-evict beyond the pool limit; returns the removed entries."""
+    bridges = state["bridges"]
+    if len(bridges) <= BRIDGE_POOL_LIMIT:
+        return {}
+    ordered = sorted(
+        (key for key in bridges if key != keep),
+        key=lambda key: _entry_used(bridges[key]),
+    )
+    evicted: dict = {}
+    while len(bridges) > BRIDGE_POOL_LIMIT and ordered:
+        victim = ordered.pop(0)
+        evicted[victim] = bridges.pop(victim)
+    return evicted
+
+
+@dataclass
+class _BridgeLease:
+    port: int
+    token: str
+    log_path: Path
+    key: str
+    # 本次会话新拉起的进程；复用常驻桥时为 None，死亡探测走健康检查。
+    process: subprocess.Popen | None
+    reused: bool
+
+
+def _acquire_protocol_bridge(
+    provider: dict,
+    api_format: str,
+    transport: dict,
+    settings: dict,
+) -> _BridgeLease:
+    """Reuse a healthy persistent bridge for this key, or cold-start a new one.
+
+    The whole acquire path runs under the per-key start lock so two claude1
+    processes racing on the same key end up with exactly one bridge.
+    """
+    key = _bridge_key(provider, api_format, transport)
+    runtime_dir = BRIDGE_RUNTIME_ROOT / f"bridge-{key}"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    config_path = runtime_dir / "hub.json"
+    log_path = runtime_dir / "hub.log"
+    fingerprint = _bridge_code_fingerprint()
+    with _bridge_start_lock(key):
+        state = _load_bridge_state()
+        bridges = state["bridges"]
+        entry = bridges.get(key)
+        if _valid_bridge_entry(entry) and entry["fingerprint"] == fingerprint:
+            port, token = entry["port"], entry["token"]
+            # 原子重写一份最新解析的配置；运行中的桥按 mtime 重读，
+            # 模型表与 transport 变更无需重启进程。
+            _write_bridge_config(
+                config_path, port, provider, api_format, transport, settings
+            )
+            if hub_healthy(port, token):
+                entry["used"] = time.time()
+                _save_bridge_state(state)
+                _bridge_lifecycle_log(log_path, f"reused on port {port}")
+                return _BridgeLease(
+                    port=port,
+                    token=token,
+                    log_path=log_path,
+                    key=key,
+                    process=None,
+                    reused=True,
+                )
+            _terminate_stale_bridge(entry.get("pid"))
+        started = time.monotonic()
+        listener = _reserve_loopback_port()
+        port = int(listener.getsockname()[1])
+        token = secrets.token_urlsafe(32)
+        _write_bridge_config(
+            config_path, port, provider, api_format, transport, settings
+        )
+        bridge_env = _bridge_child_env(
+            config=config_path,
+            log=log_path,
+            port=port,
+            local_token=token,
+        )
+        process = _start_protocol_bridge(
+            port=port,
+            log_path=log_path,
+            child_env=bridge_env,
+            listener=listener,
+        )
+        bridges[key] = {
+            "pid": process.pid,
+            "port": port,
+            "token": token,
+            "fingerprint": fingerprint,
+            "used": time.time(),
+            "provider_id": str(provider.get("id", "")),
+            "provider_name": str(provider.get("name", "")),
+            "api_format": api_format,
+        }
+        for victim_key, victim in _prune_bridge_entries(state, keep=key).items():
+            _terminate_stale_bridge(victim.get("pid"))
+        _save_bridge_state(state)
+        _bridge_lifecycle_log(
+            log_path, f"ready on port {port} in {time.monotonic() - started:.2f}s"
+        )
+        return _BridgeLease(
+            port=port,
+            token=token,
+            log_path=log_path,
+            key=key,
+            process=process,
+            reused=False,
+        )
+
+
 def _bridge_lifecycle_log(log_path: Path, message: str) -> None:
     """Record launcher-owned bridge lifecycle facts beside Hub output."""
     try:
@@ -6382,21 +6651,22 @@ class _ProtocolBridgeSupervisor:
         port: int,
         log_path: Path,
         child_env: dict[str, str],
-        initial_listener: socket.socket,
+        initial_listener: socket.socket | None = None,
+        process: subprocess.Popen | None = None,
+        key: str | None = None,
     ):
         self.port = port
         self.log_path = log_path
         self.child_env = child_env
+        self.key = key
         self._lock = threading.Lock()
         self._stopped = threading.Event()
-        self._process: subprocess.Popen | None = None
+        self._process: subprocess.Popen | None = process
         self._thread: threading.Thread | None = None
         self._initial_listener: socket.socket | None = initial_listener
+        self._probe_misses = 0
 
     def start(self) -> None:
-        process = self._start_once()
-        with self._lock:
-            self._process = process
         self._thread = threading.Thread(
             target=self._watch,
             name=f"claude1-bridge-{self.port}",
@@ -6416,20 +6686,38 @@ class _ProtocolBridgeSupervisor:
             stop_event=self._stopped,
         )
 
-    def recover_if_needed(self) -> bool:
+    def _token(self) -> str | None:
+        return self.child_env.get("CLAUDE_HUB_LOCAL_TOKEN")
+
+    def _bridge_lost(self) -> bool:
         with self._lock:
             process = self._process
-        if process is None or process.poll() is None or self._stopped.is_set():
+        if process is not None:
+            return process.poll() is not None
+        # 复用的桥没有本会话的进程句柄，只能靠健康探测判定；
+        # 连续两次失败才动手，避免单次探测抖动触发无谓重启。
+        if hub_healthy(self.port, self._token()):
+            self._probe_misses = 0
             return False
-        return_code = process.poll()
+        self._probe_misses += 1
+        return self._probe_misses >= 2
+
+    def recover_if_needed(self) -> bool:
+        if self._stopped.is_set() or not self._bridge_lost():
+            return False
+        with self._lock:
+            process = self._process
+        status_note = (
+            f" (status {process.poll()})" if process is not None else ""
+        )
         _bridge_lifecycle_log(
             self.log_path,
-            f"exited unexpectedly (status {return_code}); restoring {self.port}",
+            f"exited unexpectedly{status_note}; restoring {self.port}",
         )
         delay = 0.25
         while not self._stopped.is_set():
             try:
-                replacement = self._start_once()
+                replacement = self._restore_once()
             except (OSError, RuntimeError) as exc:
                 _bridge_lifecycle_log(
                     self.log_path,
@@ -6438,17 +6726,42 @@ class _ProtocolBridgeSupervisor:
                 self._stopped.wait(delay)
                 delay = min(delay * 2, 5.0)
                 continue
-            with self._lock:
-                if self._stopped.is_set():
-                    _stop_spawned_process(replacement)
-                    return False
-                self._process = replacement
+            if replacement is not None:
+                with self._lock:
+                    if self._stopped.is_set():
+                        _stop_spawned_process(replacement)
+                        return False
+                    self._process = replacement
             _bridge_lifecycle_log(self.log_path, f"restored on {self.port}")
             return True
         return False
 
+    def _restore_once(self) -> subprocess.Popen | None:
+        """Restore the port; ``None`` means a peer session already restored it."""
+        if self.key is None:
+            return self._start_once()
+        with _bridge_start_lock(self.key):
+            if hub_healthy(self.port, self._token()):
+                return None
+            state = _load_bridge_state()
+            entry = state["bridges"].get(self.key)
+            if _valid_bridge_entry(entry) and entry["port"] == self.port:
+                _terminate_stale_bridge(entry.get("pid"))
+            replacement = self._start_once()
+            if _valid_bridge_entry(entry):
+                entry["pid"] = replacement.pid
+                entry["used"] = time.time()
+                _save_bridge_state(state)
+            return replacement
+
     def _watch(self) -> None:
+        ticks = 0
         while not self._stopped.wait(0.25):
+            ticks += 1
+            # 自有句柄的 poll() 零成本，每拍都查；复用桥的健康探测
+            # 节流到约每秒一次。
+            if self._process is None and ticks % 4 != 0:
+                continue
             self.recover_if_needed()
 
     def close(self) -> None:
@@ -6456,14 +6769,11 @@ class _ProtocolBridgeSupervisor:
         if self._thread is not None:
             self._thread.join(timeout=1)
         with self._lock:
-            process = self._process
             self._process = None
             listener = self._initial_listener
             self._initial_listener = None
         if listener is not None:
             listener.close()
-        if process is not None:
-            _stop_spawned_process(process)
 
 
 def launch_with_protocol_bridge(
@@ -6475,11 +6785,14 @@ def launch_with_protocol_bridge(
     backend_kind: str = "provider",
     transport: dict | None = None,
 ) -> int:
-    """Run one isolated Hub for protocol or transport routing, then remove it.
+    """Run Claude through a persistent, reused protocol-bridge Hub.
 
     This preserves claude1's session-isolation contract: the CC Switch current
     provider and its shared proxy are never changed, so concurrent sessions can
-    select different wire formats safely.
+    select different wire formats safely.  The bridge itself is stateless — it
+    re-reads its config and the CC Switch DB on every request — so a healthy
+    bridge for the same (provider, api_format, transport) key is reused across
+    sessions instead of cold-starting a Python interpreter every launch.
     """
     if os.name != "posix":
         raise RuntimeError(
@@ -6492,74 +6805,45 @@ def launch_with_protocol_bridge(
         )
     # 与 anthropic 直连分支一致：provider 若走本地网关，先确保网关可用。
     ensure_local_gateway(settings.get("env", {}).get("ANTHROPIC_BASE_URL", ""))
-    if TEMP_DIR is not None:
-        TEMP_DIR.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix="claude1-bridge-",
-        dir=str(TEMP_DIR) if TEMP_DIR is not None else None,
-    ) as raw_dir:
-        runtime = Path(raw_dir)
-        config_path = runtime / "hub.json"
-        log_path = runtime / "hub.log"
-        listener = _reserve_loopback_port()
-        port = int(listener.getsockname()[1])
-        local_token = secrets.token_urlsafe(32)
-        if transport is None:
-            transport = provider_transport_config(provider, settings)
-        config = {
-            "version": 1,
-            "port": port,
-            "local_token_env": "CLAUDE_HUB_LOCAL_TOKEN",
-            "default_channel": "direct",
-            "transport": transport,
-            "channels": {
-                "direct": {
-                    "provider": f"id:{provider['id']}",
-                    "api_format": api_format,
-                    "models": _provider_models(settings),
-                    # 隔离单渠道桥:Claude Code 内置默认模型名透传到 default channel。
-                    "route_unknown_to_default": True,
-                }
-            },
-        }
-        _atomic_private_write(
-            config_path,
-            json.dumps(config, ensure_ascii=False, separators=(",", ":")),
+    if transport is None:
+        transport = provider_transport_config(provider, settings)
+    lease = _acquire_protocol_bridge(provider, api_format, transport, settings)
+    supervisor = _ProtocolBridgeSupervisor(
+        port=lease.port,
+        log_path=lease.log_path,
+        child_env=_bridge_child_env(
+            config=BRIDGE_RUNTIME_ROOT / f"bridge-{lease.key}" / "hub.json",
+            log=lease.log_path,
+            port=lease.port,
+            local_token=lease.token,
+        ),
+        initial_listener=None,
+        process=lease.process,
+        key=lease.key,
+    )
+    try:
+        supervisor.start()
+        bridged = json.loads(json.dumps(settings))
+        env = bridged.setdefault("env", {})
+        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{lease.port}"
+        env["ANTHROPIC_AUTH_TOKEN"] = lease.token
+        env.pop("ANTHROPIC_API_KEY", None)
+        env["NO_PROXY"] = "127.0.0.1,localhost"
+        env["no_proxy"] = "127.0.0.1,localhost"
+        reason = (
+            f"协议适配: Anthropic Messages ↔ {api_format}"
+            if api_format != "anthropic"
+            else f"传输路由: {transport['mode']}"
         )
-
-        bridge_env = _bridge_child_env(
-            config=config_path,
-            log=log_path,
-            port=port,
-            local_token=local_token,
-        )
-        supervisor = _ProtocolBridgeSupervisor(
-            port=port,
-            log_path=log_path,
-            child_env=bridge_env,
-            initial_listener=listener,
-        )
-        try:
-            supervisor.start()
-            bridged = json.loads(json.dumps(settings))
-            env = bridged.setdefault("env", {})
-            env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-            env["ANTHROPIC_AUTH_TOKEN"] = local_token
-            env.pop("ANTHROPIC_API_KEY", None)
-            env["NO_PROXY"] = "127.0.0.1,localhost"
-            env["no_proxy"] = "127.0.0.1,localhost"
-            reason = (
-                f"协议适配: Anthropic Messages ↔ {api_format}"
-                if api_format != "anthropic"
-                else f"传输路由: {transport['mode']}"
-            )
-            print(f"[claude1] {reason} (隔离端口 {port})")
-            # 桥已确认可用、即将真正启动时才计数，失败启动不入账。
-            record_use(str(provider["id"]))
-            record_backend(backend_kind, provider["name"])
-            return launch_with_settings(bridged, claude_args)
-        finally:
-            supervisor.close()
+        reuse_note = "复用常驻桥" if lease.reused else "隔离端口"
+        print(f"[claude1] {reason} ({reuse_note} {lease.port})")
+        # 桥已确认可用、即将真正启动时才计数，失败启动不入账。
+        record_use(str(provider["id"]))
+        record_backend(backend_kind, provider["name"])
+        return launch_with_settings(bridged, claude_args)
+    finally:
+        # 只停看护线程；常驻桥留给后续会话复用（supervisor close 不杀桥）。
+        supervisor.close()
 
 
 def _extract_hub_model(claude_args: list[str]) -> tuple[str | None, list[str]]:
@@ -7475,6 +7759,47 @@ def cli_doctor(*, fix: bool = False, probe: bool = False) -> int:
                 "有渠道需要本地网关，但未找到可执行 cliproxyapi；"
                 "请安装它或设置 CLAUDE1_GATEWAY_BIN",
             )
+
+    # 常驻协议桥池：列出并清扫已死条目；活桥只报告，绝不在 doctor 里杀。
+    bridge_state = _load_bridge_state()
+    if bridge_state["bridges"]:
+        print()
+        stale_bridge_keys: list[str] = []
+        fingerprint = _bridge_code_fingerprint()
+        ordered_bridges = sorted(
+            bridge_state["bridges"].items(),
+            key=lambda item: _entry_used(item[1]),
+            reverse=True,
+        )
+        for key, entry in ordered_bridges:
+            if not _valid_bridge_entry(entry):
+                stale_bridge_keys.append(key)
+                report("INFO", f"协议桥 {key}: 状态记录无效，下次启动时忽略")
+                continue
+            provider = (
+                str(entry.get("provider_name") or entry.get("provider_id") or key)
+            )
+            if hub_healthy(entry["port"], entry["token"]):
+                note = (
+                    ""
+                    if entry.get("fingerprint") == fingerprint
+                    else "；代码已更新，下次启动自动重建"
+                )
+                report(
+                    "OK",
+                    f"协议桥 {provider} (127.0.0.1:{entry['port']}, pid {entry['pid']}){note}",
+                )
+            else:
+                stale_bridge_keys.append(key)
+                report(
+                    "INFO",
+                    f"协议桥 {provider} (127.0.0.1:{entry['port']}) 已不健康，"
+                    "清扫状态记录",
+                )
+        if stale_bridge_keys:
+            for key in stale_bridge_keys:
+                bridge_state["bridges"].pop(key, None)
+            _save_bridge_state(bridge_state)
 
     if not fix:
         current_row = next(
