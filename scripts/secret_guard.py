@@ -402,7 +402,10 @@ def scan_bytes(
 ) -> list[Finding]:
     path_category = sensitive_path(path)
     findings = [Finding(path_category, path, 1)] if path_category else []
-    file_exemptions = FILE_EXEMPTIONS.get(path, frozenset())
+    # History scans decorate paths as "file@shorthash"; the exemption table
+    # keys the bare path so one entry covers staged, working-tree, and
+    # history scans of the same file.
+    file_exemptions = FILE_EXEMPTIONS.get(path.split("@", 1)[0], frozenset())
     texts = [content.decode("utf-8", "replace")]
     utf16_encodings: list[str] = []
     if content.startswith(codecs.BOM_UTF16_LE):
