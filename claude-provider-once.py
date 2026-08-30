@@ -34,6 +34,7 @@ import time
 import unicodedata
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from contextlib import contextmanager
 from pathlib import Path
@@ -1331,7 +1332,9 @@ def gateway_healthy() -> bool:
     """
     try:
         req = urllib.request.Request(GATEWAY_URL + "/", method="GET")
-        with urllib.request.urlopen(req, timeout=2) as response:
+        # A loopback health probe must never follow the user's proxy settings.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(req, timeout=2) as response:
             status = getattr(response, "status", response.getcode())
             return 200 <= status < 300
     except urllib.error.HTTPError:
@@ -1359,10 +1362,9 @@ def ensure_local_gateway(base_url: str) -> None:
             stderr=log,
             start_new_session=True,
         )
-    for _ in range(20):
-        time.sleep(0.25)
-        if gateway_healthy():
-            return
+    # 先探测再等：已在跑的网关不需要任何宽限期。
+    if _poll_until(time.monotonic() + 5.0, gateway_healthy):
+        return
     raise RuntimeError(f"本地网关启动失败，查看日志: {GATEWAY_LOG}")
 
 
@@ -1504,6 +1506,30 @@ def _hub_start_timeout() -> float:
     return timeout
 
 
+def _poll_until(
+    deadline: float,
+    probe: Callable[[], bool],
+    *,
+    lo: float = 0.05,
+    hi: float = 0.25,
+) -> bool:
+    """Poll ``probe`` until it passes or ``deadline`` (monotonic) expires.
+
+    Shared readiness loop for local service startup: sleeps start short so a
+    fast spawn is noticed immediately, then back off to ``hi``.  Returns
+    whether the probe passed; callers decide what an expired deadline means.
+    """
+    delay = lo
+    while True:
+        if probe():
+            return True
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(delay, remaining))
+        delay = min(delay * 2, hi)
+
+
 def _reserve_loopback_port(port: int = 0) -> socket.socket:
     """Own one listening port until the Hub inherits this exact socket."""
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1622,17 +1648,25 @@ def ensure_hub(
             ]
             _hub_processes.append(process)
             deadline = time.monotonic() + _hub_start_timeout()
-            while time.monotonic() < deadline:
+            outcome = {"healthy": False}
+
+            def _startup_probe() -> bool:
                 if hub_healthy(port, token, instance_id):
-                    return port
-                return_code = process.poll()
-                if return_code is not None:
-                    _stop_spawned_process(process)
-                    raise RuntimeError(
-                        f"claude-hub 启动进程提前退出（状态 {return_code}），"
-                        f"查看日志: {log_path}"
-                    )
-                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+                    outcome["healthy"] = True
+                    return True
+                # 提前退出的子进程让轮询立刻结束，由下方统一判定。
+                return process.poll() is not None
+
+            _poll_until(deadline, _startup_probe)
+            if outcome["healthy"]:
+                return port
+            return_code = process.poll()
+            if return_code is not None:
+                _stop_spawned_process(process)
+                raise RuntimeError(
+                    f"claude-hub 启动进程提前退出（状态 {return_code}），"
+                    f"查看日志: {log_path}"
+                )
             _stop_spawned_process(process)
             raise RuntimeError(
                 f"{display_name} 启动失败，查看日志: {log_path}"
@@ -6301,20 +6335,31 @@ def _start_protocol_bridge(
     with listener:
         process = _spawn_hub_process(log_path, child_env, listener)
         deadline = time.monotonic() + _hub_start_timeout()
-        while time.monotonic() < deadline:
+        outcome = {"ready": False, "cancelled": False}
+
+        def _startup_probe() -> bool:
             if stop_event is not None and stop_event.is_set():
-                _stop_spawned_process(process)
-                raise RuntimeError("协议桥恢复已取消")
+                outcome["cancelled"] = True
+                return True
             if hub_healthy(port, child_env["CLAUDE_HUB_LOCAL_TOKEN"]):
-                listener.close()
-                return process
-            return_code = process.poll()
-            if return_code is not None:
-                raise RuntimeError(
-                    f"协议桥提前退出（状态 {return_code}），"
-                    f"日志: {log_path}{_bridge_log_tail(log_path)}"
-                )
-            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+                outcome["ready"] = True
+                return True
+            # 提前退出的子进程让轮询立刻结束，由下方统一判定。
+            return process.poll() is not None
+
+        _poll_until(deadline, _startup_probe)
+        if outcome["cancelled"]:
+            _stop_spawned_process(process)
+            raise RuntimeError("协议桥恢复已取消")
+        if outcome["ready"]:
+            listener.close()
+            return process
+        return_code = process.poll()
+        if return_code is not None:
+            raise RuntimeError(
+                f"协议桥提前退出（状态 {return_code}），"
+                f"日志: {log_path}{_bridge_log_tail(log_path)}"
+            )
         _stop_spawned_process(process)
         raise RuntimeError(
             f"协议桥启动超时，日志: {log_path}{_bridge_log_tail(log_path)}"
@@ -6322,7 +6367,14 @@ def _start_protocol_bridge(
 
 
 class _ProtocolBridgeSupervisor:
-    """Restore a transient bridge on its original port while Claude still runs."""
+    """Keep a session's bridge port alive while Claude still runs.
+
+    The bridge outlives the session that acquired it; ``close`` therefore only
+    stops watching — it must never kill the bridge, because Claude's env baked
+    in the port and other sessions may share the same bridge.  Recovery
+    coordinates through the per-key start lock so concurrent sessions restore
+    the port exactly once.
+    """
 
     def __init__(
         self,

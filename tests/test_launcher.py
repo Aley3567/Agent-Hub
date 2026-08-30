@@ -3425,6 +3425,21 @@ class LauncherSafetyTests(unittest.TestCase):
                             with mock.patch.object(launcher, "GATEWAY_URL", f"http://127.0.0.1:{port}"):
                                 self.assertIs(launcher.gateway_healthy(), expected)
 
+    def test_gateway_health_ignores_proxy_environment(self) -> None:
+        # 环境代理指向黑洞时，回环探测必须直连：否则 gateway_healthy 会被
+        # 代理吃掉 2 秒超时，被误判成「网关未运行」。
+        with tempfile.TemporaryDirectory() as raw_home:
+            env = isolated_env(
+                Path(raw_home),
+                http_proxy="http://127.0.0.1:9",
+                HTTP_PROXY="http://127.0.0.1:9",
+                all_proxy="socks5://127.0.0.1:9",
+            )
+            with loaded_launcher(env) as launcher:
+                with health_server(200, b"gateway") as port:
+                    with mock.patch.object(launcher, "GATEWAY_URL", f"http://127.0.0.1:{port}"):
+                        self.assertTrue(launcher.gateway_healthy())
+
     def test_ensure_hub_starts_with_a_scrubbed_whitelist_environment(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             home = Path(raw_home)
