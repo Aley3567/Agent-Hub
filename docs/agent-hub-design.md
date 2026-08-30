@@ -3,7 +3,7 @@
 > 2026-08-24 定稿。Agent-Hub 是本仓库的最终产品形态：一个统一渠道管理器，
 > 管理面用 Rust 重写（TUI + CLI 双模式），协议桥保留 Python（`claude-hub.py`），
 > 对话能力对标 T3 Code（编排本地 CLI，不自建 harness）。
-> 本文记录 11 项已定决策与架构边界；待办里程碑在 `work-queue.md` S11。
+> 本文记录 11 项已定决策与架构边界；待办里程碑在 `work-queue.md` S14。
 
 ## 一句话定位
 
@@ -72,7 +72,7 @@ claude-hub/                    # 本仓库（Agent-Hub 的家）
 - **操作前提**（继承 work-queue 已验证事实）：写 cc-switch DB 前必须确认 cc-switch
   桌面版已退出，否则被它的内存 store 回写覆盖。
 
-## 里程碑（细化卡见 work-queue.md S11）
+## 里程碑（细化卡见 work-queue.md S14）
 
 - **M1 只读闭环**：workspace scaffold；`provider list/current`（CLI + TUI 列表页，只读）。
 - **M2 事务切换**：`use <id>`（快照/回滚/写后自检）+ `start <id>` 启动 claude/codex。

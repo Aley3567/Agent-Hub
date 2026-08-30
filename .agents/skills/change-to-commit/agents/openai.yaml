@@ -1,4 +1,0 @@
-interface:
-  display_name: "Change to Commit"
-  short_description: "把混合工作树恢复成可审查、可验证的行为级提交"
-  default_prompt: "Use $change-to-commit to classify this worktree, build a change ledger, and prepare reviewable commits without losing unrelated work."

@@ -74,6 +74,39 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(len(unscoped), 1)
         self.assertEqual(scoped, [])
 
+    def test_file_exemption_is_pinned_to_category_and_finding_id(self) -> None:
+        private = secret_guard.PrivateFingerprint(
+            "private-provider-name", "personal-channel-42"
+        )
+        content = b"describe personal-channel-42 twice\nand again personal-channel-42"
+        # 未登记的文件不享受豁免
+        self.assertEqual(
+            len(secret_guard.scan_bytes("other.py", content, (private,))), 2
+        )
+        # 登记了不同指纹的文件同样不豁免
+        exemptions = secret_guard.FILE_EXEMPTIONS
+        with mock.patch.object(
+            secret_guard,
+            "FILE_EXEMPTIONS",
+            {"other.py": frozenset({("private-channel-alias", "deadbeef00")})},
+        ):
+            self.assertEqual(
+                len(secret_guard.scan_bytes("other.py", content, (private,))), 2
+            )
+        # 登记了正确 (category, finding_id) 的文件整文件豁免
+        with mock.patch.object(
+            secret_guard,
+            "FILE_EXEMPTIONS",
+            {
+                "other.py": frozenset(
+                    {("private-provider-name", private.finding_id)}
+                )
+            },
+        ):
+            self.assertEqual(
+                secret_guard.scan_bytes("other.py", content, (private,)), []
+            )
+
     def test_generic_token_assignment_accepts_common_secret_punctuation(self) -> None:
         token = b"abc!def@ghi#jkl$" + b"mno%pqr"
         findings = secret_guard.scan_bytes(

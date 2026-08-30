@@ -125,7 +125,7 @@ secret_guard 17 处命中全部处置（2 处真私有信息改写、其余误�
 ## S5 · 观测出口（原 P0 队列）
 
 **细化队列**：`p0-tasks.md`。当前状态：T0.0a ✅、T0.0b ✅、T0.0c 未完成、
-T0.0d ⚠️（Nebius 语义不兼容，已结论）、T0.0e ✅；**T0.1–T0.6 全部未开始**。
+T0.0d ⚠️（Nebius 语义不兼容，已结论）  <!-- secret-guard: allow private-provider-name 97985df2c2（公开推理平台名，历史记录） -->、T0.0e ✅；**T0.1–T0.6 全部未开始**。
 
 **为什么排在这里**：它的 DoD（"任意一次降级发生后能在 errors/usage 查到"）是对的，
 且是协议层宽容化的前置。但它不解决当前 60% 的失败（超时与断流），
@@ -319,7 +319,7 @@ host-managed 场景删除该键）；启动路径发探测请求。
 DB 打开用 `SQLITE_OPEN_READ_ONLY`；`user_version` 高于 cc-switch-cli 的 17 时拒绝并提示
 （本机实测 16）；`settings_config` 含凭证，list 输出永不打印。
 
-**验收合同**：`cargo build` 通过；`agent-hub provider list` 输出 38 个渠道且不含任何
+**验收合同**：`cargo build` 通过；`agent-hub provider list` 输出与 `cc-switch.db` `providers` 表等量的渠道数（数字会漂，以 DB 实测为准；2026-08-28 为 35）且不含任何
 key 材料；裸命令 TUI 列表可 j/k 导航、q 退出；`python3 -m unittest discover -s tests -p 'test_*.py'`
 不退步（`test_docs_index.py` 含新设计文档索引行）。
 

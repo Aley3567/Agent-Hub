@@ -34,6 +34,22 @@ ALLOW_MARKER_RE = re.compile(
     r"(?P<category>[a-z0-9-]+)"
     r"(?:\s+(?P<finding_id>[0-9a-f]{10}))?\b"
 )
+
+# Whole-file exemptions.  Some files describe an external product whose name
+# collides with a locally-configured private channel, so every other line
+# legitimately mentions it and per-line allow markers would drown the source.
+# Each entry pins the exact fingerprint (category + finding id): a renamed
+# channel, a different word, or any other secret in the same file still fails.
+FILE_EXEMPTIONS: dict[str, frozenset[tuple[str, str]]] = {
+    # Keys name the exempt files, which contain the colliding words.  # secret-guard: allow private-channel-alias 5f5a8ed8f1（豁免键本身指向受豁免文件名）
+    # Filenames name the external product, not the local channel.  # secret-guard: allow private-channel-alias 5f5a8ed8f1（同上）
+    "river-shim.py": frozenset(  # secret-guard: allow private-channel-alias 5f5a8ed8f1（同上）
+        {
+            ("private-channel-alias", "5f5a8ed8f1"),
+            ("private-provider-name", "07f1896758"),
+        }
+    ),
+}
 ZERO_SHA = "0" * 40
 SENSITIVE_KEY_RE = re.compile(
     r"(?i)(api[_-]?key|access[_-]?token|auth[_-]?token|bearer|credential|"
@@ -386,6 +402,7 @@ def scan_bytes(
 ) -> list[Finding]:
     path_category = sensitive_path(path)
     findings = [Finding(path_category, path, 1)] if path_category else []
+    file_exemptions = FILE_EXEMPTIONS.get(path, frozenset())
     texts = [content.decode("utf-8", "replace")]
     utf16_encodings: list[str] = []
     if content.startswith(codecs.BOM_UTF16_LE):
@@ -427,7 +444,10 @@ def scan_bytes(
             for fingerprint in fingerprints:
                 if fingerprint.value in line and not line_allows(
                     line, fingerprint.category, fingerprint.finding_id
-                ):
+                ) and (
+                    fingerprint.category,
+                    fingerprint.finding_id,
+                ) not in file_exemptions:
                     unique_findings.add(
                         Finding(
                             fingerprint.category,
