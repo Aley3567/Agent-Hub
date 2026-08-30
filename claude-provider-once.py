@@ -354,6 +354,36 @@ def record_use(name: str) -> None:
         pass  # MRU is best-effort; never block a launch on it
 
 
+# hub 选择在共享 MRU 里用命名空间键记录；provider 菜单的 _initial_index
+# 按裸 provider id 匹配，混入 hub 键会污染 provider 侧的「最近」标记。
+HUB_MRU_PREFIX = "hub:"
+
+
+def record_hub_use(hub_id: str, selector: str) -> None:
+    record_use(f"{HUB_MRU_PREFIX}{hub_id}:{selector}")
+
+
+def _hub_mru_selector(hub_id: str | None) -> str | None:
+    """Return this hub's most recently used `渠道,模型` selector, if any."""
+    prefix = f"{HUB_MRU_PREFIX}{hub_id}:" if hub_id else HUB_MRU_PREFIX
+    entries = {k: v for k, v in load_mru().items() if k.startswith(prefix)}
+    if not entries:
+        return None
+    return max(entries, key=lambda key: entries[key])[len(prefix):]
+
+
+def _mru_last_provider() -> str | None:
+    """Return the most recently used provider id (hub keys excluded)."""
+    entries = {
+        key: value
+        for key, value in load_mru().items()
+        if not key.startswith(HUB_MRU_PREFIX)
+    }
+    if not entries:
+        return None
+    return max(entries, key=lambda key: entries[key])
+
+
 def load_config() -> dict:
     try:
         data = json.loads(CONFIG_PATH.read_text())
@@ -1421,12 +1451,40 @@ def _hub_local_token(cfg: dict) -> str:
     return token.strip()
 
 
+_HUB_HEALTH_CACHE_TTL = 3.0
+# 仅服务显示层探测：键 (port, token, instance_id)，值为 (monotonic, result)。
+_hub_health_cache: dict[tuple[int, str | None, str | None], tuple[float, bool]] = {}
+
+
 def hub_healthy(
     port: int,
     token: str | None = None,
     instance_id: str | None = None,
+    *,
+    use_cache: bool = False,
 ) -> bool:
-    """Accept public liveness, or verify a token-bound Hub identity proof."""
+    """Accept public liveness, or verify a token-bound Hub identity proof.
+
+    ``use_cache`` is for display-only probes (menu drawing): a short TTL keeps
+    a down hub from freezing the UI probe after probe.  Correctness paths —
+    ensure_hub, bridge acquire — must always probe fresh.
+    """
+    key = (port, token, instance_id)
+    if use_cache:
+        cached = _hub_health_cache.get(key)
+        if cached is not None and time.monotonic() - cached[0] < _HUB_HEALTH_CACHE_TTL:
+            return cached[1]
+    result = _hub_healthy_probe(port, token, instance_id)
+    if use_cache:
+        _hub_health_cache[key] = (time.monotonic(), result)
+    return result
+
+
+def _hub_healthy_probe(
+    port: int,
+    token: str | None = None,
+    instance_id: str | None = None,
+) -> bool:
     try:
         path = "/readyz" if token else "/healthz"
         challenge = secrets.token_urlsafe(24) if token else None
@@ -5255,10 +5313,21 @@ def _hub_workspace(
     tab = "slots"
     rows: list[HubSlotOption | HubModelOption | HubChannel] = [*slots, *pool]
     initial_slot = initial_slot if initial_slot in HUB_SLOT_ORDER else status.launch_slot
+    # 初始光标优先对齐上次启动的槽位/渠道；选过的行不在了再回退 launch_slot。
+    last_selector = _hub_mru_selector(hub_id)
     idx = next(
-        (index for index, item in enumerate(slots) if item.slot == initial_slot),
-        0,
-    )
+        (
+            index
+            for index, item in enumerate(rows)
+            if getattr(item, "selector", None) == last_selector
+        ),
+        None,
+    ) if last_selector is not None else None
+    if idx is None:
+        idx = next(
+            (index for index, item in enumerate(slots) if item.slot == initial_slot),
+            0,
+        )
     tab_indices = {"slots": idx, "channels": 0}
     notice: str | None = None
     # Draw once while probing so a down hub does not freeze the screen silently.
@@ -5281,6 +5350,7 @@ def _hub_workspace(
             status.port,
             health_token,
             instance_id=instance_id if isinstance(instance_id, str) else None,
+            use_cache=True,
         ),
     )
     _draw_hub_workspace(
@@ -7099,6 +7169,7 @@ def exec_hub(
     resume_session_id = _resume_route_notice(claude_args, session_route)
     _record_session_route(resume_session_id, session_route)
     record_backend("hub", hub_ref.hub_id)
+    record_hub_use(hub_ref.hub_id, main_model)
     aliases = ", ".join(str(alias) for alias in channels)
     print(
         f"[claude1] 后端: {hub_ref.name} (127.0.0.1:{port}, 默认 {main_model})"
@@ -7111,6 +7182,7 @@ CLAUDE1_USAGE = f"""claude1 {VERSION} — 为本次 Claude Code 会话选择渠�
 
 用法:
   claude1                              打开渠道选择器
+  claude1 --last [Claude 参数]         直接启动上次使用的渠道，跳过菜单
   claude1 <名称/别名/id:ID> [Claude 参数] 直接启动一个渠道
   claude1 hub [--slot 槽位 | --model 渠道,模型]
                                        进入可用 /model 热切换的 Hub
@@ -7994,7 +8066,35 @@ def main(argv: list[str]) -> int:
                 f"id:{shadowed['id']} 选择该 provider"
             )
 
+    # --last：跳过菜单直接启动上次用的渠道；MRU 为空或渠道已删则回退菜单。
+    last_requested = False
+    stripped_argv: list[str] = []
+    passthrough = False
+    for arg in argv:
+        if not passthrough:
+            if arg == "--":
+                passthrough = True
+            elif arg.lower() == "--last":
+                last_requested = True
+                continue
+        stripped_argv.append(arg)
+    argv = stripped_argv
     backend, hint, claude_args = parse_args(argv)
+
+    if last_requested:
+        if backend is not None or hint is not None:
+            raise RuntimeError("--last 不能与 provider 名称或后端同时指定")
+        recent = _mru_last_provider()
+        if recent is None:
+            print("[claude1] 没有最近使用的渠道，已回到菜单", file=sys.stderr)
+        elif not any(
+            str(row.get("id")) == recent
+            for row in list_providers(include_incompatible=True)
+        ):
+            print("[claude1] 上次使用的渠道已不存在，已回到菜单", file=sys.stderr)
+        else:
+            # id: 前缀走精确选择，渠道被标记不兼容时也能直接启动。
+            hint = f"id:{recent}"
 
     if backend == "anyrouter":
         return exec_settings_backend(ANYROUTER_SETTINGS, "anyrouter", claude_args)

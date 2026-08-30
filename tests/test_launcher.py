@@ -342,6 +342,135 @@ class LauncherTuiLogicTests(unittest.TestCase):
                     ):
                         launcher.main(["ghost"])
 
+    def test_mru_namespaces_hub_keys_away_from_providers(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                launcher.MRU_PATH.parent.mkdir(parents=True, exist_ok=True)
+                launcher.MRU_PATH.write_text(
+                    json.dumps(
+                        {
+                            "provider-a": 100.0,
+                            "provider-b": 50.0,
+                            "hub:main:wechat,glm": 200.0,
+                            "hub:other:deepseek,r1": 150.0,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                # provider 侧只看裸 provider id，hub 键不得污染。
+                self.assertEqual(launcher._mru_last_provider(), "provider-a")
+                self.assertEqual(launcher._hub_mru_selector("main"), "wechat,glm")
+                self.assertEqual(launcher._hub_mru_selector("other"), "deepseek,r1")
+                self.assertIsNone(launcher._hub_mru_selector("missing"))
+
+    def test_hub_launch_records_namespaced_mru(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                launcher.record_hub_use("main-hub", "wechat,glm")
+                mru = launcher.load_mru()
+                self.assertEqual(mru.get("hub:main-hub:wechat,glm") is not None, True)
+                # provider 菜单的最近标记不应把它当作渠道。
+                self.assertEqual(launcher._mru_last_provider(), None)
+
+    def test_last_flag_launches_the_most_recent_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                selected = {"id": "recent-id", "name": "Recent Provider"}
+                launcher.MRU_PATH.parent.mkdir(parents=True, exist_ok=True)
+                launcher.MRU_PATH.write_text(
+                    json.dumps({"recent-id": 200.0}), encoding="utf-8"
+                )
+                with (
+                    mock.patch.object(
+                        launcher,
+                        "list_providers",
+                        return_value=[selected],
+                    ),
+                    mock.patch.object(
+                        launcher, "launch_provider", return_value=0
+                    ) as launch_provider,
+                ):
+                    self.assertEqual(launcher.main(["--last"]), 0)
+
+                self.assertEqual(
+                    launch_provider.call_args.args[0]["id"], "recent-id"
+                )
+
+    def test_last_flag_with_empty_mru_falls_back_to_the_menu(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                with (
+                    mock.patch.object(
+                        launcher, "run_tui_launcher", return_value=("quit", None)
+                    ) as run_tui,
+                    redirect_stderr(io.StringIO()) as stderr,
+                ):
+                    self.assertEqual(launcher.main(["--last"]), 0)
+
+                run_tui.assert_called_once_with()
+                self.assertIn("没有最近使用的渠道", stderr.getvalue())
+
+    def test_last_flag_with_a_deleted_provider_falls_back_to_the_menu(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                launcher.MRU_PATH.parent.mkdir(parents=True, exist_ok=True)
+                launcher.MRU_PATH.write_text(
+                    json.dumps({"gone-id": 200.0}), encoding="utf-8"
+                )
+                with (
+                    mock.patch.object(
+                        launcher,
+                        "list_providers",
+                        return_value=[{"id": "other-id", "name": "Other"}],
+                    ),
+                    mock.patch.object(
+                        launcher, "run_tui_launcher", return_value=("quit", None)
+                    ) as run_tui,
+                    redirect_stderr(io.StringIO()) as stderr,
+                ):
+                    self.assertEqual(launcher.main(["--last"]), 0)
+
+                run_tui.assert_called_once_with()
+                self.assertIn("上次使用的渠道已不存在", stderr.getvalue())
+
+    def test_last_flag_rejects_provider_and_backend_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                with self.assertRaisesRegex(RuntimeError, "不能与"):
+                    launcher.main(["--last", "SomeProvider"])
+                with self.assertRaisesRegex(RuntimeError, "不能与"):
+                    launcher.main(["--last", "--hub"])
+
+    def test_last_flag_after_the_separator_belongs_to_claude(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                with (
+                    mock.patch.object(
+                        launcher, "run_tui_launcher", return_value=("quit", None)
+                    ) as run_tui,
+                ):
+                    self.assertEqual(launcher.main(["--", "--last"]), 0)
+
+                run_tui.assert_called_once_with()
+
+    def test_hub_health_cache_serves_display_probes_only(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_home:
+            with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
+                with health_server(200, b'{"ok": true}') as port:
+                    probes = iter([True, False, False])
+
+                    def counting_healthy(*_args, **_kwargs):
+                        return next(probes)
+
+                    with mock.patch.object(
+                        launcher, "_hub_healthy_probe", side_effect=counting_healthy
+                    ):
+                        # TTL 窗口内的第二次显示探测吃缓存，不再打真探测。
+                        self.assertTrue(launcher.hub_healthy(port, use_cache=True))
+                        self.assertTrue(launcher.hub_healthy(port, use_cache=True))
+                        # 正确性路径必须 fresh：立刻看到探测结果翻转。
+                        self.assertFalse(launcher.hub_healthy(port))
+
     def test_first_run_uses_cc_switch_order_without_personal_seed_names(self) -> None:
         with tempfile.TemporaryDirectory() as raw_home:
             env = isolated_env(Path(raw_home))
