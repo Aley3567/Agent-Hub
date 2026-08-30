@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ui-macos-renderer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:renderer", "--prefix", "UI/macos"],
+      "port": 1420
+    }
+  ]
+}
