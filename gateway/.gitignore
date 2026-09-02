@@ -1,0 +1,3 @@
+# Local Go build outputs. Source files and fixtures remain visible to Git.
+/gateway
+/gateway-m2
