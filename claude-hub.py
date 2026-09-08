@@ -21,17 +21,13 @@ import json
 import math
 import os
 import re
-import shutil
 import socket
 import sqlite3
 import ssl
 import stat
 import sys
-import tempfile
-import threading
 import time
 import zlib
-from collections import deque
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -50,7 +46,6 @@ from claude1_protocol import (
     SSEParser,
     prepare_request,
     prepare_response,
-    provider_api_format,
     protocol_format_for_endpoint,
     sse_event,
 )
@@ -68,13 +63,22 @@ from claude1_account_pool import (
     PoolExhausted,
     PoolStateError,
     credential_fingerprint,
-    normalize_account_endpoint,
 )
 from claude1_hub_config import (
     ENV_LOCAL_TOKEN,
     ENV_PORT,
     ConfigError,
     validate_config,
+)
+from claude1_providers import (
+    DB_SNAPSHOT_RETRIES,
+    ProviderDatabaseError,
+    ProviderSnapshotCache,
+    _database_snapshot_state,
+    _read_provider_rows,
+    _read_provider_snapshot,
+    _snapshot_percentile,
+    _sqlite_sidecars,
 )
 from claude1_routing import (
     ROUTE_GROUP_PREFIX,
@@ -84,9 +88,7 @@ from claude1_routing import (
     route_group_name,
 )
 from claude1_transport import (
-    TransportConfigError,
     UpstreamExecutor,
-    normalize_transport_config,
     resolve_transport_policy,
 )
 
@@ -136,7 +138,6 @@ UPSTREAM_KEEPALIVE_INTERVAL_SECONDS = 15
 UPSTREAM_KEEPALIVE_PROBES = 4
 CONTEXT_1M_BETA = "context-1m-2025-08-07"
 UPSTREAM_SESSION_KEY = web.AppKey("upstream_session", aiohttp.ClientSession)
-DB_SNAPSHOT_RETRIES = 5
 SSE_LINE_LIMIT = 64 * 1024
 SSE_DECODE_CHUNK = 64 * 1024
 SSE_DECODE_SLACK = 1 * 1024 * 1024
@@ -614,10 +615,6 @@ def _usage_from_json_bytes(
 # ---------------------------------------------------------------- config / DB
 
 
-class ProviderDatabaseError(RuntimeError):
-    """The CC Switch provider database is missing, unreadable or malformed."""
-
-
 class UpstreamStreamReplayable(RuntimeError):
     """The upstream stalled before any byte reached the client.
 
@@ -779,137 +776,6 @@ def get_config() -> dict:
     return validate_config(raw, providers, env=os.environ)
 
 
-def _read_provider_rows(path: Path) -> dict:
-    """Read provider rows without mutating the database or contacting providers."""
-    db_uri = path.resolve(strict=False).as_uri() + "?mode=ro"
-    conn = sqlite3.connect(db_uri, uri=True)
-    try:
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(providers)").fetchall()
-        }
-        selected = ["name", "settings_config"]
-        if "id" in columns:
-            selected.insert(0, "id")
-        selected.extend(
-            column for column in ("meta", "provider_type") if column in columns
-        )
-        cursor = conn.execute(
-            f"SELECT {', '.join(selected)} FROM providers "
-            "WHERE app_type='claude'"
-        )
-        records: list[tuple[str, str, dict]] = []
-        for raw_row in cursor.fetchall():
-            values = dict(zip(selected, raw_row))
-            name = values["name"]
-            provider_id = str(values.get("id") or name)
-            settings_config = values["settings_config"]
-            try:
-                settings = json.loads(settings_config)
-            except (json.JSONDecodeError, UnicodeError, TypeError):
-                continue
-            if not isinstance(settings, dict):
-                continue
-            try:
-                meta = json.loads(values.get("meta") or "{}")
-            except (json.JSONDecodeError, UnicodeError, TypeError):
-                meta = {}
-            if not isinstance(meta, dict):
-                meta = {}
-            env = settings.get("env") or {}
-            if not isinstance(env, dict):
-                continue
-            is_full_url = meta.get("isFullUrl") is True
-            raw_base = env.get("ANTHROPIC_BASE_URL")
-            base = normalize_account_endpoint(
-                raw_base,
-                is_full_url=is_full_url,
-            )
-            if not base:
-                continue
-            auth_token = env.get("ANTHROPIC_AUTH_TOKEN")
-            api_key = env.get("ANTHROPIC_API_KEY")
-            if isinstance(auth_token, str) and auth_token:
-                token = auth_token
-                credential_type = "ANTHROPIC_AUTH_TOKEN"
-            elif isinstance(api_key, str) and api_key:
-                token = api_key
-                credential_type = "ANTHROPIC_API_KEY"
-            else:
-                token = ""
-                credential_type = ""
-            folded_env = {
-                str(key).upper(): value for key, value in env.items()
-            }
-            proxy_key = "HTTPS_PROXY" if base.startswith("https://") else "HTTP_PROXY"
-            raw_proxy = folded_env.get(proxy_key) or folded_env.get("ALL_PROXY")
-            provider_proxy = (
-                raw_proxy.strip()
-                if isinstance(raw_proxy, str) and raw_proxy.strip()
-                else None
-            )
-            provider_transport = None
-            transport_error = None
-            if "transport" in settings:
-                try:
-                    provider_transport = normalize_transport_config(
-                        settings["transport"]
-                    )
-                except TransportConfigError as exc:
-                    transport_error = str(exc)
-            record = {
-                "selector": f"id:{provider_id}",
-                "name": name,
-                "base_url": base,
-                "token": token,
-                "credential_type": credential_type,
-                "proxy": provider_proxy,
-                "transport": provider_transport,
-                "transport_error": transport_error,
-                "api_format": provider_api_format(
-                    meta=meta,
-                    settings=settings,
-                    provider_type=values.get("provider_type"),
-                ),
-                "provider_type": (
-                    values.get("provider_type") or meta.get("providerType")
-                ),
-                "is_full_url": is_full_url,
-                "model_map": {
-                    tier: (
-                        value.strip()
-                        if isinstance(
-                            value := env.get(
-                                f"ANTHROPIC_DEFAULT_{tier.upper()}_MODEL"
-                            ),
-                            str,
-                        )
-                        and value.strip()
-                        else None
-                    )
-                    for tier in ("opus", "sonnet", "haiku", "fable")
-                },
-            }
-            records.append((provider_id, name, record))
-        name_counts: dict[str, int] = {}
-        for _provider_id, name, _record in records:
-            name_counts[name] = name_counts.get(name, 0) + 1
-        rows = {}
-        for provider_id, name, record in records:
-            rows[f"id:{provider_id}"] = record
-            if name_counts[name] == 1:
-                rows[name] = record
-        return rows
-    finally:
-        conn.close()
-
-
-def _sqlite_sidecars(path: Path) -> tuple[Path, Path]:
-    return (
-        path.with_name(path.name + "-wal"),
-        path.with_name(path.name + "-shm"),
-    )
-
-
 def _resolve_database_path(path: Path) -> Path:
     try:
         return path.resolve(strict=True)
@@ -927,200 +793,7 @@ def _require_private_database(path: Path) -> None:
             _require_private_file(sidecar, label, ProviderDatabaseError)
 
 
-def _snapshot_fingerprint(path: Path) -> tuple | None:
-    try:
-        st = path.stat()
-    except FileNotFoundError:
-        return None
-    return (
-        st.st_dev,
-        st.st_ino,
-        st.st_size,
-        st.st_mtime_ns,
-        st.st_ctime_ns,
-    )
-
-
-def _database_snapshot_state(path: Path) -> tuple:
-    wal_path, _shm_path = _sqlite_sidecars(path)
-    return (_snapshot_fingerprint(path), _snapshot_fingerprint(wal_path))
-
-
-def _snapshot_percentile(samples, pct: float) -> int:
-    """Return the nearest-rank ``pct`` percentile of ``samples`` (0 if empty)."""
-    if not samples:
-        return 0
-    s = sorted(samples)
-    idx = max(0, math.ceil(pct / 100 * len(s)) - 1)
-    return s[idx]
-
-
-class ProviderSnapshotCache:
-    """Sole owner of the process-wide provider snapshot, its lock and metrics.
-
-    The cache holds one ``(revision, providers)`` slot: a single assignment on
-    write and a single load on read, so a concurrent refresh can never tear the
-    pair apart.  Callers supply the revision they observed and a ``refresh``
-    callable; the cache decides whether that refresh happens at all, and it is
-    the only object allowed to touch the entry, the locks or the counters.
-
-    Invariants
-        - A failed refresh leaves the previous entry intact and counts one
-          failure; the caller still sees the error.
-        - Concurrent misses are single-flight coalesced: a waiter accepts an
-          entry another thread produced while it waited (design doc §3.2).
-        - Metrics live behind their own lock, so the fast hit path never
-          contends on the refresh lock (design doc §7, D5).
-        - Deciding *what* a valid revision is, reading the database and
-          re-checking file permissions all belong to the caller's ``refresh``;
-          this object only decides *when* it runs.
-    """
-
-    def __init__(self) -> None:
-        self._entry: tuple | None = None
-        self._lock = threading.Lock()
-        self._metrics_lock = threading.Lock()
-        self._hits = 0
-        self._misses = 0
-        self._refreshes = 0
-        self._refresh_failures = 0
-        self._refresh_samples: deque[int] = deque(maxlen=64)
-
-    def load(self, revision: tuple, refresh) -> dict:
-        """Return the providers for ``revision``, refreshing at most once.
-
-        ``refresh`` returns ``(verified_revision, providers, elapsed_ms)``. It
-        decides which work counts toward ``elapsed_ms`` and must have finished
-        every safety re-check before returning, because only its result is
-        allowed into the cache.
-        """
-        entry = self._entry
-        if entry is not None and entry[0] == revision:
-            self._count_hit()
-            return entry[1]
-        self._count_miss()
-        with self._lock:
-            # Single-flight: if another thread refreshed while we waited, the
-            # entry object has changed. That entry was verified by its own
-            # refresh and is at least as fresh as the revision the caller
-            # observed at entrance, so accept it instead of serializing one
-            # refresh per waiter (design doc §3.2).
-            refreshed = self._entry
-            if refreshed is not None and refreshed is not entry:
-                return refreshed[1]
-            try:
-                verified, providers, elapsed_ms = refresh()
-            except (ProviderDatabaseError, sqlite3.Error, OSError) as exc:
-                failures = self._count_refresh_failure()
-                log(
-                    f"provider_snapshot refresh_failed "
-                    f"failures={failures} error={type(exc).__name__}"
-                )
-                if isinstance(exc, ProviderDatabaseError):
-                    raise
-                raise ProviderDatabaseError(
-                    "provider database could not be read"
-                ) from exc
-            self._entry = (verified, providers)
-            metrics = self._count_refresh(elapsed_ms)
-        log(
-            f"provider_snapshot "
-            f"refresh_ms={elapsed_ms} "
-            f"hits={metrics['hits']} "
-            f"misses={metrics['misses']} "
-            f"refreshes={metrics['refreshes']} "
-            f"p50_ms={metrics['p50_ms']} "
-            f"p95_ms={metrics['p95_ms']}"
-        )
-        return providers
-
-    def reset(self) -> None:
-        """Drop the cached entry and zero the counters."""
-        with self._lock:
-            self._entry = None
-        with self._metrics_lock:
-            self._hits = 0
-            self._misses = 0
-            self._refreshes = 0
-            self._refresh_failures = 0
-            self._refresh_samples.clear()
-
-    def metrics(self) -> dict:
-        """Counter snapshot for diagnostics and tests."""
-        with self._metrics_lock:
-            return self._metrics_locked()
-
-    def _metrics_locked(self) -> dict:
-        return {
-            "hits": self._hits,
-            "misses": self._misses,
-            "refreshes": self._refreshes,
-            "refresh_failures": self._refresh_failures,
-            "samples": len(self._refresh_samples),
-            "p50_ms": _snapshot_percentile(self._refresh_samples, 50),
-            "p95_ms": _snapshot_percentile(self._refresh_samples, 95),
-        }
-
-    def _count_hit(self) -> None:
-        with self._metrics_lock:
-            self._hits += 1
-
-    def _count_miss(self) -> None:
-        """Count a fast-path miss, before any refresh is attempted."""
-        with self._metrics_lock:
-            self._misses += 1
-
-    def _count_refresh(self, elapsed_ms: int) -> dict:
-        """Record a successful refresh and return the current counters."""
-        with self._metrics_lock:
-            self._refreshes += 1
-            self._refresh_samples.append(elapsed_ms)
-            return self._metrics_locked()
-
-    def _count_refresh_failure(self) -> int:
-        """Count a failed refresh and return the running failure total."""
-        with self._metrics_lock:
-            self._refresh_failures += 1
-            return self._refresh_failures
-
-
-_provider_snapshot = ProviderSnapshotCache()
-
-
-def _read_provider_snapshot(path: Path) -> tuple:
-    """Read a stable private main+WAL copy without opening the source SQLite DB.
-
-    Returns ``(providers, verified_revision)`` where the revision is the
-    ``_database_snapshot_state`` confirmed identical before and after copying.
-    """
-    wal_path, _shm_path = _sqlite_sidecars(path)
-    last_error = None
-    for _attempt in range(DB_SNAPSHOT_RETRIES):
-        before = _database_snapshot_state(path)
-        if before[0] is None:
-            raise ProviderDatabaseError("provider database file is missing")
-        try:
-            with tempfile.TemporaryDirectory(prefix="claude-hub-db-") as temp_dir:
-                snapshot = Path(temp_dir) / "providers.db"
-                shutil.copyfile(path, snapshot)
-                snapshot.chmod(0o600)
-                if before[1] is not None:
-                    snapshot_wal = snapshot.with_name(snapshot.name + "-wal")
-                    shutil.copyfile(wal_path, snapshot_wal)
-                    snapshot_wal.chmod(0o600)
-                after = _database_snapshot_state(path)
-                if before != after:
-                    continue
-                try:
-                    return _read_provider_rows(snapshot), before
-                except sqlite3.Error as exc:
-                    last_error = exc
-        except (FileNotFoundError, OSError) as exc:
-            last_error = exc
-            continue
-    raise ProviderDatabaseError(
-        "provider database changed while taking a read-only snapshot"
-    ) from last_error
+_provider_snapshot = ProviderSnapshotCache(log=log)
 
 
 def _refresh_provider_snapshot(path: Path) -> tuple:

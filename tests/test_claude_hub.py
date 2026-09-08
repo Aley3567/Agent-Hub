@@ -4626,7 +4626,7 @@ class ClaudeHubTests(unittest.TestCase):
         first = hub.get_providers()
         self.assertIn("Fixture HTTPS", first)
 
-        with mock.patch.object(hub.shutil, "copyfile") as copyfile:
+        with mock.patch.object(shutil, "copyfile") as copyfile:
             second = hub.get_providers()
 
         copyfile.assert_not_called()

@@ -26,7 +26,7 @@ MAX_LINES = 120
 # Measured 2026-08-21.  Only ever edit these downward.
 BASELINE = {
     "claude1_protocol.py": 10,
-    "claude-hub.py": 5,
+    "claude-hub.py": 4,
     "claude-provider-once.py": 7,
     "claude1_account_pool.py": 1,
 }

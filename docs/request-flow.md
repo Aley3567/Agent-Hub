@@ -21,9 +21,10 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 
 | 位置 | 当前实际职责 | 阅读顺序 |
 | --- | --- | --- |
-| `claude-hub.py`（约 4,900 行） | HTTP 服务、配置与 provider 快照的读取和缓存、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
+| `claude-hub.py`（约 4,500 行） | HTTP 服务、配置与 provider 数据库的路径/权限/读取时机、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
 | `claude1_routing.py`（约 200 行） | 模型选择器、route 组名与渠道匹配；只接收配置和 provider 快照，不读 DB | 从 handler 的 route 调用进入 |
 | `claude1_hub_config.py`（约 390 行） | Hub 配置解释：`validate_config()` 与渠道/槽位/routes 校验；接收 raw、快照与环境映射，不做任何读取 | 读配置相关问题的第一站 |
+| `claude1_providers.py`（约 400 行） | provider 行解析、只读快照复制、`ProviderSnapshotCache`（条目、锁、single-flight、指标）；不解析路径、不做权限策略 | provider/快照问题的第一站 |
 | `claude1_protocol.py`（约 7,000 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机 | 跟随协议分支读 |
 | `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 (code, message) 证据与 Anthropic 错误壳；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
 | `claude-provider-once.py`（约 7,710 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI 操作与按键、CLI、会话路由记录 | 先读启动路径，后读 TUI |
@@ -103,7 +104,7 @@ flowchart TD
 | --- | --- | --- |
 | HTTP Endpoint | `claude-hub.py::create_app()` | 注册 `/v1/messages` 和 `/v1/messages/count_tokens` 到同一 handler；另有 models、healthz、readyz |
 | Request Parser | `claude-hub.py::handle_messages()` | `get_config()`、`check_local_auth()`；拒绝不支持的请求压缩，读 JSON，验证 model 与 JSON 数值/字符合法性 |
-| Provider snapshot | `claude-hub.py::get_providers()` → `ProviderSnapshotCache.load()` | 通过线程调用读取快照；`get_providers()` 解析路径、校验 0600 并给出观察到的版本，缓存条目、锁、single-flight 与指标全部归 `_provider_snapshot` 所有；DB/WAL 指纹命中时复用，变化时只读刷新 |
+| Provider snapshot | `claude-hub.py::get_providers()` → `claude1_providers.py::ProviderSnapshotCache.load()` | 通过线程调用读取快照；`get_providers()` 解析路径、校验 0600 并给出观察到的版本，缓存条目、锁、single-flight 与指标全部归 `_provider_snapshot` 所有；DB/WAL 指纹命中时复用，变化时只读刷新 |
 | Router | `claude1_routing.py::route_group_name()` / `route()`，由 Hub 显式导入 | 显式 route 组给出有序目标列表；普通模型选择得到 `(channel_alias, model_out)` |
 | 单目标编排 | `claude-hub.py::_forward_to_channel()` → `_forward_to_channel_attempt()` | 每次目标尝试独立处理 payload，外层接收可重放原生流异常 |
 | Provider 解析 | `claude-hub.py::ChannelTarget.resolve()` → `resolve_provider()` | 渠道映射到 CC Switch 记录，校验 token/URL/transport，应用渠道协议覆盖 |
@@ -150,8 +151,9 @@ assert route("haiku", config, providers) == ("primary", "demo-fast")
 
 `resolve_provider()` 通过 `claude1_routing.py::match_channel_provider()` 按渠道 `provider`
 selector 取记录：稳定 `id:<id>` 或唯一名字；旧配置还可按唯一规范化 URL 匹配。
-`_read_provider_rows()` 从 CC Switch 中 `app_type='claude'` 的行构建
-包含 endpoint、token、api_format、model_map、transport 的运行时 dict。
+`claude1_providers.py::_read_provider_rows()` 从 CC Switch 中 `app_type='claude'` 的行构建
+包含 endpoint、token、api_format、model_map、transport 的运行时 dict；单行读不出来就跳过，
+不修补也不猜测。
 
 协议来源由 `claude1_protocol.py::provider_api_format()` 解释：显式 override 优先；
 `codex_oauth` 类型推到 Responses；其后是 `meta.apiFormat`、旧 settings 字段与兼容标记；
@@ -326,6 +328,15 @@ Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
 快照」的判断留在 `claude-hub.py::get_config()`。解释模块不 import 主运行时，因此作用域里
 没有任何能打开配置文件或 provider 库的名字。读取缓存本身没有跟着搬：`get_config()` 依赖
 `get_providers()`，而快照状态的归属属于 S21-P4，先搬会制造反向依赖。
+
+Provider 快照同样分家：`claude1_providers.py` 拥有行解析、只读快照复制和
+`ProviderSnapshotCache`（唯一持有缓存条目、两把锁与五个计数器；日志器由 Hub 注入，
+与 `UpstreamExecutor(log=...)` 同一写法）。`claude-hub.py::get_providers()` 留下的是
+读取者职责：解析 `CLAUDE_HUB_DB`、`_resolve_database_path()`、0600 校验、
+给出观察到的版本，并把「读取 + 复查权限」打包成 `_refresh_provider_snapshot()` 交给缓存。
+0600 校验没有随缓存迁走，因为 `_require_private_file()` 同时服务配置文件，
+把它搬进 provider 模块会让配置校验反过来依赖 provider 模块。
+`reset_caches()` 只调用 `_provider_snapshot.reset()`。
 
 **后续适合小步拆分**：确定配置/快照唯一 owner；
 把 `_draw_launcher()` 等剩余绘制改为接收已备好的行数据后再移出启动控制流；
