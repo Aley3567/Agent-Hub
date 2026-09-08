@@ -97,6 +97,17 @@ def tearDownModule():
     _NETWORK_GUARDS.clear()
 
 
+def _transformed_inputs(cfg, provider, alias, model_in, model_out):
+    """Prepare what `_forward_to_channel_attempt` hands the transformed entry.
+
+    Production resolves one `ChannelTarget` and one `_RequestAccountPool` per
+    attempt; direct callers of `_handle_transformed_messages` must do the same
+    because the entry no longer rebuilds either from a bare provider dict.
+    """
+    target = hub.ChannelTarget.from_provider(alias, model_in, model_out, cfg, provider)
+    return target, hub._RequestAccountPool(provider, {})
+
+
 class _NeverSession:
     def __init__(self):
         self.calls = []
@@ -2120,18 +2131,20 @@ class ClaudeHubTests(unittest.TestCase):
             "base_url": "https://upstream.invalid/v1",
             "token": "fixture-upstream-token",
         }
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,custom-model", "custom-model"
+        )
         response = asyncio.run(
             hub._handle_transformed_messages(
                 request,
-                cfg=hub.get_config(),
-                provider=provider,
+                cfg=cfg,
+                target=target,
+                account_pool=account_pool,
                 payload={
                     "model": "custom-model",
                     "messages": [{"role": "user", "content": "fixture"}],
                 },
-                alias="fast",
-                model_in="fast,custom-model",
-                model_out="custom-model",
                 started=0,
             )
         )
@@ -2159,11 +2172,16 @@ class ClaudeHubTests(unittest.TestCase):
             "token": "fixture-upstream-token",
         }
 
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,fixture-model", "fixture-model"
+        )
         response = asyncio.run(
             hub._handle_transformed_messages(
                 request,
-                cfg=hub.get_config(),
-                provider=provider,
+                cfg=cfg,
+                target=target,
+                account_pool=account_pool,
                 payload={
                     "model": "fixture-model",
                     "messages": [
@@ -2175,9 +2193,6 @@ class ClaudeHubTests(unittest.TestCase):
                         }
                     ],
                 },
-                alias="fast",
-                model_in="fast,fixture-model",
-                model_out="fixture-model",
                 started=0,
             )
         )
@@ -2236,18 +2251,20 @@ class ClaudeHubTests(unittest.TestCase):
             "token": "fixture-upstream-token",
         }
 
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,custom-model", "custom-model"
+        )
         asyncio.run(
             hub._handle_transformed_messages(
                 request,
-                cfg=hub.get_config(),
-                provider=provider,
+                cfg=cfg,
+                target=target,
+                account_pool=account_pool,
                 payload={
                     "model": "custom-model",
                     "messages": [{"role": "user", "content": "fixture"}],
                 },
-                alias="fast",
-                model_in="fast,custom-model",
-                model_out="custom-model",
                 started=0,
             )
         )
@@ -2421,18 +2438,20 @@ class ClaudeHubTests(unittest.TestCase):
             "token": "fixture-upstream-token",
             "name": "Fixture HTTPS",
         }
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,model", "model"
+        )
         with mock.patch.object(hub, "AnthropicStreamBridge", TypeFailingBridge), mock.patch.object(
             hub.web, "StreamResponse", return_value=downstream
         ), mock.patch.object(hub, "log") as write_log:
             response = asyncio.run(
                 hub._handle_transformed_messages(
                     request,
-                    cfg=hub.get_config(),
-                    provider=provider,
+                    cfg=cfg,
+                    target=target,
+                    account_pool=account_pool,
                     payload={"model": "model", "messages": [], "stream": True},
-                    alias="fast",
-                    model_in="fast,model",
-                    model_out="model",
                     started=0,
                 )
             )
@@ -2509,6 +2528,10 @@ class ClaudeHubTests(unittest.TestCase):
             "token": "fixture-upstream-token",
             "name": "Fixture HTTPS",
         }
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,model", "model"
+        )
         with mock.patch.object(
             hub, "AnthropicStreamBridge", TypeFailingBridge
         ), mock.patch.object(
@@ -2521,12 +2544,10 @@ class ClaudeHubTests(unittest.TestCase):
                 asyncio.run(
                     hub._handle_transformed_messages(
                         request,
-                        cfg=hub.get_config(),
-                        provider=provider,
+                        cfg=cfg,
+                        target=target,
+                        account_pool=account_pool,
                         payload={"model": "model", "messages": [], "stream": True},
-                        alias="fast",
-                        model_in="fast,model",
-                        model_out="model",
                         started=0,
                     )
                 )
@@ -3790,18 +3811,20 @@ class ClaudeHubTests(unittest.TestCase):
         }
         downstream = _FakeDownstream(200)
         observed = []
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,model", "model"
+        )
         with mock.patch.object(
             hub.web, "StreamResponse", return_value=downstream
         ), mock.patch.object(hub, "log", side_effect=observed.append):
             asyncio.run(
                 hub._handle_transformed_messages(
                     request,
-                    cfg=hub.get_config(),
-                    provider=provider,
+                    cfg=cfg,
+                    target=target,
+                    account_pool=account_pool,
                     payload={"model": "model", "messages": [], "stream": True},
-                    alias="fast",
-                    model_in="fast,model",
-                    model_out="model",
                     started=0,
                 )
             )
@@ -4076,19 +4099,21 @@ class ClaudeHubTests(unittest.TestCase):
             "base_url": "https://upstream.invalid/v1",
             "token": "fixture-upstream-token",
         }
+        cfg = hub.get_config()
+        target, account_pool = _transformed_inputs(
+            cfg, provider, "fast", "fast,custom-model", "custom-model"
+        )
         return asyncio.run(
             hub._handle_transformed_messages(
                 request,
-                cfg=hub.get_config(),
-                provider=provider,
+                cfg=cfg,
+                target=target,
+                account_pool=account_pool,
                 payload={
                     "model": "custom-model",
                     "messages": [{"role": "user", "content": "fixture"}],
                     "stream": True,
                 },
-                alias="fast",
-                model_in="fast,custom-model",
-                model_out="custom-model",
                 started=0,
             )
         )

@@ -107,7 +107,7 @@ flowchart TD
 | 单目标编排 | `claude-hub.py::_forward_to_channel()` → `_forward_to_channel_attempt()` | 每次目标尝试独立处理 payload，外层接收可重放原生流异常 |
 | Provider 解析 | `claude-hub.py::ChannelTarget.resolve()` → `resolve_provider()` | 渠道映射到 CC Switch 记录，校验 token/URL/transport，应用渠道协议覆盖 |
 | Request Adapter | `claude1_protocol.py::prepare_request()` | 原生协议默认经 Hub 传入 passthrough；OpenAI 路径解析 RequestIR 后进入对应 request adapter |
-| 上游请求准备 | `claude-hub.py::_handle_transformed_messages()` 或 `_forward_to_channel_attempt()` | 序列化请求、构造协议对应 URL/鉴权头、设置 `connect=15, sock_read=600, total=None` |
+| 上游请求准备 | `claude-hub.py::_handle_transformed_messages()` 或 `_forward_to_channel_attempt()` | 序列化请求、构造协议对应 URL/鉴权头、设置 `connect=15, sock_read=600, total=None`；转换入口的 `ChannelTarget` 与账号池由 `_forward_to_channel_attempt()` 传入，入口自身不再重建 |
 | Account selection | `claude-hub.py::_post_with_account_failover()` → `_RequestAccountPool.acquire()` | 取得账号 lease；成员贡献凭证，主 provider 决定 endpoint/模型/协议 |
 | 实际 HTTP 发送 | `claude1_transport.py::UpstreamExecutor.open()` | 调用 `aiohttp.ClientSession.request(method, url, ...)` 并进入请求上下文；此处才发往上游 |
 | JSON 返回 | `claude1_protocol.py::prepare_response()` 或原生 handler | OpenAI 响应转回 Anthropic message；原生响应通常保留上游字节，错误有专门处理分支 |
@@ -305,6 +305,12 @@ Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
 `match_channel_provider()` 同迁，配置能力检查、provider 解析与 CLI 使用同一个匹配实现。
 对照 cc-switch `proxy/model_mapper.rs` 的“模型映射独立于转发”边界；保留本项目已有显式渠道、
 四槽位和歧义处理，而不照搬其默认兜底规则。
+
+转换路径的入口依赖也已收敛：`_handle_transformed_messages()` 现在必须收到已解析的
+`target: ChannelTarget` 和 `account_pool: _RequestAccountPool`，不再接收与 target 重复的
+`provider/alias/model_in/model_out`，也不再在缺参数时自行 `from_provider()` 或建空账号池。
+准备目标与账号池的唯一位置是 `_forward_to_channel_attempt()`；直接调用该入口的测试改用同一套
+准备路径。URL、模型、凭证来源、调用次数与 JSON/SSE、转换拒绝、错误归因、用量行为不变。
 
 **后续适合小步拆分**：确定配置/快照唯一 owner；
 把 `_draw_launcher()` 等剩余绘制改为接收已备好的行数据后再移出启动控制流；

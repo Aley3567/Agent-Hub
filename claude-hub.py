@@ -2959,27 +2959,23 @@ async def _handle_transformed_messages(
     request: web.Request,
     *,
     cfg: dict,
-    provider: dict,
+    target: ChannelTarget,
+    account_pool: _RequestAccountPool,
     payload: dict,
-    alias: str,
-    model_in: str,
-    model_out: str,
     started: float,
-    account_pool: _RequestAccountPool | None = None,
     route_failover: bool = False,
     route_name: str | None = None,
-    target: ChannelTarget | None = None,
 ) -> web.StreamResponse:
-    if target is None:
-        target = ChannelTarget.from_provider(
-            alias, model_in, model_out, cfg, provider
-        )
-    provider = target.provider
+    """Translate one request for an OpenAI-compatible target and deliver it.
+
+    The caller owns dependency preparation: ``target`` carries the resolved
+    channel facts and ``account_pool`` the credential scheduler for this
+    request. Nothing here re-derives either from ``cfg``, so the routing
+    identity the caller decided on is the identity that reaches the upstream.
+    """
     alias = target.alias
     model_in = target.model_in
     model_out = target.model_out
-    if account_pool is None:
-        account_pool = _RequestAccountPool(provider, {})
     route_headers = {"x-hub-route": route_name} if route_name else {}
     api_format = target.api_format
     try:
@@ -4130,16 +4126,12 @@ async def _forward_to_channel_attempt(
         return await _handle_transformed_messages(
             request,
             cfg=cfg,
-            provider=provider,
+            target=target,
             account_pool=account_pool,
             payload=payload,
-            alias=alias,
-            model_in=model_in,
-            model_out=model_out,
             started=started,
             route_failover=route_failover,
             route_name=route_name,
-            target=target,
         )
     # Past this point the path is native Anthropic, so every journal row shares
     # one identity; bind it once instead of respelling six fields per call.

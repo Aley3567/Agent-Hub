@@ -39,14 +39,15 @@ BASELINE = {
 # it 549 -> 437 and _handle_transformed_messages now holds the ceiling.  Binding
 # that path's turn identity through _TurnJournal (the same abstraction the native
 # path already used) took it 467 -> 465; shared upstream-error preparation took
-# the transformed path to 464.
+# the transformed path to 464; requiring the caller to hand in the resolved
+# target and account pool removed the entry's rebuild branch, 464 -> 460.
 #
 # claude-provider-once.py's ceiling is _launcher_main.  It went 313 -> 312 when
 # claude1_launcher_view.init_colors() became the sole owner of the palette and
 # the launcher stopped republishing it through a module global.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 464,
+    "claude-hub.py": 460,
     "claude-provider-once.py": 312,
     "claude1_account_pool.py": 124,
 }
