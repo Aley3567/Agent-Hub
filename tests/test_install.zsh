@@ -116,6 +116,12 @@ test_first_install_is_safe() {
   command cmp -s "$REPO_ROOT/claude1_launcher_view.py" \
     "$home/install root/scripts/claude1_launcher_view.py" ||
     fail "launcher view module was not installed"
+  command cmp -s "$REPO_ROOT/claude1_hub_config.py" \
+    "$home/install root/scripts/claude1_hub_config.py" ||
+    fail "hub config module was not installed"
+  command cmp -s "$REPO_ROOT/claude1_providers.py" \
+    "$home/install root/scripts/claude1_providers.py" ||
+    fail "providers module was not installed"
   command cmp -s "$REPO_ROOT/claude1_usage_report.py" \
     "$home/install root/scripts/claude1_usage_report.py" ||
     fail "usage report module was not installed"
@@ -239,6 +245,8 @@ test_existing_files_are_backed_up() {
   print -r -- 'old routing' > "$home/install root/scripts/claude1_routing.py"
   print -r -- 'old terminal' > "$home/install root/scripts/claude1_terminal.py"
   print -r -- 'old launcher view' > "$home/install root/scripts/claude1_launcher_view.py"
+  print -r -- 'old hub config' > "$home/install root/scripts/claude1_hub_config.py"
+  print -r -- 'old providers' > "$home/install root/scripts/claude1_providers.py"
   print -r -- 'old usage report' > "$home/install root/scripts/claude1_usage_report.py"
   print -r -- 'old statusline model' > "$home/install root/scripts/statusline-model.py"
   print -r -- 'old shell' > "$home/install root/claude1/zsh-functions.sh"
@@ -264,6 +272,8 @@ test_existing_files_are_backed_up() {
   assert_file_content "old routing" "$backup/claude1_routing.py"
   assert_file_content "old terminal" "$backup/claude1_terminal.py"
   assert_file_content "old launcher view" "$backup/claude1_launcher_view.py"
+  assert_file_content "old hub config" "$backup/claude1_hub_config.py"
+  assert_file_content "old providers" "$backup/claude1_providers.py"
   assert_file_content "old usage report" "$backup/claude1_usage_report.py"
   assert_file_content "old statusline model" "$backup/statusline-model.py"
   assert_file_content "old shell" "$backup/zsh-functions.sh"

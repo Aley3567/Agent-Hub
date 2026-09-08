@@ -77,6 +77,10 @@ revision 必须同时包含 WAL 指纹才能检测到已提交但未 checkpoint 
 
 ### 3.2 执行顺序
 
+> 下面的伪码写于状态还是 `claude-hub.py` 模块级全局变量的时期。S21-P4 之后这些状态
+> 归 `claude1_providers.py::ProviderSnapshotCache` 所有（`self._entry` / `self._lock` /
+> 指标计数器），`get_providers()` 只负责路径与权限。本节引用的是规则与顺序，不是变量名。
+
 ```python
 def get_providers() -> dict:
     path = _resolve_database_path(db_path())

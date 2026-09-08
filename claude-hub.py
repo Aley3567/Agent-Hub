@@ -71,7 +71,6 @@ from claude1_hub_config import (
     validate_config,
 )
 from claude1_providers import (
-    DB_SNAPSHOT_RETRIES,
     ProviderDatabaseError,
     ProviderSnapshotCache,
     _database_snapshot_state,
@@ -793,7 +792,9 @@ def _require_private_database(path: Path) -> None:
             _require_private_file(sidecar, label, ProviderDatabaseError)
 
 
-_provider_snapshot = ProviderSnapshotCache(log=log)
+# 用闭包而不是裸函数：让缓存在每次写日志时查当前的模块级 ``log``，
+# 保持 ``mock.patch.object(hub, "log")`` 这一既有注入约定对快照日志同样有效。
+_provider_snapshot = ProviderSnapshotCache(log=lambda message: log(message))
 
 
 def _refresh_provider_snapshot(path: Path) -> tuple:

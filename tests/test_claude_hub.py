@@ -5058,6 +5058,18 @@ class ClaudeHubTests(unittest.TestCase):
             hub._format_protocol_warnings(["CODE_A@$.x"]), "CODE_A@$.x"
         )
 
+    def test_provider_snapshot_log_follows_module_log_rebinding(self):
+        # The cache is built once at import time; its log hook must resolve the
+        # current module-level ``log`` so patching ``hub.log`` still observes
+        # snapshot refresh lines instead of a reference frozen at construction.
+        with mock.patch.object(hub, "log") as write_log:
+            hub.get_providers()
+
+        messages = [call.args[0] for call in write_log.call_args_list]
+        self.assertTrue(
+            any("provider_snapshot" in message for message in messages), messages
+        )
+
     def test_provider_snapshot_cache_hit_does_not_log(self):
         hub.open_log()
         hub.get_providers()
