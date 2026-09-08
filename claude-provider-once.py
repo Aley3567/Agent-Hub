@@ -68,6 +68,25 @@ from claude1_context_window import (
     resolve_context_window,
     strip_suffix,
 )
+from claude1_launcher_view import (
+    C,
+    HUB_IDENTITY_COLORS as _HUB_IDENTITY_COLORS,
+    LOGO,
+    LOGO_TOP as _LOGO_TOP,
+    animation_enabled as _animation_enabled,
+    draw_hub_wizard_options as _draw_hub_wizard_options,
+    draw_hub_wizard_shell as _draw_hub_wizard_shell,
+    draw_logo as _draw_logo,
+    draw_provider_quick_panel as _draw_provider_quick_panel,
+    hub_identity_color as _hub_identity_color,
+    init_colors as _init_colors,
+    intro as _intro,
+    large_logo_supported as _large_logo_supported,
+    row_pairs,
+    safe_curs_set as _safe_curs_set,
+    tui_size_supported as _tui_size_supported,
+    visible_window as _visible_window,
+)
 from claude1_terminal import (
     compose_row as _compose_row,
     display_width as _dwidth,
@@ -3039,243 +3058,6 @@ try:
 except ImportError:  # pragma: no cover - curses ships with CPython on macOS/Linux
     curses = None
 
-LOGO = [
-    "  ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗ ██╗",
-    " ██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝███║",
-    " ██║     ██║     ███████║██║   ██║██║  ██║█████╗  ╚██║",
-    " ██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝   ██║",
-    " ╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗ ██║",
-    "  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝ ╚═╝",
-]
-_LOGO_CELLS = [
-    (row, column, char)
-    for row, line in enumerate(LOGO)
-    for column, char in enumerate(line)
-    if char != " "
-]
-
-_HEADER_H = len(LOGO) + 6
-_LOGO_TOP = 2
-_LOGO_MIN_LIST = 5
-_MIN_TUI_ROWS = 8
-_MIN_TUI_COLS = 32
-INTRO_DURATION_SECONDS = 0.24
-INTRO_FRAME_SECONDS = 0.016
-INTRO_FLOW_STEP_SECONDS = 0.04
-LOGO_BREATH_LEVELS = (
-    0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 0, 0,
-)
-C: dict = {}
-
-# Logo and provider rows share a vivid full-spectrum identity.
-LOGO_GRAD = [
-    196, 202, 208, 214, 220, 226, 190, 154, 118, 82, 46, 48,
-    50, 51, 45, 39, 33, 63, 99, 135, 171, 207, 201, 199,
-]
-_logo_pairs: list[int] = []
-RAINBOW = [203, 208, 214, 220, 148, 46, 42, 51, 45, 75, 99, 141, 207, 205]
-_row_pairs: list[int] = []
-
-
-def _safe_curs_set(visibility: int) -> None:
-    try:
-        curses.curs_set(visibility)
-    except (AttributeError, curses.error):
-        pass
-
-
-def _init_colors() -> dict:
-    d = {
-        "dim": 0,
-        "base": 0,
-        "accent": 0,
-        "warning": 0,
-        "brand": 0,
-        "sel": curses.A_REVERSE,
-        "orange": 0,
-        "pink": 0,
-        "lime": 0,
-        "gold": 0,
-        "teal": 0,
-        "violet": 0,
-    }
-    _logo_pairs.clear()
-    _row_pairs.clear()
-    try:
-        has_colors = curses.has_colors()
-    except curses.error:
-        has_colors = False
-    if not has_colors:
-        _logo_pairs.append(0)
-        _row_pairs.extend([d["base"], d["accent"], d["brand"], d["warning"]])
-        return d
-    try:
-        curses.start_color()
-        curses.use_default_colors()
-        bg = -1
-    except curses.error:
-        bg = 0
-
-    def _pair(pid: int, fg: int, fallback: int = 0) -> int:
-        max_pairs = int(getattr(curses, "COLOR_PAIRS", 0) or 0)
-        if max_pairs and pid >= max_pairs:
-            return fallback
-        try:
-            curses.init_pair(pid, fg, bg)
-            return curses.color_pair(pid)
-        except curses.error:
-            return fallback
-
-    cyan = _pair(1, curses.COLOR_CYAN)
-    green = _pair(2, curses.COLOR_GREEN)
-    yellow = _pair(3, curses.COLOR_YELLOW)
-    magenta = _pair(4, curses.COLOR_MAGENTA)
-    d.update(
-        dim=curses.A_DIM,
-        base=green,
-        accent=cyan | curses.A_BOLD,
-        warning=yellow,
-        brand=magenta | curses.A_BOLD,
-        sel=cyan | curses.A_REVERSE | curses.A_BOLD,
-    )
-
-    has256 = getattr(curses, "COLORS", 0) >= 256
-
-    # Named vivid accents with safe basic-color fallbacks.
-    d["orange"] = _pair(60, 208, d["warning"]) if has256 else d["warning"]
-    d["pink"] = _pair(61, 205, d["brand"]) if has256 else d["brand"]
-    d["lime"] = _pair(62, 118, d["base"]) if has256 else d["base"]
-    d["gold"] = _pair(63, 220, d["warning"]) if has256 else d["warning"]
-    d["teal"] = _pair(64, 44, d["accent"]) if has256 else d["accent"]
-    d["violet"] = _pair(65, 141, d["brand"]) if has256 else d["brand"]
-
-    # Selected row: bold black text on a vivid orange background.
-    if has256:
-        try:
-            curses.init_pair(66, 16, 208)
-            d["sel"] = curses.color_pair(66) | curses.A_BOLD
-        except curses.error:
-            pass
-
-    # Rotate provider rows through a full spectrum; basic terminals keep
-    # a compact four-color fallback.
-    if has256:
-        for i, cidx in enumerate(RAINBOW):
-            pair = _pair(40 + i, cidx, 0)
-            if pair:
-                _row_pairs.append(pair)
-    if not _row_pairs:
-        _row_pairs.extend([d["base"], d["accent"], d["brand"], d["warning"]])
-
-    if has256:
-        for i, cidx in enumerate(LOGO_GRAD):
-            _logo_pairs.append(_pair(10 + i, cidx, d["brand"]))
-    if not _logo_pairs:
-        _logo_pairs.extend([cyan, magenta])
-    return d
-
-
-def _large_logo_supported(rows: int, cols: int) -> bool:
-    logo_width = max((_dwidth(line) for line in LOGO), default=0)
-    return cols >= logo_width + 4 and rows > _HEADER_H + _LOGO_MIN_LIST
-
-
-def _tui_size_supported(rows: int, cols: int) -> bool:
-    return rows >= _MIN_TUI_ROWS and cols >= _MIN_TUI_COLS
-
-
-def _animation_enabled() -> bool:
-    disabled = os.environ.get("CLAUDE1_NO_ANIMATION", "").strip().casefold()
-    return disabled not in {"1", "true", "yes", "on"}
-
-
-def _logo_intensity(phase: int, breathing: bool) -> int:
-    if not breathing:
-        return curses.A_BOLD
-    level = LOGO_BREATH_LEVELS[phase % len(LOGO_BREATH_LEVELS)]
-    if level > 0:
-        return curses.A_BOLD
-    return 0
-
-
-def _draw_logo(
-    win,
-    phase: int,
-    *,
-    breathing: bool = False,
-    force_compact: bool = False,
-) -> None:
-    """Flow the logo palette and optionally pulse its brightness."""
-    n = len(_logo_pairs) or 1
-    h, w = win.getmaxyx()
-    intensity = _logo_intensity(phase, breathing)
-    if not force_compact and _large_logo_supported(h, w):
-        limit = w - 1
-        for row, column, char in _LOGO_CELLS:
-            x = 2 + column
-            if x >= limit:
-                continue
-            attr = _logo_pairs[(column + row + phase) % n] | intensity
-            try:
-                win.addstr(_LOGO_TOP + row, x, char, attr)
-            except curses.error:
-                pass
-    else:
-        _addstr(win, 0, 2, "◤ claude1 ◢", _logo_pairs[phase % n] | intensity)
-
-
-def _intro(win) -> int | None:
-    """Animate for at most 240ms and return, rather than consume, any key."""
-    rows, cols = win.getmaxyx()
-    if not _animation_enabled() or not _large_logo_supported(rows, cols):
-        return None
-    win.erase()
-    win.nodelay(True)
-    n = len(_logo_pairs) or 1
-    width = max((len(line) for line in LOGO), default=0)
-    started = time.monotonic()
-    try:
-        while True:
-            elapsed = time.monotonic() - started
-            if elapsed >= INTRO_DURATION_SECONDS:
-                return None
-            progress = min(1.0, elapsed / INTRO_DURATION_SECONDS)
-            phase = int(elapsed / INTRO_FLOW_STEP_SECONDS)
-            typed = min(
-                len("欢迎回来"),
-                max(1, int((elapsed / 0.12) * len("欢迎回来"))),
-            )
-            _addstr(
-                win,
-                0,
-                2,
-                _pad_display("欢迎回来"[:typed], _dwidth("欢迎回来")),
-                C.get("pink", 0) | curses.A_BOLD,
-            )
-            col = max(1, int(width * progress))
-            for r, line in enumerate(LOGO):
-                for x in range(min(col, len(line))):
-                    chx = line[x]
-                    if chx == " ":
-                        continue
-                    attr = (
-                        _logo_pairs[(x + r + phase) % n]
-                        | _logo_intensity(phase, True)
-                    )
-                    if x >= col - 2:
-                        attr |= curses.A_REVERSE | curses.A_BOLD
-                    _addstr(win, _LOGO_TOP + r, 2 + x, chx, attr)
-            win.refresh()
-            key = win.getch()
-            if key != -1:
-                return key
-            remaining = INTRO_DURATION_SECONDS - (time.monotonic() - started)
-            if remaining > 0:
-                time.sleep(min(INTRO_FRAME_SECONDS, remaining))
-    finally:
-        win.nodelay(False)
-
 
 def _build_view(cfg, db_ids, mru, show_hidden):
     """Keep config order stable; MRU only affects the initial cursor."""
@@ -3308,14 +3090,6 @@ def _initial_index(
         return view.index(preferred)
     recent = _recent_name(view, mru)
     return view.index(recent) if recent in view else 0
-
-
-def _visible_window(total: int, selected: int, capacity: int) -> tuple[int, int]:
-    if total <= 0 or capacity <= 0:
-        return (0, 0)
-    capacity = min(total, capacity)
-    start = max(0, min(selected - (capacity // 2), total - capacity))
-    return (start, start + capacity)
 
 
 def _digit_index(key: int) -> int | None:
@@ -3465,71 +3239,6 @@ def resolve_effective_model(provider: dict, meta: dict | None) -> tuple[str, str
     return ("Claude Code 默认", "内置默认")
 
 
-def _draw_provider_quick_panel(
-    win,
-    name: str,
-    model: str,
-    source: str,
-    effort: str | None,
-    notice: str | None,
-) -> None:
-    """模型/effort 快捷小面板；低行数终端省略面包屑与说明行。"""
-    win.erase()
-    h, w = win.getmaxyx()
-    row_width = max(0, w - 4)
-    row = 0
-    if h >= 8:
-        _addstr(win, row, 2, "Claude1  ›  模型 / effort", C.get("dim", 0))
-        row = 2
-    _addstr(
-        win,
-        row,
-        2,
-        _truncate_display(name, row_width),
-        C.get("lime", 0) | curses.A_BOLD,
-    )
-    row += 2 if h >= 8 else 1
-    model_text = f"生效模型  {model}"
-    if source:
-        model_text += f"（{source}）"
-    _addstr(
-        win,
-        row,
-        2,
-        _truncate_display(model_text, row_width),
-        C.get("base", 0),
-    )
-    row += 1
-    effort_text = f"effort    {effort or '未设置（跟随默认）'}"
-    _addstr(
-        win,
-        row,
-        2,
-        _truncate_display(effort_text, row_width),
-        C.get("accent", 0) | curses.A_BOLD,
-    )
-    if h >= 10:
-        _addstr(
-            win,
-            row + 2,
-            2,
-            _truncate_display(
-                "覆盖只影响 claude1 启动的本次会话，不修改 CC Switch 配置",
-                row_width,
-            ),
-            C.get("dim", 0),
-        )
-    footer = notice or "m/Enter 编辑模型（留空清除） · ←/→/e 切换 effort · Esc 保存返回"
-    _addstr(
-        win,
-        max(0, h - 1),
-        2,
-        _truncate_display(footer, row_width),
-        C.get("warning", 0) if notice else C.get("dim", 0),
-    )
-    win.refresh()
-
-
 def _provider_model_effort_panel(
     win, cfg, provider, provider_id
 ) -> str | None:
@@ -3655,13 +3364,6 @@ def _hub_home_text(named: NamedHubLauncherState, width: int) -> str:
             f" · 启动 {status.launch_slot.title()} · {status.launch_effort}"
         )
     return _compose_row(left, right, width)
-
-
-_HUB_IDENTITY_COLORS = ("orange", "teal", "violet", "pink", "lime")
-
-
-def _hub_identity_color(index: int) -> str:
-    return _HUB_IDENTITY_COLORS[index % len(_HUB_IDENTITY_COLORS)]
 
 
 def _draw_launcher(
@@ -3848,8 +3550,8 @@ def _draw_launcher(
             )
         else:
             row_attr = (
-                _row_pairs[i % len(_row_pairs)]
-                if _row_pairs
+                row_pairs[i % len(row_pairs)]
+                if row_pairs
                 else C.get("base", 0)
             )
             attr = (
@@ -4034,112 +3736,6 @@ def _choose_hub_slot(win, prompt: str) -> str | None:
         slot = shortcuts.get(chr(ch).casefold()) if 0 <= ch <= 0x10FFFF else None
         if slot is not None:
             return slot
-
-
-_HUB_WIZARD_STAGES = ("渠道", "模型", "设置", "确认")
-
-
-def _draw_hub_wizard_shell(
-    win,
-    stage: int,
-    title: str,
-    *,
-    detail: str = "",
-    footer: str = "Esc 取消 · ↑↓/jk 选择 · Enter 继续",
-) -> int:
-    """Draw the shared four-stage add-channel surface and return its list top."""
-    win.erase()
-    h, w = win.getmaxyx()
-    width = max(0, w - 4)
-    _addstr(
-        win,
-        0,
-        2,
-        _truncate_display("Claude1  ›  Claude-Hub  ›  新增 Hub 渠道", width),
-        C.get("dim", 0),
-    )
-    compact = h < 10
-    progress_row = 1 if compact else 2
-    title_row = 2 if compact else 4
-    progress_x = 2
-    for index, label in enumerate(_HUB_WIZARD_STAGES):
-        marker = "✓" if index < stage else "●" if index == stage else "○"
-        token = f"{marker} {label}"
-        if index < stage:
-            attr = C.get("lime", 0)
-        elif index == stage:
-            attr = C.get("orange", C.get("accent", 0)) | curses.A_BOLD
-        else:
-            attr = C.get("dim", 0)
-        _addstr(win, progress_row, progress_x, token, attr)
-        progress_x += _dwidth(token)
-        if index < len(_HUB_WIZARD_STAGES) - 1:
-            separator = "  ─  "
-            _addstr(win, progress_row, progress_x, separator, C.get("dim", 0))
-            progress_x += _dwidth(separator)
-    _addstr(
-        win,
-        title_row,
-        2,
-        _truncate_display(title, width),
-        C.get("accent", 0) | curses.A_BOLD,
-    )
-    if detail and h >= 8:
-        _addstr(
-            win,
-            title_row + 1,
-            2,
-            _truncate_display(detail, width),
-            C.get("dim", 0),
-        )
-    _addstr(
-        win,
-        max(0, h - 1),
-        2,
-        _truncate_display(footer, width),
-        C.get("dim", 0),
-    )
-    if not compact:
-        return 7
-    return 4 if h >= 8 else 3
-
-
-def _draw_hub_wizard_options(
-    win,
-    options: list[tuple[str, str]],
-    idx: int,
-    list_top: int,
-    color_keys: list[str] | None = None,
-) -> None:
-    """Render one selectable option list inside the add-channel surface."""
-    h, w = win.getmaxyx()
-    row_width = max(0, w - 4)
-    capacity = max(1, h - 1 - list_top)
-    start, end = _visible_window(len(options), idx, capacity)
-    for offset, option_index in enumerate(range(start, end)):
-        primary, secondary = options[option_index]
-        selected = option_index == idx
-        marker = "▸" if selected else " "
-        line = marker + " " + _compose_row(
-            primary,
-            secondary,
-            max(0, row_width - 2),
-        )
-        if color_keys and option_index < len(color_keys):
-            row_attr = C.get(color_keys[option_index], 0)
-        elif _row_pairs:
-            row_attr = _row_pairs[option_index % len(_row_pairs)]
-        else:
-            row_attr = C.get("base", 0)
-        _addstr(
-            win,
-            list_top + offset,
-            2,
-            _pad_display(line, row_width) if selected else line,
-            C.get("sel", curses.A_REVERSE)
-            if selected
-            else row_attr | curses.A_BOLD,
-        )
 
 
 def _prompt_hub_text(
@@ -5486,8 +5082,7 @@ def _launcher_main(win, cfg, db_ids):
         curses.set_escdelay(25)
     except (AttributeError, curses.error):
         pass
-    global C
-    C = _init_colors()
+    _init_colors()
     mru = load_mru()
     meta = cfg["providers"]
     show_hidden = False

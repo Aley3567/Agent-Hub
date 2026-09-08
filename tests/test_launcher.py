@@ -25,6 +25,7 @@ from socketserver import ThreadingTCPServer
 from types import SimpleNamespace
 from unittest import mock
 
+import claude1_launcher_view as launcher_view
 import claude1_usage_report as usage_report
 
 
@@ -45,9 +46,21 @@ def loaded_launcher(env: dict[str, str]):
         sys.modules[name] = module
         try:
             spec.loader.exec_module(module)
+            # claude1_launcher_view is imported once and shared by every
+            # freshly loaded launcher; reset the theme state it owns so each
+            # test starts from the same blank palette a fresh module had.
+            launcher_view.C.clear()
+            launcher_view.logo_pairs.clear()
+            launcher_view.row_pairs.clear()
             yield module
         finally:
             sys.modules.pop(name, None)
+
+
+def set_palette(colors: dict | None = None) -> None:
+    """claude1_launcher_view owns C; mutate it in place, never rebind."""
+    launcher_view.C.clear()
+    launcher_view.C.update(colors or {})
 
 
 def write_executable(path: Path, source: str) -> None:
@@ -750,15 +763,17 @@ class LauncherTuiLogicTests(unittest.TestCase):
                         for name in names
                     }
                 }
-                launcher.C = {
-                    "brand": 0,
-                    "accent": 0,
-                    "dim": 0,
-                    "warning": 0,
-                    "base": 0,
-                    "sel": 0,
-                }
-                launcher._logo_pairs[:] = [0]
+                set_palette(
+                    {
+                        "brand": 0,
+                        "accent": 0,
+                        "dim": 0,
+                        "warning": 0,
+                        "base": 0,
+                        "sel": 0,
+                    }
+                )
+                launcher_view.logo_pairs[:] = [0]
                 window = FakeWindow()
 
                 launcher._draw_launcher(
@@ -794,16 +809,18 @@ class LauncherTuiLogicTests(unittest.TestCase):
             env = isolated_env(Path(raw_home))
             with loaded_launcher(env) as launcher:
                 cfg = {"providers": {"Alpha": {"hidden": False}}}
-                launcher.C = {
-                    "pink": 0,
-                    "lime": 0,
-                    "dim": 0,
-                    "warning": 0,
-                    "base": 0,
-                    "sel": 0,
-                }
-                launcher._logo_pairs[:] = [0]
-                launcher._row_pairs[:] = [0]
+                set_palette(
+                    {
+                        "pink": 0,
+                        "lime": 0,
+                        "dim": 0,
+                        "warning": 0,
+                        "base": 0,
+                        "sel": 0,
+                    }
+                )
+                launcher_view.logo_pairs[:] = [0]
+                launcher_view.row_pairs[:] = [0]
                 window = FakeWindow()
 
                 launcher._draw_launcher(
@@ -861,9 +878,9 @@ class LauncherTuiLogicTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_home:
             env = isolated_env(Path(raw_home), CLAUDE1_NO_ANIMATION="0")
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 window = FakeWindow()
-                self.assertLessEqual(launcher.INTRO_DURATION_SECONDS, 0.3)
+                self.assertLessEqual(launcher_view.INTRO_DURATION_SECONDS, 0.3)
                 self.assertEqual(launcher._intro(window), ord("2"))
                 self.assertEqual(window.nodelay_calls, [True, False])
                 with mock.patch.dict(
@@ -876,8 +893,8 @@ class LauncherTuiLogicTests(unittest.TestCase):
             env = isolated_env(Path(raw_home), CLAUDE1_NO_ANIMATION="0")
             with loaded_launcher(env) as launcher:
                 attrs = {
-                    launcher._logo_intensity(phase, breathing=True)
-                    for phase in range(len(launcher.LOGO_BREATH_LEVELS))
+                    launcher_view.logo_intensity(phase, breathing=True)
+                    for phase in range(len(launcher_view.LOGO_BREATH_LEVELS))
                 }
 
                 self.assertNotIn(launcher.curses.A_DIM, attrs)
@@ -920,7 +937,7 @@ class LauncherTuiLogicTests(unittest.TestCase):
                     }
                 }
                 window = FakeWindow()
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=ord("2")),
@@ -958,7 +975,7 @@ class LauncherTuiLogicTests(unittest.TestCase):
             with loaded_launcher(env) as launcher:
                 cfg = {"providers": {"Alpha": {"hidden": False}}}
                 window = FakeWindow()
-                launcher._logo_pairs[:] = [1, 2]
+                launcher_view.logo_pairs[:] = [1, 2]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -1024,7 +1041,7 @@ class LauncherTuiLogicTests(unittest.TestCase):
             with loaded_launcher(env) as launcher:
                 cfg = {"providers": {"Alpha": {"hidden": False}}}
                 window = FakeWindow()
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -4970,7 +4987,7 @@ class HubWorkspaceTests(unittest.TestCase):
                     ready_text = launcher._hub_home_text(ready, 120)
                     setup_text = launcher._hub_home_text(setup, 120)
                     setup_window = ScriptedWindow([], size=(18, 100))
-                    launcher.C = {}
+                    set_palette()
                     launcher._draw_hub_setup(
                         setup_window,
                         hub_ref,
@@ -5147,7 +5164,7 @@ class HubWorkspaceTests(unittest.TestCase):
 
             with loaded_launcher(env) as launcher:
                 status, _options = launcher.build_hub_view(HUB_V2_FIXTURE)
-                launcher.C = {}
+                set_palette()
                 # Four ``j`` presses land on the first unbound pool row, which
                 # belongs to the badged gpt channel.
                 window = ScriptedWindow([ord("j")] * 4 + [ord("b"), 27])
@@ -5702,7 +5719,7 @@ class HubWorkspaceTests(unittest.TestCase):
     def _run_home(self, launcher, keys):
         cfg = {"providers": {"alpha-id": {"name": "Alpha", "hidden": False}}}
         window = ScriptedWindow(keys)
-        launcher._logo_pairs[:] = [0]
+        launcher_view.logo_pairs[:] = [0]
         with (
             mock.patch.object(launcher, "_init_colors", return_value={}),
             mock.patch.object(launcher, "_intro", return_value=None),
@@ -5732,7 +5749,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -5769,7 +5786,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -5816,7 +5833,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -5858,7 +5875,7 @@ class HubWorkspaceTests(unittest.TestCase):
                     "fable-model",
                     api_format="anthropic",
                 )
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -5903,7 +5920,7 @@ class HubWorkspaceTests(unittest.TestCase):
                         "alpha-id": {"name": "Alpha", "hidden": False}
                     }
                 }
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -5933,7 +5950,7 @@ class HubWorkspaceTests(unittest.TestCase):
             with loaded_launcher(env) as launcher:
                 created = launcher.create_named_hub("compact-setup")
                 window = ScriptedWindow([], size=(8, 80))
-                launcher.C = {}
+                set_palette()
                 launcher._draw_hub_setup(
                     window,
                     created,
@@ -5967,7 +5984,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 size=(8, 80),
             )
             with loaded_launcher(env) as launcher:
-                launcher.C = {}
+                set_palette()
                 selected = launcher._choose_hub_setup_provider(
                     window,
                     "Compact Hub",
@@ -5994,7 +6011,7 @@ class HubWorkspaceTests(unittest.TestCase):
             ]
             window = ScriptedWindow([10])
             with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
-                launcher.C = {}
+                set_palette()
                 selected = launcher._choose_hub_setup_provider(
                     window,
                     "Fixture Hub",
@@ -6009,7 +6026,7 @@ class HubWorkspaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_home:
             env = isolated_env(Path(raw_home))
             with loaded_launcher(env) as launcher:
-                launcher.C = {}
+                set_palette()
                 for shortcut, expected in (
                     ("a", "anthropic"),
                     ("c", "openai_chat"),
@@ -6045,7 +6062,7 @@ class HubWorkspaceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw_home:
             providers = [{"id": "provider-a", "name": "Provider A"}]
             with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
-                launcher.C = {}
+                set_palette()
                 for key, expected_provider, expected_format in (
                     (10, providers[0], "anthropic"),
                     (27, None, None),
@@ -6089,7 +6106,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 size=(18, 90),
             )
             with loaded_launcher(isolated_env(Path(raw_home))) as launcher:
-                launcher.C = {}
+                set_palette()
                 result = launcher._prompt_hub_setup_model(
                     window,
                     "Fixture Hub",
@@ -6143,7 +6160,7 @@ class HubWorkspaceTests(unittest.TestCase):
                         f"{slot}-model",
                         api_format="anthropic",
                     )
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -6210,7 +6227,7 @@ class HubWorkspaceTests(unittest.TestCase):
                     del catalog["hubs"][stale.hub_id]
 
                 launcher.mutate_hub_catalog(remove_stale)
-                launcher.C = {}
+                set_palette()
                 outcome = launcher._hub_setup_wizard(window, stale)
 
             rendered = " ".join(
@@ -6672,7 +6689,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 size=(6, 80),
             )
             with loaded_launcher(env) as launcher:
-                launcher.C = {}
+                set_palette()
                 selected = launcher._choose_hub_provider(window, providers)
 
             self.assertEqual(selected["id"], "p2")
@@ -6692,8 +6709,8 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher.C = {}
-                launcher._logo_pairs[:] = [0]
+                set_palette()
+                launcher_view.logo_pairs[:] = [0]
                 status, _options = launcher.build_hub_view(HUB_V2_FIXTURE)
                 state = launcher.build_hub_launcher_state(HUB_V2_FIXTURE)
                 named = launcher.NamedHubLauncherState(
@@ -6732,7 +6749,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -6764,8 +6781,8 @@ class HubWorkspaceTests(unittest.TestCase):
                 "providers": {"alpha-id": {"name": "Alpha", "hidden": False}}
             }
             with loaded_launcher(env) as launcher:
-                launcher.C = {}
-                launcher._logo_pairs[:] = [0]
+                set_palette()
+                launcher_view.logo_pairs[:] = [0]
                 state = launcher.build_hub_launcher_state(HUB_V2_FIXTURE)
                 named = launcher.NamedHubLauncherState(
                     launcher._legacy_hub_ref(), state
@@ -6808,7 +6825,7 @@ class HubWorkspaceTests(unittest.TestCase):
                         "alpha-id": {"name": "Alpha", "hidden": False}
                     }
                 }
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -7107,7 +7124,7 @@ class HubWorkspaceTests(unittest.TestCase):
                 "meta": json.dumps({"apiFormat": "anthropic"}),
             }
             with loaded_launcher(env) as launcher:
-                launcher._logo_pairs[:] = [0]
+                launcher_view.logo_pairs[:] = [0]
                 with (
                     mock.patch.object(launcher, "_init_colors", return_value={}),
                     mock.patch.object(launcher, "_intro", return_value=None),
@@ -7142,16 +7159,18 @@ class HubWorkspaceTests(unittest.TestCase):
             env = self._hub_env(Path(raw_home))
             window = ScriptedWindow([27], size=(24, 100))
             with loaded_launcher(env) as launcher:
-                launcher.C = {
-                    "dim": 1,
-                    "lime": 2,
-                    "orange": 4,
-                    "accent": 8,
-                    "sel": 16,
-                    "gold": 32,
-                    "violet": 64,
-                }
-                launcher._row_pairs[:] = [128, 256]
+                set_palette(
+                    {
+                        "dim": 1,
+                        "lime": 2,
+                        "orange": 4,
+                        "accent": 8,
+                        "sel": 16,
+                        "gold": 32,
+                        "violet": 64,
+                    }
+                )
+                launcher_view.row_pairs[:] = [128, 256]
                 self.assertIsNone(
                     launcher._choose_hub_models(
                         window,

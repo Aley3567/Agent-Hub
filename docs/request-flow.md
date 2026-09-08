@@ -25,8 +25,9 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 | `claude1_routing.py`（约 200 行） | 模型选择器、route 组名与渠道匹配；只接收配置和 provider 快照，不读 DB | 从 handler 的 route 调用进入 |
 | `claude1_protocol.py`（约 7,000 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机 | 跟随协议分支读 |
 | `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 (code, message) 证据与 Anthropic 错误壳；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
-| `claude-provider-once.py`（约 8,120 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI、CLI、会话路由记录 | 先读启动路径，后读 TUI |
+| `claude-provider-once.py`（约 7,710 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI 操作与按键、CLI、会话路由记录 | 先读启动路径，后读 TUI |
 | `claude1_terminal.py`（约 100 行） | 终端显示宽度与窗口安全绘制；无状态、不读配置，`curses` 缺失时仍可导入 | 读启动器 TUI 前先看 |
+| `claude1_launcher_view.py`（约 500 行） | curses 调色板状态（`C`/`logo_pairs`/`row_pairs`）、logo 与开场动画、只吃现成数据的面板；不读配置/凭证、不探活、不启动 | 同上 |
 | `claude1_transport.py` | 直连/代理候选解析和 HTTP 打开阶段的切换 | HTTP 发送的最终入口 |
 | `claude1_account_pool.py` | 账号选择、禁用、冷却、非密钥状态持久化 | 按需读 |
 | `claude1_protocol_types.py`、`claude1_protocol_usage.py` | 协议数据类型与错误；统一 usage 来源和转换 | 应保留的现有边界 |
@@ -284,6 +285,20 @@ SSE 状态机、增量 parser 与 usage receipt；`ChannelTarget`；现有 trans
 按显示列而不是 `len()` 计算宽度，并把越界写入裁剪掉；字符宽度与负偏移裁剪成为该模块内部实现，
 启动器不再需要知道。启动器按原名 import 重导出，调用点与测试注入点不变。
 
+调色板与品牌绘制随后移到 `claude1_launcher_view.py`。该模块是 `C`、`logo_pairs`、
+`row_pairs` 的唯一所有者，`init_colors()` 是唯一写入者且**原地改写**这三个对象、不重新绑定，
+所以 `from claude1_launcher_view import C` 的绑定长期有效；`_launcher_main()` 不再用
+`global C` 二次发布。随之迁移的还有 logo/开场动画（`draw_logo()`、`intro()`、
+`logo_intensity()`）、终端能力判定（`tui_size_supported()`、`large_logo_supported()`、
+`animation_enabled()`）、列表滚动窗口（`visible_window()`）和三个只接收现成文本的面板
+（`draw_provider_quick_panel()`、`draw_hub_wizard_shell()`、`draw_hub_wizard_options()`）。
+view 不读 Hub 配置、CC Switch 行或 token，不探活也不启动。
+
+`_draw_launcher()`、`_draw_hub_workspace()`、`_draw_hub_setup*()` 仍留在启动器：它们要解释
+`HUB_CATALOG_ENABLED`、`HUB_SLOT_ORDER`、provider 覆盖与兼容徽章，并依赖 `HubStatus` /
+`HubChannel` / `HubSlotOption` 等启动器数据类。把它们搬进 view 需要反向 import 或另建一套
+"已备好的行"数据模型，超出本步范围。
+
 Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
 先取得快照，再调用 `route(model, cfg, providers)`；路由不再可以自行读库。内部 Python 函数的
 第三个参数改为必填，仓库调用与测试已同步；HTTP 请求、优先级与错误语义保持不变。
@@ -292,7 +307,8 @@ Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
 四槽位和歧义处理，而不照搬其默认兜底规则。
 
 **后续适合小步拆分**：确定配置/快照唯一 owner；
-把 launcher 的 TUI 绘制与按键处理移出启动控制流；最后按请求、响应、流转换拆 protocol。
+把 `_draw_launcher()` 等剩余绘制改为接收已备好的行数据后再移出启动控制流；
+最后按请求、响应、流转换拆 protocol。
 每次迁移一个责任，入口保持兼容，保留 API 与测试合同；原生/转换流暂不强行合成一条算法。
 
 **合并候选**：Hub 和 launcher 对同一配置字段的重复规范化；多处 provider 格式判断应继续复用

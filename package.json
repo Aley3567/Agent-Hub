@@ -29,6 +29,7 @@
     "codex-provider-once.py",
     "claude1_account_pool.py",
     "claude1_context_window.py",
+    "claude1_launcher_view.py",
     "claude1_transport.py",
     "claude1_routing.py",
     "claude1_terminal.py",
