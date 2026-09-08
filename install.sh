@@ -110,6 +110,7 @@ for source_file in \
   "$SCRIPT_DIR/claude1_routing.py" \
   "$SCRIPT_DIR/claude1_terminal.py" \
   "$SCRIPT_DIR/claude1_launcher_view.py" \
+  "$SCRIPT_DIR/claude1_hub_config.py" \
   "$SCRIPT_DIR/claude1_usage_report.py" \
   "$SCRIPT_DIR/statusline-model.py" \
   "$SCRIPT_DIR/codex-provider-once.py" \
@@ -142,6 +143,7 @@ if [ -L "$INSTALL_ROOT/scripts/claude-provider-once.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_routing.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_terminal.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_launcher_view.py" ] ||
+  [ -L "$INSTALL_ROOT/scripts/claude1_hub_config.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_usage_report.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/statusline-model.py" ] ||
   [ -L "$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py" ] ||
@@ -168,6 +170,7 @@ for target_path in \
   "$INSTALL_ROOT/scripts/claude1_routing.py" \
   "$INSTALL_ROOT/scripts/claude1_terminal.py" \
   "$INSTALL_ROOT/scripts/claude1_launcher_view.py" \
+  "$INSTALL_ROOT/scripts/claude1_hub_config.py" \
   "$INSTALL_ROOT/scripts/claude1_usage_report.py" \
   "$INSTALL_ROOT/scripts/statusline-model.py" \
   "$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py" \
@@ -218,6 +221,7 @@ TRANSPORT_TARGET="$INSTALL_ROOT/scripts/claude1_transport.py"
 ROUTING_TARGET="$INSTALL_ROOT/scripts/claude1_routing.py"
 TERMINAL_TARGET="$INSTALL_ROOT/scripts/claude1_terminal.py"
 LAUNCHER_VIEW_TARGET="$INSTALL_ROOT/scripts/claude1_launcher_view.py"
+HUB_CONFIG_TARGET="$INSTALL_ROOT/scripts/claude1_hub_config.py"
 USAGE_REPORT_TARGET="$INSTALL_ROOT/scripts/claude1_usage_report.py"
 STATUSLINE_MODEL_TARGET="$INSTALL_ROOT/scripts/statusline-model.py"
 CODEX_LAUNCHER_TARGET="$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py"
@@ -296,6 +300,7 @@ NEED_TRANSPORT=0
 NEED_ROUTING=0
 NEED_TERMINAL=0
 NEED_LAUNCHER_VIEW=0
+NEED_HUB_CONFIG=0
 NEED_USAGE_REPORT=0
 NEED_STATUSLINE_MODEL=0
 NEED_CODEX_LAUNCHER=0
@@ -328,6 +333,8 @@ needs_install "$SCRIPT_DIR/claude1_terminal.py" "$TERMINAL_TARGET" 644 &&
   NEED_TERMINAL=1
 needs_install "$SCRIPT_DIR/claude1_launcher_view.py" "$LAUNCHER_VIEW_TARGET" 644 &&
   NEED_LAUNCHER_VIEW=1
+needs_install "$SCRIPT_DIR/claude1_hub_config.py" "$HUB_CONFIG_TARGET" 644 &&
+  NEED_HUB_CONFIG=1
 needs_install "$SCRIPT_DIR/claude1_usage_report.py" "$USAGE_REPORT_TARGET" 644 &&
   NEED_USAGE_REPORT=1
 needs_install "$SCRIPT_DIR/statusline-model.py" "$STATUSLINE_MODEL_TARGET" 755 &&
@@ -409,6 +416,9 @@ fi
 if [ "$NEED_LAUNCHER_VIEW" -eq 1 ]; then
   backup_existing "$LAUNCHER_VIEW_TARGET" "claude1_launcher_view.py"
 fi
+if [ "$NEED_HUB_CONFIG" -eq 1 ]; then
+  backup_existing "$HUB_CONFIG_TARGET" "claude1_hub_config.py"
+fi
 if [ "$NEED_USAGE_REPORT" -eq 1 ]; then
   backup_existing "$USAGE_REPORT_TARGET" "claude1_usage_report.py"
 fi
@@ -480,6 +490,9 @@ if [ "$NEED_TERMINAL" -eq 1 ]; then
 fi
 if [ "$NEED_LAUNCHER_VIEW" -eq 1 ]; then
   install_file "$SCRIPT_DIR/claude1_launcher_view.py" "$LAUNCHER_VIEW_TARGET" 644
+fi
+if [ "$NEED_HUB_CONFIG" -eq 1 ]; then
+  install_file "$SCRIPT_DIR/claude1_hub_config.py" "$HUB_CONFIG_TARGET" 644
 fi
 if [ "$NEED_STATUSLINE_MODEL" -eq 1 ]; then
   install_file "$SCRIPT_DIR/statusline-model.py" "$STATUSLINE_MODEL_TARGET" 755

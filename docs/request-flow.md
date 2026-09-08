@@ -21,8 +21,9 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 
 | 位置 | 当前实际职责 | 阅读顺序 |
 | --- | --- | --- |
-| `claude-hub.py`（约 5,200 行） | HTTP 服务、配置和 provider 快照、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
+| `claude-hub.py`（约 4,900 行） | HTTP 服务、配置与 provider 快照的读取和缓存、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
 | `claude1_routing.py`（约 200 行） | 模型选择器、route 组名与渠道匹配；只接收配置和 provider 快照，不读 DB | 从 handler 的 route 调用进入 |
+| `claude1_hub_config.py`（约 390 行） | Hub 配置解释：`validate_config()` 与渠道/槽位/routes 校验；接收 raw、快照与环境映射，不做任何读取 | 读配置相关问题的第一站 |
 | `claude1_protocol.py`（约 7,000 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机 | 跟随协议分支读 |
 | `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 (code, message) 证据与 Anthropic 错误壳；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
 | `claude-provider-once.py`（约 7,710 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI 操作与按键、CLI、会话路由记录 | 先读启动路径，后读 TUI |
@@ -237,7 +238,7 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 
 | 数据 | 入口与默认来源 | 作用 |
 | --- | --- | --- |
-| Hub 配置 | `config_path()`：`CLAUDE_HUB_CONFIG` 或 `~/.cc-switch/claude-hub.json`；`get_config()` → `validate_config(raw, providers, env=...)` | channels、routes、slots、端口、transport；`get_config()` 是唯一读取者（路径、权限、缓存、按需读 provider 库），`validate_config()` 只解释传入的 raw/快照/环境映射 |
+| Hub 配置 | `config_path()`：`CLAUDE_HUB_CONFIG` 或 `~/.cc-switch/claude-hub.json`；`claude-hub.py::get_config()` → `claude1_hub_config.py::validate_config(raw, providers, env=...)` | channels、routes、slots、端口、transport；`get_config()` 是唯一读取者（路径、权限、缓存、按需读 provider 库），`validate_config()` 只解释传入的 raw/快照/环境映射 |
 | 上游配置与凭证 | `db_path()`：`CLAUDE_HUB_DB` 或 `~/.cc-switch/cc-switch.db`；`get_providers()` | SQLite mode=ro、进程内快照；与无凭证的界面 DTO 区分 |
 | 本地鉴权 | 配置 `local_token_env` 指定的环境变量，优先于兼容字段 `local_token` | Claude Code 到 Hub；不是上游 key |
 | 网络路径 | `channel_transport_policy()` | 渠道 transport → 渠道旧 proxy → provider transport → provider proxy → Hub 旧 proxy → Hub transport |
@@ -318,6 +319,13 @@ Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
 `provider/alias/model_in/model_out`，也不再在缺参数时自行 `from_provider()` 或建空账号池。
 准备目标与账号池的唯一位置是 `_forward_to_channel_attempt()`；直接调用该入口的测试改用同一套
 准备路径。URL、模型、凭证来源、调用次数与 JSON/SSE、转换拒绝、错误归因、用量行为不变。
+
+配置的读取与解释也已分家：解释部分整体移入 `claude1_hub_config.py`（`ConfigError`、
+`validate_config()`、渠道/槽位/routes 校验、`ENV_PORT`/`ENV_LOCAL_TOKEN` 的定义都在那里，
+`claude-hub.py` 重新 import 回来），读取、0600 校验、原始 JSON 缓存和「是否需要 provider
+快照」的判断留在 `claude-hub.py::get_config()`。解释模块不 import 主运行时，因此作用域里
+没有任何能打开配置文件或 provider 库的名字。读取缓存本身没有跟着搬：`get_config()` 依赖
+`get_providers()`，而快照状态的归属属于 S21-P4，先搬会制造反向依赖。
 
 **后续适合小步拆分**：确定配置/快照唯一 owner；
 把 `_draw_launcher()` 等剩余绘制改为接收已备好的行数据后再移出启动控制流；

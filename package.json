@@ -33,6 +33,7 @@
     "claude1_transport.py",
     "claude1_routing.py",
     "claude1_terminal.py",
+    "claude1_hub_config.py",
     "claude1_usage_report.py",
     "claude_hub_catalog.py",
     "statusline-model.py",
