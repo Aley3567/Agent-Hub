@@ -946,23 +946,7 @@ def _database_snapshot_state(path: Path) -> tuple:
     return (_snapshot_fingerprint(path), _snapshot_fingerprint(wal_path))
 
 
-# Single-slot ``(revision, providers)`` entry: one assignment on write, one
-# load on read, so a concurrent refresh can never tear the pair apart.
-_snapshot_entry: tuple | None = None
-_snapshot_lock = threading.Lock()
-
-# Provider-snapshot cache metrics (design doc §7, D5).  Updated under
-# ``_snapshot_metrics_lock`` so the fast hit path stays thread-safe without
-# touching the cache lock.
-_snapshot_metrics_lock = threading.Lock()
-_snapshot_hits = 0
-_snapshot_misses = 0
-_snapshot_refreshes = 0
-_snapshot_refresh_failures = 0
-_snapshot_refresh_samples: deque[int] = deque(maxlen=64)
-
-
-def _snapshot_percentile(samples: deque[int], pct: float) -> int:
+def _snapshot_percentile(samples, pct: float) -> int:
     """Return the nearest-rank ``pct`` percentile of ``samples`` (0 if empty)."""
     if not samples:
         return 0
@@ -971,40 +955,136 @@ def _snapshot_percentile(samples: deque[int], pct: float) -> int:
     return s[idx]
 
 
-def _snapshot_metrics_hit() -> None:
-    global _snapshot_hits
-    with _snapshot_metrics_lock:
-        _snapshot_hits += 1
+class ProviderSnapshotCache:
+    """Sole owner of the process-wide provider snapshot, its lock and metrics.
 
+    The cache holds one ``(revision, providers)`` slot: a single assignment on
+    write and a single load on read, so a concurrent refresh can never tear the
+    pair apart.  Callers supply the revision they observed and a ``refresh``
+    callable; the cache decides whether that refresh happens at all, and it is
+    the only object allowed to touch the entry, the locks or the counters.
 
-def _snapshot_metrics_miss() -> None:
-    """Count a fast-path miss, before any refresh is attempted."""
-    global _snapshot_misses
-    with _snapshot_metrics_lock:
-        _snapshot_misses += 1
+    Invariants
+        - A failed refresh leaves the previous entry intact and counts one
+          failure; the caller still sees the error.
+        - Concurrent misses are single-flight coalesced: a waiter accepts an
+          entry another thread produced while it waited (design doc §3.2).
+        - Metrics live behind their own lock, so the fast hit path never
+          contends on the refresh lock (design doc §7, D5).
+        - Deciding *what* a valid revision is, reading the database and
+          re-checking file permissions all belong to the caller's ``refresh``;
+          this object only decides *when* it runs.
+    """
 
+    def __init__(self) -> None:
+        self._entry: tuple | None = None
+        self._lock = threading.Lock()
+        self._metrics_lock = threading.Lock()
+        self._hits = 0
+        self._misses = 0
+        self._refreshes = 0
+        self._refresh_failures = 0
+        self._refresh_samples: deque[int] = deque(maxlen=64)
 
-def _snapshot_metrics_refresh(elapsed_ms: int) -> dict:
-    """Record a successful refresh and return the current sanitized snapshot."""
-    global _snapshot_refreshes
-    with _snapshot_metrics_lock:
-        _snapshot_refreshes += 1
-        _snapshot_refresh_samples.append(elapsed_ms)
+    def load(self, revision: tuple, refresh) -> dict:
+        """Return the providers for ``revision``, refreshing at most once.
+
+        ``refresh`` returns ``(verified_revision, providers, elapsed_ms)``. It
+        decides which work counts toward ``elapsed_ms`` and must have finished
+        every safety re-check before returning, because only its result is
+        allowed into the cache.
+        """
+        entry = self._entry
+        if entry is not None and entry[0] == revision:
+            self._count_hit()
+            return entry[1]
+        self._count_miss()
+        with self._lock:
+            # Single-flight: if another thread refreshed while we waited, the
+            # entry object has changed. That entry was verified by its own
+            # refresh and is at least as fresh as the revision the caller
+            # observed at entrance, so accept it instead of serializing one
+            # refresh per waiter (design doc §3.2).
+            refreshed = self._entry
+            if refreshed is not None and refreshed is not entry:
+                return refreshed[1]
+            try:
+                verified, providers, elapsed_ms = refresh()
+            except (ProviderDatabaseError, sqlite3.Error, OSError) as exc:
+                failures = self._count_refresh_failure()
+                log(
+                    f"provider_snapshot refresh_failed "
+                    f"failures={failures} error={type(exc).__name__}"
+                )
+                if isinstance(exc, ProviderDatabaseError):
+                    raise
+                raise ProviderDatabaseError(
+                    "provider database could not be read"
+                ) from exc
+            self._entry = (verified, providers)
+            metrics = self._count_refresh(elapsed_ms)
+        log(
+            f"provider_snapshot "
+            f"refresh_ms={elapsed_ms} "
+            f"hits={metrics['hits']} "
+            f"misses={metrics['misses']} "
+            f"refreshes={metrics['refreshes']} "
+            f"p50_ms={metrics['p50_ms']} "
+            f"p95_ms={metrics['p95_ms']}"
+        )
+        return providers
+
+    def reset(self) -> None:
+        """Drop the cached entry and zero the counters."""
+        with self._lock:
+            self._entry = None
+        with self._metrics_lock:
+            self._hits = 0
+            self._misses = 0
+            self._refreshes = 0
+            self._refresh_failures = 0
+            self._refresh_samples.clear()
+
+    def metrics(self) -> dict:
+        """Counter snapshot for diagnostics and tests."""
+        with self._metrics_lock:
+            return self._metrics_locked()
+
+    def _metrics_locked(self) -> dict:
         return {
-            "hits": _snapshot_hits,
-            "misses": _snapshot_misses,
-            "refreshes": _snapshot_refreshes,
-            "p50_ms": _snapshot_percentile(_snapshot_refresh_samples, 50),
-            "p95_ms": _snapshot_percentile(_snapshot_refresh_samples, 95),
+            "hits": self._hits,
+            "misses": self._misses,
+            "refreshes": self._refreshes,
+            "refresh_failures": self._refresh_failures,
+            "samples": len(self._refresh_samples),
+            "p50_ms": _snapshot_percentile(self._refresh_samples, 50),
+            "p95_ms": _snapshot_percentile(self._refresh_samples, 95),
         }
 
+    def _count_hit(self) -> None:
+        with self._metrics_lock:
+            self._hits += 1
 
-def _snapshot_metrics_refresh_failed() -> int:
-    """Count a failed refresh and return the running failure total."""
-    global _snapshot_refresh_failures
-    with _snapshot_metrics_lock:
-        _snapshot_refresh_failures += 1
-        return _snapshot_refresh_failures
+    def _count_miss(self) -> None:
+        """Count a fast-path miss, before any refresh is attempted."""
+        with self._metrics_lock:
+            self._misses += 1
+
+    def _count_refresh(self, elapsed_ms: int) -> dict:
+        """Record a successful refresh and return the current counters."""
+        with self._metrics_lock:
+            self._refreshes += 1
+            self._refresh_samples.append(elapsed_ms)
+            return self._metrics_locked()
+
+    def _count_refresh_failure(self) -> int:
+        """Count a failed refresh and return the running failure total."""
+        with self._metrics_lock:
+            self._refresh_failures += 1
+            return self._refresh_failures
+
+
+_provider_snapshot = ProviderSnapshotCache()
 
 
 def _read_provider_snapshot(path: Path) -> tuple:
@@ -1043,69 +1123,41 @@ def _read_provider_snapshot(path: Path) -> tuple:
     ) from last_error
 
 
+def _refresh_provider_snapshot(path: Path) -> tuple:
+    """Produce one cacheable ``(revision, providers, elapsed_ms)`` refresh.
+
+    ``elapsed_ms`` deliberately covers only the snapshot read, not the
+    permission recheck that follows it. The recheck exists because a writer can
+    create WAL sidecars while the read is open, and it runs before the result is
+    handed back so a snapshot taken beside a world-readable sidecar can never
+    enter the cache.
+    """
+    started = time.monotonic()
+    providers, verified = _read_provider_snapshot(path)
+    elapsed_ms = int(round((time.monotonic() - started) * 1000))
+    _require_private_database(path)
+    return verified, providers, elapsed_ms
+
+
 def get_providers() -> dict:
     """Read current provider data from CC Switch using SQLite ``mode=ro``.
 
-    Results are cached process-wide in a single-slot ``(revision, providers)``
-    entry keyed by a fingerprint of the main DB + WAL files. A revision match
-    is a zero-copy hit. Concurrent misses are single-flight coalesced: a
-    waiter accepts the entry another thread refreshed while it waited. The
-    0600 permission check runs on every call before the cache lookup and
-    fails closed with ``ProviderDatabaseError``.
+    This is the reader: it resolves the database path, fails closed on
+    permissions, and states the observed revision. ``_provider_snapshot`` owns
+    everything cache-shaped -- the entry, the lock, the single-flight rule and
+    the metrics -- and decides whether the read happens at all.
     """
-    global _snapshot_entry
     path = _resolve_database_path(db_path())
     _require_private_database(path)
     try:
-        revision = _database_snapshot_state(path)
-        entry = _snapshot_entry
-        if entry is not None and entry[0] == revision:
-            _snapshot_metrics_hit()
-            return entry[1]
-        _snapshot_metrics_miss()
-        with _snapshot_lock:
-            # Single-flight: if another thread refreshed while we waited, the
-            # entry object has changed. That entry was verified (permissions
-            # re-checked after copying) and is at least as fresh as the
-            # revision we stat'ed at entrance, so accept it instead of
-            # serializing one refresh per waiter (design doc §3.2).
-            refreshed = _snapshot_entry
-            if refreshed is not None and refreshed is not entry:
-                return refreshed[1]
-            started = time.monotonic()
-            try:
-                providers, verified = _read_provider_snapshot(path)
-                elapsed_ms = int(round((time.monotonic() - started) * 1000))
-                # Recheck because a writer can create WAL sidecars while the
-                # read is open.
-                _require_private_database(path)
-            except (ProviderDatabaseError, sqlite3.Error, OSError) as exc:
-                failures = _snapshot_metrics_refresh_failed()
-                log(
-                    f"provider_snapshot refresh_failed "
-                    f"failures={failures} error={type(exc).__name__}"
-                )
-                if isinstance(exc, ProviderDatabaseError):
-                    raise
-                raise ProviderDatabaseError(
-                    "provider database could not be read"
-                ) from exc
-            _snapshot_entry = (verified, providers)
-            metrics = _snapshot_metrics_refresh(elapsed_ms)
+        return _provider_snapshot.load(
+            _database_snapshot_state(path),
+            lambda: _refresh_provider_snapshot(path),
+        )
     except (sqlite3.Error, OSError) as exc:
         raise ProviderDatabaseError(
             "provider database could not be read"
         ) from exc
-    log(
-        f"provider_snapshot "
-        f"refresh_ms={elapsed_ms} "
-        f"hits={metrics['hits']} "
-        f"misses={metrics['misses']} "
-        f"refreshes={metrics['refreshes']} "
-        f"p50_ms={metrics['p50_ms']} "
-        f"p95_ms={metrics['p95_ms']}"
-    )
-    return providers
 
 
 def reset_caches() -> None:
@@ -1113,17 +1165,9 @@ def reset_caches() -> None:
 
     Primarily useful for isolated diagnostics and tests.
     """
-    global _snapshot_entry, _snapshot_hits, _snapshot_misses, _snapshot_refreshes
-    global _snapshot_refresh_failures, _errors_fp
+    global _errors_fp
     _cfg_cache.update({"path": None, "mtime_ns": None, "size": None, "raw": None})
-    with _snapshot_lock:
-        _snapshot_entry = None
-    with _snapshot_metrics_lock:
-        _snapshot_hits = 0
-        _snapshot_misses = 0
-        _snapshot_refreshes = 0
-        _snapshot_refresh_failures = 0
-        _snapshot_refresh_samples.clear()
+    _provider_snapshot.reset()
     if _errors_fp is not None:
         try:
             _errors_fp.close()

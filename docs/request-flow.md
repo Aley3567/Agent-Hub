@@ -103,7 +103,7 @@ flowchart TD
 | --- | --- | --- |
 | HTTP Endpoint | `claude-hub.py::create_app()` | 注册 `/v1/messages` 和 `/v1/messages/count_tokens` 到同一 handler；另有 models、healthz、readyz |
 | Request Parser | `claude-hub.py::handle_messages()` | `get_config()`、`check_local_auth()`；拒绝不支持的请求压缩，读 JSON，验证 model 与 JSON 数值/字符合法性 |
-| Provider snapshot | `claude-hub.py::get_providers()` | 通过线程调用读取快照；DB/WAL 指纹命中时复用，变化时只读刷新，并检查文件权限 |
+| Provider snapshot | `claude-hub.py::get_providers()` → `ProviderSnapshotCache.load()` | 通过线程调用读取快照；`get_providers()` 解析路径、校验 0600 并给出观察到的版本，缓存条目、锁、single-flight 与指标全部归 `_provider_snapshot` 所有；DB/WAL 指纹命中时复用，变化时只读刷新 |
 | Router | `claude1_routing.py::route_group_name()` / `route()`，由 Hub 显式导入 | 显式 route 组给出有序目标列表；普通模型选择得到 `(channel_alias, model_out)` |
 | 单目标编排 | `claude-hub.py::_forward_to_channel()` → `_forward_to_channel_attempt()` | 每次目标尝试独立处理 payload，外层接收可重放原生流异常 |
 | Provider 解析 | `claude-hub.py::ChannelTarget.resolve()` → `resolve_provider()` | 渠道映射到 CC Switch 记录，校验 token/URL/transport，应用渠道协议覆盖 |

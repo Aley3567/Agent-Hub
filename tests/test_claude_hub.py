@@ -4757,14 +4757,15 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertIn("Fixture HTTPS", cached)
 
         fresh = {"Fresh HTTPS": {"token": "fresh-token"}}
-        real_lock = hub._snapshot_lock
+        cache = hub._provider_snapshot
+        real_lock = cache._lock
 
         class SwapOnEnter:
             """Simulate a thread that refreshed while this one waited."""
 
             def __enter__(self):
                 real_lock.__enter__()
-                hub._snapshot_entry = ((0, 0, 0, 0, 0), fresh)
+                cache._entry = ((0, 0, 0, 0, 0), fresh)
                 return self
 
             def __exit__(self, *args):
@@ -4778,7 +4779,7 @@ class ClaudeHubTests(unittest.TestCase):
             "_database_snapshot_state",
             side_effect=lambda path: ((1, 1, 1, 1, 1), None),
         ), mock.patch.object(
-            hub, "_snapshot_lock", SwapOnEnter()
+            cache, "_lock", SwapOnEnter()
         ), mock.patch.object(
             hub, "_read_provider_snapshot"
         ) as read:
@@ -4804,9 +4805,10 @@ class ClaudeHubTests(unittest.TestCase):
                 hub.get_providers()
 
         # miss counted at entrance, refresh only on success: no longer equal.
-        self.assertEqual(hub._snapshot_misses, 2)
-        self.assertEqual(hub._snapshot_refreshes, 1)
-        self.assertEqual(hub._snapshot_refresh_failures, 1)
+        metrics = hub._provider_snapshot.metrics()
+        self.assertEqual(metrics["misses"], 2)
+        self.assertEqual(metrics["refreshes"], 1)
+        self.assertEqual(metrics["refresh_failures"], 1)
 
         failure_lines = [
             line
@@ -4926,7 +4928,7 @@ class ClaudeHubTests(unittest.TestCase):
 
         with mock.patch.object(hub, "_read_provider_snapshot", side_effect=spy):
             hub.reset_caches()
-            self.assertIsNone(hub._snapshot_entry)
+            self.assertIsNone(hub._provider_snapshot._entry)
             second = hub.get_providers()
 
         self.assertEqual(len(calls), 1)
@@ -5079,16 +5081,19 @@ class ClaudeHubTests(unittest.TestCase):
         hub.open_log()
         hub.get_providers()
         hub.get_providers()  # cache hit
-        self.assertEqual(hub._snapshot_refreshes, 1)
-        self.assertEqual(hub._snapshot_hits, 1)
-        self.assertEqual(len(hub._snapshot_refresh_samples), 1)
+        warm = hub._provider_snapshot.metrics()
+        self.assertEqual(warm["refreshes"], 1)
+        self.assertEqual(warm["hits"], 1)
+        self.assertEqual(warm["samples"], 1)
 
         hub.reset_caches()
 
-        self.assertEqual(hub._snapshot_hits, 0)
-        self.assertEqual(hub._snapshot_misses, 0)
-        self.assertEqual(hub._snapshot_refreshes, 0)
-        self.assertEqual(len(hub._snapshot_refresh_samples), 0)
+        cleared = hub._provider_snapshot.metrics()
+        self.assertEqual(cleared["hits"], 0)
+        self.assertEqual(cleared["misses"], 0)
+        self.assertEqual(cleared["refreshes"], 0)
+        self.assertEqual(cleared["refresh_failures"], 0)
+        self.assertEqual(cleared["samples"], 0)
 
     def test_snapshot_percentile_boundaries(self):
         self.assertEqual(hub._snapshot_percentile([], 50), 0)
