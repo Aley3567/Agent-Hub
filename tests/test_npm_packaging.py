@@ -43,6 +43,7 @@ class NpmArtifactTests(unittest.TestCase):
         cls.env["CLAUDE1_HOME"] = str(cls.work / "launcher-home")
         cls.env["CLAUDE1_DB_PATH"] = str(cls.work / "absent.db")
         cls.env["CLAUDE_HUB_DB"] = str(cls.work / "absent.db")
+        cls.env["CLAUDE_HUB_CONFIG"] = str(cls.work / "absent-config.json")
 
     def run_entrypoint(self, command):
         result = subprocess.run(

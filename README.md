@@ -628,6 +628,7 @@ CODEX1_INSTALL_ROOT=/tmp/codex1-install \
 | :--- | :--- |
 | `claude-provider-once.py` | 一次性 provider 选择、TUI 与 Claude Code 启动 |
 | `claude-hub.py` | 可选的本地 Anthropic gateway |
+| `claude1_routing.py` | 纯模型选择器与渠道匹配；由调用方传入 provider 快照 |
 | `codex-provider-once.py` | codex1：影子 `CODEX_HOME` + profile 层叠的 Codex 渠道启动 |
 | `claude_hub_catalog.py` | 命名 Hub 目录、路径与迁移规则 |
 | `claude1_account_pool.py` | 多账号选择、冷却、停用状态与非敏感配置写入 |

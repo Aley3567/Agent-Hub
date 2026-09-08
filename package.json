@@ -29,6 +29,7 @@
     "claude1_account_pool.py",
     "claude1_context_window.py",
     "claude1_transport.py",
+    "claude1_routing.py",
     "claude1_usage_report.py",
     "claude_hub_catalog.py",
     "statusline-model.py",

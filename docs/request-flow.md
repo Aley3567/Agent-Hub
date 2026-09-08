@@ -1,6 +1,6 @@
 # Claude-Hub：真实请求链路与代码导读
 
-> 基线：2026-09-08，首次分析基于 `9dfe055`；后续已修正 npm 随包依赖，见 S21。
+> 基线：2026-09-08，首次分析基于 `9dfe055`；现已修正 npm 随包依赖并提取纯路由，见 S21。
 > 失效条件：入口、路由优先级、协议边界或重试条件发生变化时同步更新；路径迁移后按符号重新核对。
 > 这是现行实现的阅读地图。后续执行任务只从 [work-queue.md](work-queue.md) S21 及其引用卡领取。
 
@@ -21,7 +21,8 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 
 | 位置 | 当前实际职责 | 阅读顺序 |
 | --- | --- | --- |
-| `claude-hub.py`（5,389 行） | HTTP 服务、配置和 provider 快照、请求路由、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
+| `claude-hub.py`（约 5,200 行） | HTTP 服务、配置和 provider 快照、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
+| `claude1_routing.py`（约 200 行） | 模型选择器、route 组名与渠道匹配；只接收配置和 provider 快照，不读 DB | 从 handler 的 route 调用进入 |
 | `claude1_protocol.py`（7,286 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机、错误脱敏 | 跟随协议分支读 |
 | `claude-provider-once.py`（8,181 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI、CLI、会话路由记录 | 先读启动路径，后读 TUI |
 | `claude1_transport.py` | 直连/代理候选解析和 HTTP 打开阶段的切换 | HTTP 发送的最终入口 |
@@ -37,7 +38,7 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 | `tools/freebuff-src/`、`tools/go-sdk/` | 外部参考和本地工具 | 非仓库产品模块 |
 
 两个容易读错的名字：`src/claude_hub/routing.py` 选择 Companion/Standalone 等启动模式和
-首屏，不处理模型请求；`claude-hub.py::handle_fallback()` 是未知 HTTP 路径的 404 handler，
+首屏，模型请求路由在 `claude1_routing.py`；`claude-hub.py::handle_fallback()` 是未知 HTTP 路径的 404 handler，
 不负责模型 fallback。
 
 `pyproject.toml` 声明的 `claude-hub` / `claude1` console scripts 指向
@@ -99,7 +100,7 @@ flowchart TD
 | HTTP Endpoint | `claude-hub.py::create_app()` | 注册 `/v1/messages` 和 `/v1/messages/count_tokens` 到同一 handler；另有 models、healthz、readyz |
 | Request Parser | `claude-hub.py::handle_messages()` | `get_config()`、`check_local_auth()`；拒绝不支持的请求压缩，读 JSON，验证 model 与 JSON 数值/字符合法性 |
 | Provider snapshot | `claude-hub.py::get_providers()` | 通过线程调用读取快照；DB/WAL 指纹命中时复用，变化时只读刷新，并检查文件权限 |
-| Router | `claude-hub.py::route_group_name()` / `route()` | 显式 route 组给出有序目标列表；普通模型选择得到 `(channel_alias, model_out)` |
+| Router | `claude1_routing.py::route_group_name()` / `route()`，由 Hub 显式导入 | 显式 route 组给出有序目标列表；普通模型选择得到 `(channel_alias, model_out)` |
 | 单目标编排 | `claude-hub.py::_forward_to_channel()` → `_forward_to_channel_attempt()` | 每次目标尝试独立处理 payload，外层接收可重放原生流异常 |
 | Provider 解析 | `claude-hub.py::ChannelTarget.resolve()` → `resolve_provider()` | 渠道映射到 CC Switch 记录，校验 token/URL/transport，应用渠道协议覆盖 |
 | Request Adapter | `claude1_protocol.py::prepare_request()` | 原生协议默认经 Hub 传入 passthrough；OpenAI 路径解析 RequestIR 后进入对应 request adapter |
@@ -126,8 +127,26 @@ Router 本质是按显式配置解析模型选择器，不是根据 prompt 内�
 5. 未声明的 `claude-<tier>-...` 名称尝试映射 Hub 槽位，或单渠道桥的 provider tier。
 6. 默认渠道的 provider 槽位映射；仅显式 `route_unknown_to_default` 才透传未知模型，否则报错。
 
-`resolve_provider()` 按渠道 `provider` selector 取记录：稳定 `id:<id>` 或唯一名字；旧配置还可
-按唯一规范化 URL 匹配。`_read_provider_rows()` 从 CC Switch 中 `app_type='claude'` 的行构建
+可以在仓库目录的 Python 中独立练习，不启动服务、不读数据库：
+
+```python
+from claude1_routing import route
+
+config = {
+    "default_channel": "primary",
+    "channels": {"primary": {"provider": "id:demo", "models": ["demo-model"]}},
+}
+providers = {"id:demo": {"model_map": {"haiku": "demo-fast"}}}
+assert route("primary,demo-model", config, providers) == ("primary", "demo-model")
+assert route("haiku", config, providers) == ("primary", "demo-fast")
+```
+
+先改输入 selector，再改 model_map，最后加入另一个声明同名模型的渠道观察歧义错误。
+这几个操作分别对应“显式选择”“槽位映射”和“不能猜测的配置歧义”。
+
+`resolve_provider()` 通过 `claude1_routing.py::match_channel_provider()` 按渠道 `provider`
+selector 取记录：稳定 `id:<id>` 或唯一名字；旧配置还可按唯一规范化 URL 匹配。
+`_read_provider_rows()` 从 CC Switch 中 `app_type='claude'` 的行构建
 包含 endpoint、token、api_format、model_map、transport 的运行时 dict。
 
 协议来源由 `claude1_protocol.py::provider_api_format()` 解释：显式 override 优先；
@@ -231,14 +250,15 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 | 展示前检查 Standalone | `launch_standalone_session()` → `IsolatedClaudeSession._build_settings_payload()` 把 profile URL 直接设为 Anthropic base URL，未按 adapter 启动 bridge | 存在 OpenAI adapter 枚举不代表启动路径已完成协议接入；未跑真实上游 |
 | 凭证处理风险 | `MacOSKeychainStore.set_secret()` 把 secret 作为 `security ... -w` 的 subprocess argv 参数 | 代码事实与“不进 argv”口径冲突；本次没有读取真实 key，也未证明已发生泄露 |
 | 三个文件职责过重 | Hub 混配置/快照/网络/流/日志/CLI；launcher 混 TUI/配置/进程；protocol 混请求/响应/流状态 | 按控制流责任拆分有价值，单纯缩短行数没有价值 |
-| 接口绕行与数据复制 | 请求 payload → RequestIR → dict → provider payload；route() 在未注入 providers 时可自己读 DB | 保留验证边界，先让路由依赖显式；不能未经测量就称深拷贝为性能瓶颈 |
+| 接口绕行与数据复制 | 请求 payload → RequestIR → dict → provider payload；原 route() 的隐式读库已移除，现在必须传入快照 | 已让路由依赖显式；IR 简化另行验证，不能未经测量就称深拷贝为性能瓶颈 |
 | 文档漂移 | README 原测试数 718，本次 959；启动器模块头称仅环境变量，实际有临时 settings；旧设计文档还描述短命桥或待建 fallback | 源码、现行导读与历史设计需要分清；本轮未全面重写历史文档 |
 
 安全方面已看到回环监听、本地 token、只读 DB、文件权限检查、上游 URL 限制、禁止请求重定向和
 错误脱敏。不能据此宣称完成安全审计；尤其“网关不持久复制上游 key”和“启动器完全不写 key”
 不是同一个承诺，后者与临时 settings 的实际实现不符。
 
-测试并不缺总量：修改前 Python 全量 959 项通过，补充 2 个 npm 产物测试后全量 961 项通过。
+测试并不缺总量：修改前 Python 全量 959 项通过；补充 2 个 npm 产物测试、6 个路由匹配/快照
+测试后全量 967 项通过。此次安装脚本 6 项通过，两名 Astra 分别复核路由等价与交付依赖。
 已有 `test_protocol_contract`、`test_claude1_protocol`、`test_protocol_sse_invariants`、
 `test_claude_hub`、`test_routes`、`test_transport`、`test_account_pool` 等，并有 fixture 和本地
 HTTP 场景。缺口是产物级启动、未接通路径和已知边界场景，不是重新建立一整套测试体系。
@@ -251,7 +271,14 @@ SSE 状态机、增量 parser 与 usage receipt；`ChannelTarget`；现有 trans
 原生系统消息 passthrough 与显式 promote；本地鉴权、私有文件、脱敏和隔离测试。
 这些抽象分别解决格式差异、乱序/重复、计数来源、目标事实聚合和账号状态问题，有明确用途。
 
-**适合小步拆分**：先从 Hub 提取不做 IO 的 selector 路由；再确定配置/快照唯一 owner；
+**已完成的小步拆分**：Hub 的 selector 路由已移到 `claude1_routing.py`。`handle_messages()`
+先取得快照，再调用 `route(model, cfg, providers)`；路由不再可以自行读库。内部 Python 函数的
+第三个参数改为必填，仓库调用与测试已同步；HTTP 请求、优先级与错误语义保持不变。
+`match_channel_provider()` 同迁，配置能力检查、provider 解析与 CLI 使用同一个匹配实现。
+对照 cc-switch `proxy/model_mapper.rs` 的“模型映射独立于转发”边界；保留本项目已有显式渠道、
+四槽位和歧义处理，而不照搬其默认兜底规则。
+
+**后续适合小步拆分**：确定配置/快照唯一 owner；
 把 launcher 的 TUI 绘制与按键处理移出启动控制流；最后按请求、响应、流转换拆 protocol。
 每次迁移一个责任，入口保持兼容，保留 API 与测试合同；原生/转换流暂不强行合成一条算法。
 

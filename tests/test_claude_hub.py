@@ -1501,11 +1501,11 @@ class ClaudeHubTests(unittest.TestCase):
         cfg = hub.get_config()
 
         self.assertEqual(
-            hub.route("anthropic/fast,custom-model", cfg),
+            hub.route("anthropic/fast,custom-model", cfg, {}),
             ("fast", "custom-model"),
         )
         self.assertEqual(
-            hub.route("claude-opus-4", cfg),
+            hub.route("claude-opus-4", cfg, {}),
             ("fast", "claude-opus-4"),
         )
 
@@ -1515,7 +1515,7 @@ class ClaudeHubTests(unittest.TestCase):
         cfg["channels"]["fast"]["models"].append(model)
 
         self.assertEqual(
-            hub.route(model, cfg),
+            hub.route(model, cfg, {}),
             ("fast", model),
         )
 
@@ -1523,7 +1523,7 @@ class ClaudeHubTests(unittest.TestCase):
         cfg = hub.get_config()
 
         self.assertEqual(
-            hub.route("local-model", cfg),
+            hub.route("local-model", cfg, {}),
             ("local", "local-model"),
         )
 
@@ -1531,7 +1531,7 @@ class ClaudeHubTests(unittest.TestCase):
         cfg = hub.get_config()
 
         with self.assertRaisesRegex(hub.RouteError, "ambiguous model"):
-            hub.route("remote-model", cfg)
+            hub.route("remote-model", cfg, {})
 
     def test_bare_fable_slot_uses_the_fallback_providers_fable_mapping(self):
         cfg = hub.get_config()
@@ -1556,7 +1556,7 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            hub.route("haiku", cfg),
+            hub.route("haiku", cfg, {}),
             ("local", "remote-model"),
         )
 
@@ -1570,11 +1570,11 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            hub.route("claude-haiku-4-5-20251001", cfg),
+            hub.route("claude-haiku-4-5-20251001", cfg, {}),
             ("local", "remote-model"),
         )
         self.assertEqual(
-            hub.route("claude-sonnet-5", cfg),
+            hub.route("claude-sonnet-5", cfg, {}),
             ("fast", "remote-model"),
         )
 
@@ -1591,7 +1591,7 @@ class ClaudeHubTests(unittest.TestCase):
             hub.RouteError,
             "available model slot: fable, opus, sonnet, haiku",
         ):
-            hub.route("made-up-model", cfg)
+            hub.route("made-up-model", cfg, {})
 
     def test_official_style_id_does_not_alias_without_hub_slots(self):
         cfg = hub.get_config()
@@ -1614,7 +1614,7 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            hub.route("claude-fable-5", cfg),
+            hub.route("claude-fable-5", cfg, {}),
             ("fast", "claude-fable-5[1M]"),
         )
 
@@ -1628,7 +1628,7 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            hub.route("upstream-sonnet", cfg),
+            hub.route("upstream-sonnet", cfg, {}),
             ("fast", "upstream-sonnet[1m]"),
         )
 
@@ -1642,7 +1642,7 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         with self.assertRaisesRegex(hub.RouteError, "ambiguous model"):
-            hub.route("claude-fable-5", cfg)
+            hub.route("claude-fable-5", cfg, {})
 
     def test_1m_variant_beats_official_slot_fallback(self):
         # An official-style bare name must still resolve back to the declared
@@ -1658,7 +1658,7 @@ class ClaudeHubTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            hub.route("claude-fable-5", cfg),
+            hub.route("claude-fable-5", cfg, {}),
             ("fast", "claude-fable-5[1M]"),
         )
 
@@ -1696,11 +1696,11 @@ class ClaudeHubTests(unittest.TestCase):
 
         self.assertIs(cfg["channels"]["fast"]["route_unknown_to_default"], True)
         self.assertEqual(
-            hub.route("some-future-model", cfg),
+            hub.route("some-future-model", cfg, {}),
             ("fast", "some-future-model"),
         )
         self.assertEqual(
-            hub.route("claude-sonnet-4", cfg),
+            hub.route("claude-sonnet-4", cfg, {}),
             ("fast", "claude-sonnet-4"),
         )
 
