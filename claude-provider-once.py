@@ -68,6 +68,13 @@ from claude1_context_window import (
     resolve_context_window,
     strip_suffix,
 )
+from claude1_terminal import (
+    compose_row as _compose_row,
+    display_width as _dwidth,
+    pad_display as _pad_display,
+    safe_addstr as _addstr,
+    truncate_display as _truncate_display,
+)
 from claude1_transport import (
     TransportConfigError,
     diagnose_transport_policy,
@@ -3069,77 +3076,6 @@ LOGO_GRAD = [
 _logo_pairs: list[int] = []
 RAINBOW = [203, 208, 214, 220, 148, 46, 42, 51, 45, 75, 99, 141, 207, 205]
 _row_pairs: list[int] = []
-
-
-def _addstr(win, y, x, text, attr=0) -> None:
-    h, w = win.getmaxyx()
-    if y < 0 or y >= h or x >= w:
-        return
-    if x < 0:
-        text = _drop_display_prefix(text, -x)
-        x = 0
-    text = _truncate_display(text, max(0, w - x - 1))
-    try:
-        win.addstr(y, x, text, attr)
-    except curses.error:
-        pass
-
-
-def _char_width(char: str) -> int:
-    if unicodedata.combining(char) or unicodedata.category(char) in {"Cf", "Cc"}:
-        return 0
-    return 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
-
-
-def _dwidth(text: str) -> int:
-    """终端显示宽度：CJK 全角字符按 2 列计。"""
-    return sum(_char_width(char) for char in text)
-
-
-def _truncate_display(text: str, max_width: int) -> str:
-    """Clip text without placing half of a wide character outside the window."""
-    if max_width <= 0:
-        return ""
-    used = 0
-    result: list[str] = []
-    for char in text:
-        char_width = _char_width(char)
-        if used + char_width > max_width:
-            break
-        result.append(char)
-        used += char_width
-    return "".join(result)
-
-
-def _drop_display_prefix(text: str, width: int) -> str:
-    if width <= 0:
-        return text
-    used = 0
-    for index, char in enumerate(text):
-        used += _char_width(char)
-        if used >= width:
-            return text[index + 1 :]
-    return ""
-
-
-def _pad_display(text: str, width: int) -> str:
-    clipped = _truncate_display(text, width)
-    return clipped + (" " * max(0, width - _dwidth(clipped)))
-
-
-def _compose_row(left: str, right: str, width: int) -> str:
-    """Fit one provider row, keeping its short status aligned when possible."""
-    if width <= 0:
-        return ""
-    if not right:
-        return _truncate_display(left, width)
-    right = _truncate_display(right, width)
-    right_width = _dwidth(right)
-    if right_width + 2 >= width:
-        return _truncate_display(left, width)
-    left = _truncate_display(left, width - right_width - 2)
-    gap = max(2, width - _dwidth(left) - right_width)
-    return _truncate_display(left + (" " * gap) + right, width)
 
 
 def _safe_curs_set(visibility: int) -> None:

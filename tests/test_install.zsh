@@ -110,6 +110,9 @@ test_first_install_is_safe() {
   command cmp -s "$REPO_ROOT/claude1_routing.py" \
     "$home/install root/scripts/claude1_routing.py" ||
     fail "routing module was not installed"
+  command cmp -s "$REPO_ROOT/claude1_terminal.py" \
+    "$home/install root/scripts/claude1_terminal.py" ||
+    fail "terminal module was not installed"
   command cmp -s "$REPO_ROOT/claude1_usage_report.py" \
     "$home/install root/scripts/claude1_usage_report.py" ||
     fail "usage report module was not installed"
@@ -231,6 +234,7 @@ test_existing_files_are_backed_up() {
   print -r -- 'old protocol usage' > "$home/install root/scripts/claude1_protocol_usage.py"
   print -r -- 'old transport' > "$home/install root/scripts/claude1_transport.py"
   print -r -- 'old routing' > "$home/install root/scripts/claude1_routing.py"
+  print -r -- 'old terminal' > "$home/install root/scripts/claude1_terminal.py"
   print -r -- 'old usage report' > "$home/install root/scripts/claude1_usage_report.py"
   print -r -- 'old statusline model' > "$home/install root/scripts/statusline-model.py"
   print -r -- 'old shell' > "$home/install root/claude1/zsh-functions.sh"
@@ -254,6 +258,7 @@ test_existing_files_are_backed_up() {
   assert_file_content "old protocol usage" "$backup/claude1_protocol_usage.py"
   assert_file_content "old transport" "$backup/claude1_transport.py"
   assert_file_content "old routing" "$backup/claude1_routing.py"
+  assert_file_content "old terminal" "$backup/claude1_terminal.py"
   assert_file_content "old usage report" "$backup/claude1_usage_report.py"
   assert_file_content "old statusline model" "$backup/statusline-model.py"
   assert_file_content "old shell" "$backup/zsh-functions.sh"
