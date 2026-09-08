@@ -558,6 +558,9 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### Phase 2a · npm 交付闭包
 
+**状态**：✅ 2026-09-08。补齐 context_window 随包文件；新增真实 npm tarball 在仓库外的
+launcher/Hub help smoke。已确认修复前缺模块失败、修复后 2 项通过，Python 全量 961 项通过。
+
 **已复现**：`npm pack --dry-run --ignore-scripts --json` 清单漏掉 `claude1_context_window.py`；
 按清单复制的隔离目录执行 launcher `--help`，在直接 import 时抛 ModuleNotFoundError。
 **范围**：修正实际随包文件，补在仓库目录之外执行包入口的 smoke 验证。

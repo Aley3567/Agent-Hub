@@ -1,6 +1,6 @@
 # Claude-Hub：真实请求链路与代码导读
 
-> 基线：2026-09-08，代码提交 `9dfe055`。本轮只整理文档，不改变运行行为。
+> 基线：2026-09-08，首次分析基于 `9dfe055`；后续已修正 npm 随包依赖，见 S21。
 > 失效条件：入口、路由优先级、协议边界或重试条件发生变化时同步更新；路径迁移后按符号重新核对。
 > 这是现行实现的阅读地图。后续执行任务只从 [work-queue.md](work-queue.md) S21 及其引用卡领取。
 
@@ -224,7 +224,7 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 
 | 优先级 | 证据与影响 | 判断 |
 | --- | --- | --- |
-| 先阻止不可运行的交付 | npm `package.json.files` 漏掉启动器直接导入的 `claude1_context_window.py`；按 npm 实际 dry-run 清单复制到临时目录后，launcher `--help` 报 ModuleNotFoundError | 本地可复现的打包缺陷；不外推到所有历史已发布版本 |
+| 已处理：交付闭包 | npm `package.json.files` 原漏掉启动器直接导入的 `claude1_context_window.py`，隔离产物的 launcher `--help` 报 ModuleNotFoundError；现已补齐，并用真实 tarball 验证 | 修复前失败、修复后通过；未重新发布，不外推到所有历史已发布版本 |
 | 先对齐支持边界 | root runtime、占位 console scripts、Standalone、Rust 管理面、Go 实验同时存在；`routing.py` 又有两种含义 | 不只是名字不好看，而是读者会找到错误入口 |
 | 先对齐失败语义 | native 与 transformed 的流提交和重放不同，重试规则分布四层；S20 尚未闭环 | 应先固定行为表和场景测试，再抽取共用代码 |
 | 先区分协议实现 | Go `repair.Machine.Finalize(cleanEOF)` 会追加 end_turn/message_stop；主 Python 在缺终态时报告失败 | 两者不能共用“失败不伪装”展示口径；没有证据支持直接删除整个 Go 实验 |
@@ -238,7 +238,7 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 错误脱敏。不能据此宣称完成安全审计；尤其“网关不持久复制上游 key”和“启动器完全不写 key”
 不是同一个承诺，后者与临时 settings 的实际实现不符。
 
-测试并不缺总量：本次 `python3 -m unittest discover -s tests -p 'test_*.py'` 运行 959 项通过。
+测试并不缺总量：修改前 Python 全量 959 项通过，补充 2 个 npm 产物测试后全量 961 项通过。
 已有 `test_protocol_contract`、`test_claude1_protocol`、`test_protocol_sse_invariants`、
 `test_claude_hub`、`test_routes`、`test_transport`、`test_account_pool` 等，并有 fixture 和本地
 HTTP 场景。缺口是产物级启动、未接通路径和已知边界场景，不是重新建立一整套测试体系。
