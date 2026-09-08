@@ -541,7 +541,10 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ## S21 · 面向学习与求职展示的渐进整理
 
-**当前状态**：计划已整理，尚未启动以下六个计划。2026-09-08 用户要求先保存计划，稍后逐项分析和操作。
+**当前状态**：✅ 2026-09-08 六个计划中 P1–P5 与 P6a 已完成并合入 main（`93b39b0..af40e14`，12 个线性提交）；
+P6b 只做了分析未改代码（见计划 6）。执行方式：三条流各在独立 worktree 串行推进（A：P1→P3→P4，
+B：P2a→P2b→P6a，C：P5a→P5b），再按流 rebase 到 main；冲突只在 install.sh / package.json / 棘轮 / 导读。
+未部署到用户运行目录，所有证据均为仓库内隔离测试。
 **目标**：保持 Model / Protocol Gateway 定位，让请求链容易追踪、职责单一、行为可验证。
 **代码基线**：`3f45b6a`；事实与调用链见 [request-flow.md](request-flow.md)。执行前以当前符号重新核对，行号不作为合同。
 
@@ -555,6 +558,30 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 以上是历史检查点，不因计划重排而重新执行。尚未部署本地修改至用户运行目录，不能当作真实上游验收。
 
+### 本轮执行结果（2026-09-08）
+
+「接口」按深模块定义计：调用者与测试必须知道的事项（参数、全局状态、调用顺序、隐式约定、patch 点）。
+数量未减少的步骤，其价值是渐进式暴露与局部性，不是深度，表中如实标注。
+
+| 子步 | 提交 | 接口前后 | 主要变化 | 与卡的偏差 |
+| --- | --- | --- | --- | --- |
+| P2a | `93b39b0` | 13 → 13（所有权可见） | 错误正则/脱敏/HTML 摘要迁 `claude1_protocol_errors.py`，单一 import 路径 | 无 |
+| P2b | `af4248a` | 10 → 4 | 6 个 Adapter 类 + 单例表换成显式分发表；147 组差分一致 | 实例表无外部引用，已改名 |
+| P6a | `7e4eb0f` | 6 → 3 | Chat/Responses 编码器直接消费 RequestIR；因果校验唯一所有者移入 `_parse_request_ir`；18,925 次差分一致 | 撤掉 P2b 的请求侧分发表（包装函数失去内容） |
+| P5a | `a6be889` | 7 → 5 | 排版函数迁 `claude1_terminal.py`，不变量写进 docstring | 无 |
+| P5b | `99156ef` | 31 → 17 | `C`/`logo_pairs`/`row_pairs` 唯一所有者 `claude1_launcher_view.py`，写入点 2 → 1 | `_draw_launcher` 等 4 个依赖 Hub 数据类的绘制函数留在启动器（停止条件） |
+| P1 | `98e5063` | 8 → 5 | 入口要求 target/account_pool 必填，删 4 个重复参数与重建分支 | 无 |
+| P3a | `a9e8619` | 4 → 3 | `validate_config(raw, providers, env=...)`，环境读取显式化；新增纯函数测试 | 无 |
+| P3b | `b807104` | 3 → 3（局部性） | 渠道/槽位校验拆出，主流程 194 → 75 行 | 无 |
+| P3c | `f8c7471` | 3 → 3（结构保证） | 解释逻辑迁 `claude1_hub_config.py`，模块内没有读取器名字 | 读取缓存不迁（依赖快照所有者） |
+| P4a | `1547eb4` | 9 → 4 | 8 个 `_snapshot_*` 全局 + 5 个指标函数收进 `ProviderSnapshotCache` | 无 |
+| P4b | `1b98b4b` | 对外不变 | 读取/快照/缓存迁 `claude1_providers.py`，可脱离 aiohttp 导入 | 0600 权限校验留在 Hub（与配置文件共用） |
+| 收尾 | `af40e14` | — | 审查四条建议：死 import、日志闭包、安装测试覆盖、设计文档注记 | — |
+
+全量测试 967 → 986 项通过；npm 打包 2、安装 6、文档索引 6 项通过；逐提交扫描 11 个提交全绿
+（其一在两套全量并发运行时偶发失败 1 项，单独连续三次通过，判为并发抢占）。
+棘轮：`BASELINE["claude-hub.py"]` 6 → 4，`WORST["claude-hub.py"]` 464 → 460，`WORST["claude-provider-once.py"]` 313 → 312。
+
 ### 六个计划与执行顺序
 
 | 编号 | 唯一主题 | 完成后更清楚的事情 | 前置条件 |
@@ -566,7 +593,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 | [S21-P5](#s21-p5) | 启动器显示与操作分离 | 哪些代码只画界面，哪些执行操作 | 可独立分析；建议 P4 后实施 |
 | [S21-P6](#s21-p6) | 请求编码与响应规则整理 | 请求如何转换，JSON/SSE 共用什么规则 | P2 已完成，共享依赖已重新核实；涉及流交付时先处理 S20 |
 
-**默认逐个推进 P1 → P2 → P3 → P4 → P5 → P6，不并行修改同一主文件。**
+**默认逐个推进 P1 → P2 → P3 → P4 → P5 → P6，不并行修改同一主文件。**（本轮实际按主文件分三条流并行，流内串行；见上表。）
 “分析 S21-Pn”只产出该计划的调用关系、修改清单和验证合同；“执行 S21-Pn”先核对再执行一个
 可独立提交的步骤。一个步骤闭环后报告结果并停止，不自动串行执行后续计划。
 
@@ -585,7 +612,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### 计划 1 · 主链转换入口收敛
 
-**状态**：待分析/执行。**建议粒度**：一个提交。
+**状态**：✅ 2026-09-08 (`98e5063`)。**建议粒度**：一个提交。
 
 **现有问题**：`claude-hub.py::_handle_transformed_messages()` 同时接收 `target` 与其中已有的
 `provider/alias/model_in/model_out`，还允许缺 target 或 account_pool 时内部重建。唯一生产调用
@@ -607,7 +634,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### 计划 2 · 协议错误模块与无状态转交
 
-**状态**：待分析/执行。**建议粒度**：P2a、P2b 各一个提交，不能混做。
+**状态**：✅ 2026-09-08 P2a (`93b39b0`)、P2b (`af4248a`)。**建议粒度**：P2a、P2b 各一个提交，不能混做。
 
 **P2a 范围**：将 `claude1_protocol.py` 的错误正则、脱敏、HTML 摘要、
 `sanitize_error_text()`、`upstream_error_evidence()`、`transform_error()` 移到
@@ -628,7 +655,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### 计划 3 · 配置读取与解释分离
 
-**状态**：待分析/执行。**建议粒度**：先拆纯规范化，再决定读取/缓存是否值得迁移。
+**状态**：✅ 2026-09-08 (`a9e8619`、`b807104`、`f8c7471`)。读取缓存留在 Hub，分析结论见上表。**建议粒度**：先拆纯规范化，再决定读取/缓存是否值得迁移。
 
 **现有问题**：`claude-hub.py::get_config()` 混文件读取、原始 JSON 缓存与有条件的 provider
 读取；`validate_config()` / `_config_port()` 还隐式读取环境变量。不能把它直接称为纯函数。
@@ -651,7 +678,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### 计划 4 · Provider 快照状态集中
 
-**状态**：待分析/执行。**前置**：P3 已明确 provider 读取的调用责任。
+**状态**：✅ 2026-09-08 (`1547eb4`、`1b98b4b`)。权限校验留在 Hub，见上表偏差列。**前置**：P3 已明确 provider 读取的调用责任。
 
 **本计划只做**：以 `get_providers()`、`_read_provider_rows()`、`_read_provider_snapshot()`
 及 `_snapshot_*` 状态为一个职责集合，集中版本、缓存、锁、刷新与指标所有权。
@@ -673,7 +700,7 @@ session.calls == 1（不重放）、journal 行可辨识为下游失活、无重
 
 ### 计划 5 · 启动器显示与操作分离
 
-**状态**：待分析/执行。**建议粒度**：P5a 排版、P5b 主题/绘制分别提交。
+**状态**：✅ 2026-09-08 P5a (`a6be889`)、P5b (`99156ef`)。4 个依赖 Hub 数据类的绘制函数按停止条件留在启动器，接通需先定义「已备好的行」数据模型，另立子步。**建议粒度**：P5a 排版、P5b 主题/绘制分别提交。
 
 **P5a 范围**：`claude-provider-once.py` 的 `_char_width/_dwidth/_truncate_display/`
 `_drop_display_prefix/_pad_display/_compose_row/_addstr`，形成终端排版与安全绘制职责。
@@ -696,7 +723,28 @@ logo 和绘制函数到 `claude1_launcher_view.py`。绘制接收已准备数据
 
 ### 计划 6 · 请求编码与响应规则整理
 
-**状态**：待分析/执行，最后推进。**前置**：P2 完成；重新核对共享规则与测试注入点。
+**状态**：P6a ✅ 2026-09-08 (`7e4eb0f`)；**P6b 已分析、未执行**，结论如下，执行前需先拍板第 3 条的第 ② 步。
+
+**P6b 分析结论（2026-09-08，基于 `7e4eb0f`）**
+- 依赖方向已是单向：流区（`AnthropicStreamBridge`、`StreamStateMachine`、`SSEParser` 等）引用请求/响应区
+  9 个符号（`_stop_reason`、`_responses_stop_reason`、`_parse_upstream_tool_arguments`、
+  `_require_upstream_field_allowlist`、`_stream_identifier`、`_tag_responses_reasoning`、
+  `_split_leading_think_block`、`_THINK_OPEN_TAG`、`_json_text`）加 usage 模块 11 个；反向为零。
+  「共享规则形成单向依赖」这一前置**已满足**，不需要先解耦。
+- 真正的纠缠是四处**规则分叉**而非 import：message id 合成（JSON 静默 `uuid4`，流有冲突检测）、
+  item id（流有 `MAX_STREAM_ITEM_ID_CHARS` 上限，JSON 无）、citation 降级（JSON 记降级放行，流做因果校验）、
+  usage 聚合入口（`_response_base_usage()` 与 `_StreamUsage` 各编排一遍同一批底层规则）。
+  搬文件不会让它们一致，反而跨文件更难发现；属行为问题，应另立卡。
+- 若迁移流桥，顺序：① `_stream_identifier` 移到流区（纯位置修正）；② **拍板** 9 个共享符号落点
+  （留主文件会反向 import；抽 `claude1_protocol_shared.py`；或先独立响应模块让流模块单向 import 它）；
+  ③ 四处分叉各立卡或写明有意不同；④ 搬流区约 3,220 行并同提交处理棘轮（`WORST["claude1_protocol.py"]=426`
+  来自流区）、package.json、install.sh 七处、test_install.zsh、测试注入点。
+- `MAX_STREAM_*` 注入面：`test_protocol_sse_invariants.py` 6 处直接对 `protocol.MAX_STREAM_*` 赋值，依赖同模块
+  全局名查找。常量必须随实现搬进定义模块且主文件**不重导出**，测试改为对新模块赋值；否则测试静默变假通过。
+  不推荐为保留旧名而造可注入的 limits 持有者（单一实现的抽象）。
+- S20 关系：S20 修的是 `claude-hub.py` 原生流路径，与搬 `AnthropicStreamBridge` 区域不重叠；只搬位置、
+  不碰 `finish()` 终态判定与 `upstream_terminal` 检查，则 S20 不是硬前置；一旦要动终态，先做 S20。
+- 可选切片 `SSEParser`/`sse_event`：调用方只有 Hub 与桥，已有独立测试，单独提取收益为零；随流桥一起搬时再分。**前置**：P2 完成；重新核对共享规则与测试注入点。
 
 **P6a 范围**：先在原文件内逐个让 Chat/Responses 编码函数消费 RequestIR，保留其校验、
 内容顺序、错误 code/path、降级记录和工具关联职责；迁移完成后才删除 `_payload_from_request_ir()`。
@@ -736,5 +784,10 @@ logo 和绘制函数到 `claude1_launcher_view.py`。绘制接收已准备数据
 
 ### 之后如何继续
 
-可以直接使用“分析 S21-P1”或“执行 S21-P1”。分析时只核对该卡的函数、依赖、调用前后和
-验证合同；执行时只完成一个可验证子步。结束后更新本卡状态与提交证据，不另外新建平行任务队列。
+P1–P5、P6a 已闭环。剩余可领取的项：
+- **S21-P6b**：先拍板共享符号落点（见计划 6 分析第 3 条），再按顺序执行；四处规则分叉先另立卡。
+- **P5 后续子步**：为 `_draw_launcher` 等 4 个绘制函数定义「已备好的行」数据模型后迁入 view。
+- **P3 后续**：读取缓存 `_cfg_cache`/`get_config()` 是否迁出，等 P4 所有者稳定后单独评估。
+- **部署前提**：S13 运行态对账仍未完成，本轮成果未进入用户运行目录。
+
+领取方式不变：分析只核对函数、依赖、调用前后与验证合同；执行只完成一个可验证子步并更新本卡。
