@@ -739,8 +739,8 @@ def _require_nonempty_string(value: object, field: str) -> str:
     return value.strip()
 
 
-def _config_port(raw: object) -> int:
-    override = os.environ.get(ENV_PORT)
+def _config_port(raw: object, override: str | None) -> int:
+    """Interpret the configured port, letting a non-empty env override win."""
     value = override if override not in (None, "") else raw
     if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise ConfigError("port must be an integer between 1 and 65535")
@@ -851,8 +851,21 @@ def _validate_routes(
     return routes
 
 
-def validate_config(raw: object, providers: dict | None = None) -> dict:
-    """Validate and return a normalized, detached configuration dictionary."""
+def validate_config(
+    raw: object,
+    providers: dict | None = None,
+    *,
+    env: Mapping[str, str],
+) -> dict:
+    """Validate and return a normalized, detached configuration dictionary.
+
+    Pure interpretation: every external fact arrives as an argument. ``raw`` is
+    the parsed config document, ``providers`` the already-read CC Switch
+    snapshot (``None`` when no route group declares ``requires``), and ``env``
+    the environment mapping supplying the port and local-token overrides. The
+    function reads no file, no database and no process state, so its only
+    failure mode is ``ConfigError`` describing the offending field.
+    """
     if not isinstance(raw, dict):
         raise ConfigError("config root must be a JSON object")
 
@@ -1003,7 +1016,7 @@ def validate_config(raw: object, providers: dict | None = None) -> dict:
 
     token_env = raw.get("local_token_env", ENV_LOCAL_TOKEN)
     token_env = _require_nonempty_string(token_env, "local_token_env")
-    local_token = os.environ.get(token_env) or raw.get("local_token")
+    local_token = env.get(token_env) or raw.get("local_token")
     local_token = _require_nonempty_string(
         local_token,
         f"local_token (or environment variable {token_env})",
@@ -1021,7 +1034,7 @@ def validate_config(raw: object, providers: dict | None = None) -> dict:
     return {
         "version": version,
         "instance_id": instance_id,
-        "port": _config_port(raw.get("port")),
+        "port": _config_port(raw.get("port"), env.get(ENV_PORT)),
         "local_token": local_token,
         "default_channel": default_channel,
         "channels": channels,
@@ -1035,6 +1048,21 @@ def validate_config(raw: object, providers: dict | None = None) -> dict:
 
 
 def get_config() -> dict:
+    """Read the external configuration facts, then interpret them.
+
+    This is the reader half of the config path and the only place that decides
+    *when* each external read happens. The order is a contract, because
+    ``handle_messages()`` calls it before ``check_local_auth()``:
+
+    1. ``config_path()`` resolves ``CLAUDE_HUB_CONFIG``;
+    2. permissions and ``stat()`` are checked, failing as ``ConfigError``;
+    3. the raw JSON is re-read only when path/mtime/size changed, else the
+       cached document is reused;
+    4. the provider database is read **only** when the raw document declares a
+       route group with ``requires`` -- an unauthenticated request therefore
+       still reaches the DB exactly in that case and no other;
+    5. ``validate_config()`` interprets the result with no further reads.
+    """
     path = config_path()
     _require_private_file(path, "config", ConfigError)
     try:
@@ -1066,7 +1094,7 @@ def get_config() -> dict:
         # ``requires`` capability checks must resolve each target's effective
         # API format from the provider database, not just channel overrides.
         providers = get_providers()
-    return validate_config(raw, providers)
+    return validate_config(raw, providers, env=os.environ)
 
 
 def _read_provider_rows(path: Path) -> dict:
@@ -4802,7 +4830,7 @@ def cli_doctor() -> int:
     cfg = None
     try:
         raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-        cfg = validate_config(raw)
+        cfg = validate_config(raw, env=os.environ)
     except (OSError, UnicodeError, json.JSONDecodeError, ConfigError):
         report("FAIL", "config cannot be parsed or is incomplete")
     else:

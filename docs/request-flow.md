@@ -237,13 +237,20 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 
 | 数据 | 入口与默认来源 | 作用 |
 | --- | --- | --- |
-| Hub 配置 | `config_path()`：`CLAUDE_HUB_CONFIG` 或 `~/.cc-switch/claude-hub.json`；`get_config()` → `validate_config()` | channels、routes、slots、端口、transport；按文件时间/大小缓存原始 JSON，再校验 |
+| Hub 配置 | `config_path()`：`CLAUDE_HUB_CONFIG` 或 `~/.cc-switch/claude-hub.json`；`get_config()` → `validate_config(raw, providers, env=...)` | channels、routes、slots、端口、transport；`get_config()` 是唯一读取者（路径、权限、缓存、按需读 provider 库），`validate_config()` 只解释传入的 raw/快照/环境映射 |
 | 上游配置与凭证 | `db_path()`：`CLAUDE_HUB_DB` 或 `~/.cc-switch/cc-switch.db`；`get_providers()` | SQLite mode=ro、进程内快照；与无凭证的界面 DTO 区分 |
 | 本地鉴权 | 配置 `local_token_env` 指定的环境变量，优先于兼容字段 `local_token` | Claude Code 到 Hub；不是上游 key |
 | 网络路径 | `channel_transport_policy()` | 渠道 transport → 渠道旧 proxy → provider transport → provider proxy → Hub 旧 proxy → Hub transport |
 | 账号池 | `CLAUDE1_ACCOUNT_POOL_CONFIG` / `CLAUDE1_ACCOUNT_POOL_STATE` 或 `.cc-switch` 下池 JSON / 状态 SQLite | 只保存成员引用、指纹、冷却与选择状态 |
 | 启动器与命名 Hub | `claude-provider-once.py` 的 load_config/load_hub_config/load_hub_catalog | 别名、会话启动偏好、Hub 实例和槽位；不全属于每请求配置 |
 | Standalone | `src/claude_hub/standalone.py` + `credentials.py` | 独立 profile 元数据与系统凭证库，不是根 Hub 的 provider 来源 |
+
+读取与解释的时序是合同，因为 `handle_messages()` 先 `get_config()` 再 `check_local_auth()`：
+解析 `CLAUDE_HUB_CONFIG` → 校验 0600 权限与 `stat()`（失败即 `ConfigError`）→ 路径/mtime/大小
+变化时才重读并解析 JSON → **仅当** raw 里有声明 `requires` 的 route 组才读 provider 库
+（因此未鉴权请求也只在这一种情况下触达 DB）→ `validate_config()` 不再做任何读取。
+`validate_config()` 的报错顺序同样未变：root → version → instance_id → channels → default_channel
+→ routes → v2 槽位/effort → local_token_env/local_token → proxy → transport → port。
 
 多种配置承担不同职责，本身不是缺陷；同一事实在启动器、网关与 UI 被分别解释，才会产生漂移。
 不能为“配置集中”把上游 key、展示 DTO、账号调度状态混进一个总配置对象。

@@ -363,13 +363,36 @@ class ClaudeHubTests(unittest.TestCase):
             "proxies": ["http://127.0.0.1:7897"],
         }
 
-        cfg = hub.validate_config(raw)
+        cfg = hub.validate_config(raw, env=os.environ)
 
         self.assertEqual(cfg["transport"], raw["transport"])
         self.assertEqual(
             cfg["channels"]["fast"]["transport"],
             raw["channels"]["fast"]["transport"],
         )
+
+    def test_validate_config_interprets_only_its_arguments(self):
+        """The normalizer must not reach for the process env, files or the DB.
+
+        The process environment is emptied and both readers are booby-trapped;
+        the port and local-token overrides can then only come from ``env``.
+        """
+        raw = json.loads(self.config_file.read_text(encoding="utf-8"))
+        raw["local_token_env"] = "FIXTURE_HUB_TOKEN"
+        injected = {
+            "CLAUDE_HUB_PORT": "20001",
+            "FIXTURE_HUB_TOKEN": "injected-token",
+        }
+
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            hub, "get_providers", side_effect=AssertionError("read the database")
+        ), mock.patch.object(
+            hub, "config_path", side_effect=AssertionError("read the config file")
+        ):
+            cfg = hub.validate_config(raw, env=injected)
+
+        self.assertEqual(cfg["port"], 20001)
+        self.assertEqual(cfg["local_token"], "injected-token")
 
     def test_log_rotation_keeps_current_and_rotated_files_private(self):
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -1878,7 +1901,7 @@ class ClaudeHubTests(unittest.TestCase):
     def test_native_system_role_mode_defaults_to_passthrough(self):
         raw = json.loads(self.config_file.read_text(encoding="utf-8"))
         raw["channels"]["fast"].pop("native_system_role_mode")
-        cfg = hub.validate_config(raw)
+        cfg = hub.validate_config(raw, env=os.environ)
         target = hub.ChannelTarget.resolve(
             "fast", "fast,fixture-model", "fixture-model", cfg, hub.get_providers()
         )
@@ -1890,7 +1913,7 @@ class ClaudeHubTests(unittest.TestCase):
         raw["channels"]["fast"]["native_system_role_mode"] = "automatic"
 
         with self.assertRaisesRegex(hub.ConfigError, "native_system_role_mode"):
-            hub.validate_config(raw)
+            hub.validate_config(raw, env=os.environ)
 
     def test_provider_https_proxy_is_inherited_and_channel_proxy_wins(self):
         connection = sqlite3.connect(self.db_file)
