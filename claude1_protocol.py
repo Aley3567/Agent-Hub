@@ -822,6 +822,26 @@ def _search_result_text(
     )
 
 
+def _message_content_for_encoding(message: MessageIR) -> str | list[dict]:
+    """Render one IR message the way the target encoders read it.
+
+    A turn the client sent as a plain string is handed back as that string.
+    The distinction is observable on the wire: ``_responses_input`` maps a
+    string straight onto ``content`` but maps a block list onto typed
+    ``input_text`` parts, so collapsing the two would change the request the
+    upstream receives.  Blocks are handed out by reference — the IR already
+    owns a private deep copy of the client payload, so nothing the caller sent
+    can be reached from here.
+    """
+    if (
+        message.content_was_string
+        and len(message.blocks) == 1
+        and message.blocks[0].kind == "text"
+    ):
+        return message.blocks[0].value["text"]
+    return [block.value for block in message.blocks]
+
+
 def _chat_content_and_tools(
     role: str,
     content: object,
@@ -967,16 +987,18 @@ def _chat_content_and_tools(
     return output, tool_calls, tool_results, "\n".join(reasoning)
 
 
-def _validate_tool_result_causality(messages: object) -> None:
-    """Reject results without one unique, earlier tool-use declaration."""
-    if not isinstance(messages, list):
-        return
+def _validate_tool_result_causality(messages: tuple[MessageIR, ...]) -> None:
+    """Reject results without one unique, earlier tool-use declaration.
+
+    Owned by :func:`_parse_request_ir`, which runs it once over the canonical
+    conversation.  Both target encoders therefore inherit the same causal
+    guarantee instead of each re-deriving it from a re-materialized payload,
+    where the two copies could drift apart.
+    """
     declared: set[str] = set()
     consumed: set[str] = set()
     for message in messages:
-        if not isinstance(message, dict):
-            continue
-        role = message.get("role")
+        role = message.role
         # Claude Code 2.1.220 can place machine-generated system context in the
         # messages array. Both OpenAI request formats support that role, while
         # tool causality still remains restricted to assistant/user below.
@@ -986,13 +1008,8 @@ def _validate_tool_result_causality(messages: object) -> None:
                 code="HUB_INVALID_TOOL_CAUSALITY",
                 path="$.messages[].role",
             )
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            kind = block.get("type")
+        for block in message.blocks:
+            kind = block.kind
             if kind == "tool_use":
                 if role != "assistant":
                     raise ProtocolRequestError(
@@ -1000,7 +1017,7 @@ def _validate_tool_result_causality(messages: object) -> None:
                         code="HUB_INVALID_TOOL_CAUSALITY",
                         path="$.messages[].content[]",
                     )
-                call_id = block.get("id")
+                call_id = block.value.get("id")
                 if not isinstance(call_id, str) or not call_id or call_id in declared:
                     raise ProtocolRequestError(
                         "tool_use ids must be non-empty and unique",
@@ -1015,7 +1032,7 @@ def _validate_tool_result_causality(messages: object) -> None:
                         code="HUB_INVALID_TOOL_CAUSALITY",
                         path="$.messages[].content[]",
                     )
-                call_id = block.get("tool_use_id")
+                call_id = block.value.get("tool_use_id")
                 if (
                     not isinstance(call_id, str)
                     or call_id not in declared
@@ -1030,32 +1047,32 @@ def _validate_tool_result_causality(messages: object) -> None:
 
 
 def anthropic_to_chat(
-    payload: dict,
+    request: RequestIR,
     *,
     plan: ConversionPlan | None = None,
     compatibility_mode: str = "visible_lossy",
 ) -> dict:
-    """Internal request adapter; call only via ``prepare_request``.
+    """Encode the canonical request IR as an OpenAI Chat Completions body.
 
-    The payload must already have passed request-IR validation; calling this
-    directly skips the fail-closed request checks.
+    Internal request adapter; call only via ``prepare_request``, which is what
+    builds the IR.  Every structural check, including tool causality, has
+    already run by the time the IR exists, so this function only shapes what
+    the parser accepted — it never re-validates and never falls back.
     """
-    _validate_tool_result_causality(payload.get("messages"))
-    result: dict = {"model": payload.get("model"), "messages": []}
-    system = _system_text(payload.get("system"))
+    controls = request.controls
+    result: dict = {"model": controls.get("model"), "messages": []}
+    system = _system_text([block.value for block in request.system_blocks])
     if system:
         result["messages"].append({"role": "system", "content": system})
 
-    for message_index, message in enumerate(payload.get("messages", [])):
-        if not isinstance(message, dict):
-            continue
-        role = message.get("role", "user")
+    for message in request.messages:
+        role = message.role
         content, tool_calls, tool_results, reasoning = _chat_content_and_tools(
-            str(role),
-            message.get("content"),
+            role,
+            _message_content_for_encoding(message),
             plan=plan,
             compatibility_mode=compatibility_mode,
-            message_path=f"$.messages[{message_index}]",
+            message_path=message.path,
         )
         # ``reasoning_content`` is part of the historical assistant turn for
         # reasoning-capable Chat providers.  A turn interrupted while thinking
@@ -1082,22 +1099,22 @@ def anthropic_to_chat(
         else:
             result["messages"].extend(tool_results)
 
-    model = str(payload.get("model", ""))
-    if "max_tokens" in payload:
+    model = str(controls.get("model", ""))
+    if "max_tokens" in controls:
         key = (
             "max_completion_tokens"
             if _GPT_MAX_OUTPUT_RE.match(model)
             else "max_tokens"
         )
-        result[key] = payload["max_tokens"]
+        result[key] = controls["max_tokens"]
     for source, target in (
         ("temperature", "temperature"),
         ("top_p", "top_p"),
         ("stop_sequences", "stop"),
         ("stream", "stream"),
     ):
-        if source in payload:
-            result[target] = payload[source]
+        if source in controls:
+            result[target] = controls[source]
     if result.get("stream") is True:
         # OpenAI-compatible providers only attach a usage chunk to a stream
         # when explicitly asked.  Without it usage accounting degrades to
@@ -1105,7 +1122,7 @@ def anthropic_to_chat(
         result["stream_options"] = {"include_usage": True}
 
     tools = []
-    for tool_index, tool in enumerate(payload.get("tools", [])):
+    for tool_index, tool in enumerate(request.tools):
         if not isinstance(tool, dict) or tool.get("type") == "BatchTool":
             continue
         function = {
@@ -1123,18 +1140,18 @@ def anthropic_to_chat(
         tools.append({"type": "function", "function": function})
     if tools:
         result["tools"] = tools
-    if "tool_choice" in payload:
-        result["tool_choice"] = _chat_tool_choice(payload["tool_choice"])
+    if "tool_choice" in controls:
+        result["tool_choice"] = _chat_tool_choice(controls["tool_choice"])
 
     effort = _anthropic_effort(
-        payload,
+        controls,
         plan=plan,
         compatibility_mode=compatibility_mode,
     )
     if effort is not None:
         result["reasoning_effort"] = effort
     _apply_cross_request_controls(
-        payload,
+        controls,
         result,
         api_format="openai_chat",
         plan=plan,
@@ -1432,23 +1449,17 @@ def _apply_cross_request_controls(
 
 
 def _responses_input(
-    messages: object,
+    messages: tuple[MessageIR, ...],
     *,
     plan: ConversionPlan | None = None,
     compatibility_mode: str = "visible_lossy",
 ) -> list[dict]:
     output: list[dict] = []
-    if not isinstance(messages, list):
-        return output
-    for message_index, message in enumerate(messages):
-        if not isinstance(message, dict):
-            continue
-        role = str(message.get("role", "user"))
-        content = message.get("content")
+    for message in messages:
+        role = message.role
+        content = _message_content_for_encoding(message)
         if isinstance(content, str):
             output.append({"role": role, "content": content})
-            continue
-        if not isinstance(content, list):
             continue
         message_parts: list[dict] = []
 
@@ -1457,11 +1468,10 @@ def _responses_input(
                 output.append({"role": role, "content": list(message_parts)})
                 message_parts.clear()
 
-        for block_index, block in enumerate(content):
-            if not isinstance(block, dict):
-                continue
-            kind = block.get("type")
-            block_path = f"$.messages[{message_index}].content[{block_index}]"
+        for block_ir in message.blocks:
+            block = block_ir.value
+            kind = block_ir.kind
+            block_path = block_ir.path
             if kind == "text" and isinstance(block.get("text"), str):
                 _record_content_metadata(
                     block,
@@ -1612,33 +1622,35 @@ def _responses_input(
 
 
 def anthropic_to_responses(
-    payload: dict,
+    request: RequestIR,
     *,
     codex_oauth: bool = False,
     plan: ConversionPlan | None = None,
     compatibility_mode: str = "visible_lossy",
 ) -> dict:
-    """Internal request adapter; call only via ``prepare_request``.
+    """Encode the canonical request IR as an OpenAI Responses body.
 
-    The payload must already have passed request-IR validation; calling this
-    directly skips the fail-closed request checks.
+    Internal request adapter; call only via ``prepare_request``, which is what
+    builds the IR.  Every structural check, including tool causality, has
+    already run by the time the IR exists, so this function only shapes what
+    the parser accepted — it never re-validates and never falls back.
     """
-    _validate_tool_result_causality(payload.get("messages"))
+    controls = request.controls
     result: dict = {
-        "model": payload.get("model"),
+        "model": controls.get("model"),
         "input": _responses_input(
-            payload.get("messages"),
+            request.messages,
             plan=plan,
             compatibility_mode=compatibility_mode,
         ),
         "store": False,
     }
-    instructions = _system_text(payload.get("system"))
+    instructions = _system_text([block.value for block in request.system_blocks])
     if instructions:
         result["instructions"] = instructions
-    if "max_tokens" in payload:
-        result["max_output_tokens"] = payload["max_tokens"]
-    if "stop_sequences" in payload:
+    if "max_tokens" in controls:
+        result["max_output_tokens"] = controls["max_tokens"]
+    if "stop_sequences" in controls:
         _record_lossy(
             plan,
             compatibility_mode=compatibility_mode,
@@ -1649,11 +1661,11 @@ def anthropic_to_responses(
             message="Responses has no exact stop-sequence carrier",
         )
     for key in ("temperature", "top_p", "stream", "parallel_tool_calls"):
-        if key in payload:
-            result[key] = payload[key]
+        if key in controls:
+            result[key] = controls[key]
 
     tools = []
-    for tool_index, tool in enumerate(payload.get("tools", [])):
+    for tool_index, tool in enumerate(request.tools):
         if not isinstance(tool, dict) or tool.get("type") == "BatchTool":
             continue
         converted_tool = {
@@ -1672,11 +1684,11 @@ def anthropic_to_responses(
         tools.append(converted_tool)
     if tools:
         result["tools"] = tools
-    if "tool_choice" in payload:
-        result["tool_choice"] = _responses_tool_choice(payload["tool_choice"])
+    if "tool_choice" in controls:
+        result["tool_choice"] = _responses_tool_choice(controls["tool_choice"])
 
     effort = _anthropic_effort(
-        payload,
+        controls,
         plan=plan,
         compatibility_mode=compatibility_mode,
     )
@@ -1685,92 +1697,13 @@ def anthropic_to_responses(
     if codex_oauth:
         result["include"] = ["reasoning.encrypted_content"]
     _apply_cross_request_controls(
-        payload,
+        controls,
         result,
         api_format="openai_responses",
         plan=plan,
         compatibility_mode=compatibility_mode,
     )
     return result
-
-
-def _payload_from_request_ir(request: RequestIR) -> dict:
-    """Materialize only canonical, validated values for a target adapter."""
-
-    payload = copy.deepcopy(request.controls)
-    if request.system_blocks:
-        payload["system"] = [
-            copy.deepcopy(block.value) for block in request.system_blocks
-        ]
-    payload["messages"] = []
-    for message in request.messages:
-        if (
-            message.content_was_string
-            and len(message.blocks) == 1
-            and message.blocks[0].kind == "text"
-        ):
-            content: object = message.blocks[0].value["text"]
-        else:
-            content = [copy.deepcopy(block.value) for block in message.blocks]
-        payload["messages"].append({"role": message.role, "content": content})
-    if request.tools:
-        payload["tools"] = [copy.deepcopy(tool) for tool in request.tools]
-    return payload
-
-
-def _encode_chat_request(
-    request: RequestIR,
-    plan: ConversionPlan,
-    *,
-    provider_type: str | None,
-    compatibility_mode: str,
-) -> dict:
-    """Encode the validated request IR as an OpenAI Chat Completions body.
-
-    Chat has no provider-type dialect: the same body is sent whatever
-    credential kind the channel uses, so ``provider_type`` is accepted for the
-    dispatch signature and deliberately unused.
-    """
-    return anthropic_to_chat(
-        _payload_from_request_ir(request),
-        plan=plan,
-        compatibility_mode=compatibility_mode,
-    )
-
-
-def _encode_responses_request(
-    request: RequestIR,
-    plan: ConversionPlan,
-    *,
-    provider_type: str | None,
-    compatibility_mode: str,
-) -> dict:
-    """Encode the validated request IR as an OpenAI Responses body.
-
-    ``codex_oauth`` upstreams are the one dialect this protocol distinguishes,
-    so the provider type is resolved to that flag here rather than being read
-    from anywhere else.
-    """
-    return anthropic_to_responses(
-        _payload_from_request_ir(request),
-        codex_oauth=provider_type == "codex_oauth",
-        plan=plan,
-        compatibility_mode=compatibility_mode,
-    )
-
-
-# api_format -> request encoder.  Membership decides which formats
-# ``prepare_request`` routes through the request IR at all; ``anthropic`` is
-# absent because native requests are passed through instead of encoded.
-#
-# Encoders are plain functions with one shared signature
-# ``(request_ir, plan, *, provider_type, compatibility_mode) -> dict``.  They
-# keep nothing between calls, so there is no instance to construct and no
-# ordering rule between requests.
-_REQUEST_ENCODERS: dict[str, Callable[..., dict]] = {
-    "openai_chat": _encode_chat_request,
-    "openai_responses": _encode_responses_request,
-}
 
 
 _CROSS_REQUEST_FIELDS = {
@@ -2568,6 +2501,10 @@ def _parse_request_ir(
             code=code,
             path=tool_path,
         )
+    # Last, so that a request which is both structurally invalid and causally
+    # broken still reports the structural fault first, exactly as it did when
+    # the encoders ran this check after the parser had returned.
+    _validate_tool_result_causality(tuple(messages))
     return RequestIR(
         copy.deepcopy(payload),
         system_blocks,
@@ -2633,6 +2570,12 @@ def _normalize_native_system_roles(
     return result
 
 
+# The formats ``prepare_request`` encodes through the request IR.  ``anthropic``
+# is absent because native requests are passed through instead of encoded, and
+# a reserved profile never reaches here — availability is checked first.
+_IR_ENCODED_FORMATS = frozenset({"openai_chat", "openai_responses"})
+
+
 def prepare_request(
     payload: dict,
     api_format: str,
@@ -2679,18 +2622,28 @@ def prepare_request(
             # by the selected upstream. Keeping their original position avoids
             # moving turn-by-turn additions into the cache prefix.
             body = copy.deepcopy(payload)
-    elif api_format in _REQUEST_ENCODERS:
+    elif api_format in _IR_ENCODED_FORMATS:
         request_ir = _parse_request_ir(
             payload,
             plan,
             compatibility_mode=compatibility_mode,
         )
-        body = _REQUEST_ENCODERS[api_format](
-            request_ir,
-            plan,
-            provider_type=provider_type,
-            compatibility_mode=compatibility_mode,
-        )
+        # Both encoders read the same IR; only Responses has a provider-type
+        # dialect, so the two calls are written out rather than hidden behind a
+        # uniform signature that Chat would have to accept and ignore.
+        if api_format == "openai_chat":
+            body = anthropic_to_chat(
+                request_ir,
+                plan=plan,
+                compatibility_mode=compatibility_mode,
+            )
+        else:
+            body = anthropic_to_responses(
+                request_ir,
+                codex_oauth=provider_type == "codex_oauth",
+                plan=plan,
+                compatibility_mode=compatibility_mode,
+            )
     else:  # pragma: no cover - registry availability is checked above.
         raise AssertionError(api_format)
     return PreparedRequest(profile.endpoint, body, plan)

@@ -169,20 +169,23 @@ selector 取记录：稳定 `id:<id>` 或唯一名字；旧配置还可按唯一
 | 客户端回传结果 | user `tool_result.tool_use_id` | `role=tool` + `tool_call_id` | `function_call_output.call_id` |
 | token 上限 | `max_tokens` | 按模型使用 max_tokens/max_completion_tokens | `max_output_tokens` |
 
-请求路径：`prepare_request()` → `_parse_request_ir()` → `_REQUEST_ENCODERS[api_format]`
-（`_encode_chat_request()` / `_encode_responses_request()`）→
-`anthropic_to_chat()` / `anthropic_to_responses()`；后者的消息转换在 `_responses_input()`。
-RequestIR 还会经 `_payload_from_request_ir()` 还原为验证后的 dict，再交给转换函数。
-两个编码函数签名相同（`request_ir, plan, *, provider_type, compatibility_mode`），
-`codex_oauth` 方言只在 Responses 侧由 `provider_type` 解析。
+请求路径：`prepare_request()` → `_parse_request_ir()` →
+`anthropic_to_chat(request_ir, ...)` / `anthropic_to_responses(request_ir, ...)`；
+后者的消息转换在 `_responses_input()`。两个编码函数直接消费 RequestIR，
+不再经 dict 还原，`_payload_from_request_ir()` 已删除；`_IR_ENCODED_FORMATS`
+列出走 IR 的两种协议，`codex_oauth` 方言只在 Responses 分支由 `provider_type` 解析。
+把一条 IR 消息渲染成编码器读的形状由 `_message_content_for_encoding()` 独占：
+客户端发的字符串 content 必须原样保留，因为 Responses 对字符串和 block 列表
+输出不同（裸 `content` vs `input_text` 部件）。
 
 JSON 返回：`prepare_response()` → `_RESPONSE_DECODERS[api_format]`
 （直接就是 `chat_to_anthropic()` / `responses_to_anthropic()`）→ `(payload, receipt)`，
 由 `prepare_response()` 组装 `PreparedResponse`，把上游函数调用转回 `tool_use`。
 
 跨协议的 `_validate_tool_result_causality()` 要求工具结果引用更早、唯一、尚未消费的工具调用。
-这是真实的因果保护，应保留；不要把“默认宽容”解释成允许错配工具 id。原生 passthrough
-不走完整 RequestIR 校验链，不能宣称所有路径使用完全相同的入站校验。
+它由 `_parse_request_ir()` 在返回 IR 前调用一次（唯一所有者），两个编码器共享同一结论，
+不再各自复检。这是真实的因果保护，应保留；不要把“默认宽容”解释成允许错配工具 id。
+原生 passthrough 不走完整 RequestIR 校验链，不能宣称所有路径使用完全相同的入站校验。
 
 流式参数可能被拆在任意 chunk 中。`AnthropicStreamBridge::_tool_start()` 建立 block，
 `_tool_delta()` 输出 `input_json_delta.partial_json`，`_tool_snapshot()` 对照累计片段去重或拒绝冲突。
@@ -254,7 +257,7 @@ HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` �
 | 展示前检查 Standalone | `launch_standalone_session()` → `IsolatedClaudeSession._build_settings_payload()` 把 profile URL 直接设为 Anthropic base URL，未按 adapter 启动 bridge | 存在 OpenAI adapter 枚举不代表启动路径已完成协议接入；未跑真实上游 |
 | 凭证处理风险 | `MacOSKeychainStore.set_secret()` 把 secret 作为 `security ... -w` 的 subprocess argv 参数 | 代码事实与“不进 argv”口径冲突；本次没有读取真实 key，也未证明已发生泄露 |
 | 三个文件职责过重 | Hub 混配置/快照/网络/流/日志/CLI；launcher 混 TUI/配置/进程；protocol 混请求/响应/流状态 | 按控制流责任拆分有价值，单纯缩短行数没有价值 |
-| 接口绕行与数据复制 | 请求 payload → RequestIR → dict → provider payload；原 route() 的隐式读库已移除，现在必须传入快照 | 已让路由依赖显式；IR 简化另行验证，不能未经测量就称深拷贝为性能瓶颈 |
+| 接口绕行与数据复制 | 请求 payload → RequestIR → provider payload（中间那层 dict 还原已删除）；原 route() 的隐式读库已移除，现在必须传入快照 | 已让路由依赖显式；去掉一次深拷贝是可读性收益，未做性能测量，不能称深拷贝曾是瓶颈 |
 | 文档漂移 | README 原测试数 718，本次 959；启动器模块头称仅环境变量，实际有临时 settings；旧设计文档还描述短命桥或待建 fallback | 源码、现行导读与历史设计需要分清；本轮未全面重写历史文档 |
 
 安全方面已看到回环监听、本地 token、只读 DB、文件权限检查、上游 URL 限制、禁止请求重定向和
@@ -287,7 +290,8 @@ SSE 状态机、增量 parser 与 usage receipt；`ChannelTarget`；现有 trans
 每次迁移一个责任，入口保持兼容，保留 API 与测试合同；原生/转换流暂不强行合成一条算法。
 
 **合并候选**：Hub 和 launcher 对同一配置字段的重复规范化；多处 provider 格式判断应继续复用
-`provider_api_format()`；请求转换中的 IR → dict 过渡只在能保持验证和降级记录的前提下简化。
+`provider_api_format()`；请求转换中的 IR → dict 过渡已删除（编码器直接读 IR，
+校验、降级记录、错误 code/path 与工具关联保持不变）。
 管理面脱敏读取和运行时含凭证读取不同，不能仅因为都查 SQLite 就合并成一个万能 store。
 
 **删除候选**：失真的重复说明、无调用且不属于导出合同的兼容别名/包装；先查引用、安装清单、
