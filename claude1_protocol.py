@@ -18,6 +18,7 @@ import json
 import math
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable
@@ -1717,62 +1718,58 @@ def _payload_from_request_ir(request: RequestIR) -> dict:
     return payload
 
 
-class RequestAdapter:
-    """Target-specific encoder fed only by the canonical request IR."""
+def _encode_chat_request(
+    request: RequestIR,
+    plan: ConversionPlan,
+    *,
+    provider_type: str | None,
+    compatibility_mode: str,
+) -> dict:
+    """Encode the validated request IR as an OpenAI Chat Completions body.
 
-    api_format: str
-
-    def encode(
-        self,
-        request: RequestIR,
-        plan: ConversionPlan,
-        *,
-        provider_type: str | None,
-        compatibility_mode: str,
-    ) -> dict:
-        raise NotImplementedError
-
-
-class ChatRequestAdapter(RequestAdapter):
-    api_format = "openai_chat"
-
-    def encode(
-        self,
-        request: RequestIR,
-        plan: ConversionPlan,
-        *,
-        provider_type: str | None,
-        compatibility_mode: str,
-    ) -> dict:
-        return anthropic_to_chat(
-            _payload_from_request_ir(request),
-            plan=plan,
-            compatibility_mode=compatibility_mode,
-        )
+    Chat has no provider-type dialect: the same body is sent whatever
+    credential kind the channel uses, so ``provider_type`` is accepted for the
+    dispatch signature and deliberately unused.
+    """
+    return anthropic_to_chat(
+        _payload_from_request_ir(request),
+        plan=plan,
+        compatibility_mode=compatibility_mode,
+    )
 
 
-class ResponsesRequestAdapter(RequestAdapter):
-    api_format = "openai_responses"
+def _encode_responses_request(
+    request: RequestIR,
+    plan: ConversionPlan,
+    *,
+    provider_type: str | None,
+    compatibility_mode: str,
+) -> dict:
+    """Encode the validated request IR as an OpenAI Responses body.
 
-    def encode(
-        self,
-        request: RequestIR,
-        plan: ConversionPlan,
-        *,
-        provider_type: str | None,
-        compatibility_mode: str,
-    ) -> dict:
-        return anthropic_to_responses(
-            _payload_from_request_ir(request),
-            codex_oauth=provider_type == "codex_oauth",
-            plan=plan,
-            compatibility_mode=compatibility_mode,
-        )
+    ``codex_oauth`` upstreams are the one dialect this protocol distinguishes,
+    so the provider type is resolved to that flag here rather than being read
+    from anywhere else.
+    """
+    return anthropic_to_responses(
+        _payload_from_request_ir(request),
+        codex_oauth=provider_type == "codex_oauth",
+        plan=plan,
+        compatibility_mode=compatibility_mode,
+    )
 
 
-REQUEST_ADAPTERS: dict[str, RequestAdapter] = {
-    "openai_chat": ChatRequestAdapter(),
-    "openai_responses": ResponsesRequestAdapter(),
+# api_format -> request encoder.  Membership decides which formats
+# ``prepare_request`` routes through the request IR at all; ``anthropic`` is
+# absent because native requests are passed through instead of encoded.
+#
+# Encoders are plain functions with one shared signature
+# ``(request_ir, plan, *, provider_type, compatibility_mode) -> dict``.  They
+# keep nothing between calls, so there is no instance to construct and no
+# ordering rule between requests.
+_REQUEST_ENCODERS: dict[str, Callable[..., dict]] = {
+    "openai_chat": _encode_chat_request,
+    "openai_responses": _encode_responses_request,
 }
 
 
@@ -2682,13 +2679,13 @@ def prepare_request(
             # by the selected upstream. Keeping their original position avoids
             # moving turn-by-turn additions into the cache prefix.
             body = copy.deepcopy(payload)
-    elif api_format in REQUEST_ADAPTERS:
+    elif api_format in _REQUEST_ENCODERS:
         request_ir = _parse_request_ir(
             payload,
             plan,
             compatibility_mode=compatibility_mode,
         )
-        body = REQUEST_ADAPTERS[api_format].encode(
+        body = _REQUEST_ENCODERS[api_format](
             request_ir,
             plan,
             provider_type=provider_type,
@@ -3736,32 +3733,14 @@ def responses_to_anthropic(
     return payload, receipt
 
 
-class ResponseAdapter:
-    api_format: str
-
-    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
-        raise NotImplementedError
-
-
-class ChatResponseAdapter(ResponseAdapter):
-    api_format = "openai_chat"
-
-    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
-        payload, receipt = chat_to_anthropic(body, plan=plan)
-        return PreparedResponse(payload, plan, receipt)
-
-
-class ResponsesResponseAdapter(ResponseAdapter):
-    api_format = "openai_responses"
-
-    def decode(self, body: dict, plan: ConversionPlan) -> PreparedResponse:
-        payload, receipt = responses_to_anthropic(body, plan=plan)
-        return PreparedResponse(payload, plan, receipt)
-
-
-RESPONSE_ADAPTERS: dict[str, ResponseAdapter] = {
-    "openai_chat": ChatResponseAdapter(),
-    "openai_responses": ResponsesResponseAdapter(),
+# api_format -> response decoder.  Both decoders already share the signature
+# ``(body, *, plan) -> (anthropic_payload, usage_receipt)``, so the table names
+# them directly; ``prepare_response`` is the single place that turns that pair
+# into a :class:`PreparedResponse`, which keeps the usage receipt visibly
+# attached to the response it was counted from.
+_RESPONSE_DECODERS: dict[str, Callable[..., tuple[dict, UsageReceipt]]] = {
+    "openai_chat": chat_to_anthropic,
+    "openai_responses": responses_to_anthropic,
 }
 
 
@@ -3787,13 +3766,14 @@ def prepare_response(body: dict, api_format: str) -> PreparedResponse:
         # Native pass-through stays byte-for-byte: the body is never
         # re-interpreted here, so there is no receipt to account from.
         return PreparedResponse(copy.deepcopy(body), plan)
-    adapter = RESPONSE_ADAPTERS.get(api_format)
-    if adapter is None:
+    decode = _RESPONSE_DECODERS.get(api_format)
+    if decode is None:
         raise ProtocolTransformError(
             f"no response adapter is registered for {api_format!r}",
             code="HUB_ADAPTER_UNAVAILABLE",
         )
-    return adapter.decode(copy.deepcopy(body), plan)
+    payload, receipt = decode(copy.deepcopy(body), plan=plan)
+    return PreparedResponse(payload, plan, receipt)
 
 
 def sse_event(event: str, payload: dict) -> bytes:

@@ -169,13 +169,16 @@ selector 取记录：稳定 `id:<id>` 或唯一名字；旧配置还可按唯一
 | 客户端回传结果 | user `tool_result.tool_use_id` | `role=tool` + `tool_call_id` | `function_call_output.call_id` |
 | token 上限 | `max_tokens` | 按模型使用 max_tokens/max_completion_tokens | `max_output_tokens` |
 
-请求路径：`prepare_request()` → `_parse_request_ir()` →
-`ChatRequestAdapter.encode()` / `ResponsesRequestAdapter.encode()` →
+请求路径：`prepare_request()` → `_parse_request_ir()` → `_REQUEST_ENCODERS[api_format]`
+（`_encode_chat_request()` / `_encode_responses_request()`）→
 `anthropic_to_chat()` / `anthropic_to_responses()`；后者的消息转换在 `_responses_input()`。
 RequestIR 还会经 `_payload_from_request_ir()` 还原为验证后的 dict，再交给转换函数。
+两个编码函数签名相同（`request_ir, plan, *, provider_type, compatibility_mode`），
+`codex_oauth` 方言只在 Responses 侧由 `provider_type` 解析。
 
-JSON 返回：`prepare_response()` → `ChatResponseAdapter.decode()` / `ResponsesResponseAdapter.decode()`
-→ `chat_to_anthropic()` / `responses_to_anthropic()`，把上游函数调用转回 `tool_use`。
+JSON 返回：`prepare_response()` → `_RESPONSE_DECODERS[api_format]`
+（直接就是 `chat_to_anthropic()` / `responses_to_anthropic()`）→ `(payload, receipt)`，
+由 `prepare_response()` 组装 `PreparedResponse`，把上游函数调用转回 `tool_use`。
 
 跨协议的 `_validate_tool_result_causality()` 要求工具结果引用更早、唯一、尚未消费的工具调用。
 这是真实的因果保护，应保留；不要把“默认宽容”解释成允许错配工具 id。原生 passthrough
@@ -267,7 +270,7 @@ HTTP 场景。缺口是产物级启动、未接通路径和已知边界场景，
 
 ## 11. 保留、重构、合并与删除的判断
 
-**保留**：根 Python 作为唯一主协议运行时；三种协议分支；显式 adapter 字典；工具因果检查；
+**保留**：根 Python 作为唯一主协议运行时；三种协议分支；显式编码/解码分发表；工具因果检查；
 SSE 状态机、增量 parser 与 usage receipt；`ChannelTarget`；现有 transport/account pool 边界；
 原生系统消息 passthrough 与显式 promote；本地鉴权、私有文件、脱敏和隔离测试。
 这些抽象分别解决格式差异、乱序/重复、计数来源、目标事实聚合和账号状态问题，有明确用途。
@@ -288,7 +291,9 @@ SSE 状态机、增量 parser 与 usage receipt；`ChannelTarget`；现有 trans
 管理面脱敏读取和运行时含凭证读取不同，不能仅因为都查 SQLite 就合并成一个万能 store。
 
 **删除候选**：失真的重复说明、无调用且不属于导出合同的兼容别名/包装；先查引用、安装清单、
-测试和外部命令入口再删。两层显式 adapter 薄类并非当前主要负担，不急于换成另一套机制。
+测试和外部命令入口再删。原来的两层 adapter 薄类（`RequestAdapter`/`ResponseAdapter` 及四个子类、
+两张实例表）已被普通函数与显式分发表取代：它们无状态、`api_format` 类属性无人读取、
+每个方法只转交一次调用，不构成真实接缝。
 本轮没有证明可安全删除的运行时模块；不删除 Go 实验、平台 UI、旧入口或历史排除证据。
 
 ## 12. 推荐目标结构与阶段
