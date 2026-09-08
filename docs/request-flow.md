@@ -23,7 +23,8 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 | --- | --- | --- |
 | `claude-hub.py`（约 5,200 行） | HTTP 服务、配置和 provider 快照、上游调用编排、原生流转发、错误与用量日志、CLI | 主线第一站 |
 | `claude1_routing.py`（约 200 行） | 模型选择器、route 组名与渠道匹配；只接收配置和 provider 快照，不读 DB | 从 handler 的 route 调用进入 |
-| `claude1_protocol.py`（7,286 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机、错误脱敏 | 跟随协议分支读 |
+| `claude1_protocol.py`（约 7,000 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机 | 跟随协议分支读 |
+| `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 (code, message) 证据与 Anthropic 错误壳；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
 | `claude-provider-once.py`（8,181 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI、CLI、会话路由记录 | 先读启动路径，后读 TUI |
 | `claude1_transport.py` | 直连/代理候选解析和 HTTP 打开阶段的切换 | HTTP 发送的最终入口 |
 | `claude1_account_pool.py` | 账号选择、禁用、冷却、非密钥状态持久化 | 按需读 |
@@ -217,7 +218,7 @@ Chat 的裸 `[DONE]` 是已实现的兼容例外：缺 finish_reason 时推导�
 | 路由组：`handle_messages()` | 捕获 `RouteTargetExhausted` 后推进 target；通常来自 401/403/429，另包括本地池耗尽和原生流重放耗尽 | 普通上游 5xx 不自动切 provider；这里的本地 503/504 要与上游 HTTP 5xx 区分 |
 
 HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` 映射为 503；JSON/请求
-不合法通常 400，转换失败通常 502。跨协议上游错误经 `transform_error()` 整形成 Anthropic
+不合法通常 400，转换失败通常 502。跨协议上游错误经 `claude1_protocol_errors.py::transform_error()` 整形成 Anthropic
 错误体；原生路径通常保留上游响应，部分状态有安全错误整形。SSE 已交付后不能再改 HTTP status，
 只能发协议错误事件或终止连接。`record_error()` 与 `record_usage()` 记录脱敏证据及用量来源。
 

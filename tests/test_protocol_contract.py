@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 import claude1_protocol as protocol
+import claude1_protocol_errors as protocol_errors
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "anthropic_protocol" / "request"
@@ -3187,7 +3188,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                 )
 
     def test_upstream_error_type_and_sensitive_message_are_not_forwarded(self) -> None:
-        transformed = protocol.transform_error(
+        transformed = protocol_errors.transform_error(
             {
                 "error": {
                     "type": "vendor_quota_type",
@@ -3209,7 +3210,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         # OpenAI-compatible providers 常用 JSON 数字 code 表示参数错误
         # 或限流。数字与字符串走同一条证据通道，
         # 不因类型差异折叠回 "upstream HTTP N"。
-        transformed = protocol.transform_error(
+        transformed = protocol_errors.transform_error(
             {"error": {"code": 1210, "message": "API 调用参数有误"}},
             400,
         )
@@ -3217,7 +3218,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
             transformed["error"]["message"],
             "upstream HTTP 400 (1210): API 调用参数有误",
         )
-        code, message = protocol.upstream_error_evidence(
+        code, message = protocol_errors.upstream_error_evidence(
             {"error": {"code": 1302, "message": "账户达到速率限制"}}
         )
         self.assertEqual(code, "1302")
@@ -3226,7 +3227,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
     def test_upstream_error_message_survives_without_code(self) -> None:
         # 无 code 的上游错误同样保留脱敏后的 message：证据通道不依赖
         # code 存在，只依赖脱敏规则。
-        transformed = protocol.transform_error(
+        transformed = protocol_errors.transform_error(
             {"error": {"message": "usage window exhausted; retry in 5h"}},
             429,
         )
@@ -3236,7 +3237,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
 
     def test_double_encoded_upstream_error_preserves_safe_code_and_message(self) -> None:
-        transformed = protocol.transform_error(
+        transformed = protocol_errors.transform_error(
             {
                 "error": {
                     "code": "",
@@ -3260,7 +3261,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
 
     def test_safe_upstream_error_message_is_redacted_before_forwarding(self) -> None:
-        transformed = protocol.transform_error(
+        transformed = protocol_errors.transform_error(
             {
                 "error": {
                     "code": "rate_limit",
@@ -3299,7 +3300,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         ]
         for body, expected in cases:
             with self.subTest(body=body):
-                self.assertEqual(protocol.upstream_error_evidence(body), expected)
+                self.assertEqual(protocol_errors.upstream_error_evidence(body), expected)
 
     def test_html_error_pages_keep_their_title_and_server_signature(self) -> None:
         # 中转网关用 nginx/CDN 的 HTML 页回自己的超时，没有 JSON 信封。整段丢掉
@@ -3312,20 +3313,20 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         self.assertEqual(len(nginx_504.encode()), 160)
         self.assertEqual(
-            protocol.upstream_error_evidence(nginx_504),
+            protocol_errors.upstream_error_evidence(nginx_504),
             (None, "504 Gateway Time-out / nginx"),
         )
 
         # 没有 <title> 时回落到 <h1>；缺服务器签名也不影响取证。
         self.assertEqual(
-            protocol.upstream_error_evidence(
+            protocol_errors.upstream_error_evidence(
                 "<html><body><h1>502 Bad Gateway</h1></body></html>"
             ),
             (None, "502 Bad Gateway"),
         )
 
         # HTML 里的凭证形状仍然过脱敏器，与 JSON 通道同一条规则。
-        code, message = protocol.upstream_error_evidence(
+        code, message = protocol_errors.upstream_error_evidence(
             "<html><head><title>401 from https://relay.invalid/v1</title></head></html>"
         )
         self.assertIsNone(code)
@@ -3334,11 +3335,11 @@ class ResponseCapabilityContractTests(unittest.TestCase):
 
         # 非 HTML 的纯文本不该被当页面解析，仍然 fail-closed 回落 None。
         self.assertEqual(
-            protocol.upstream_error_evidence("upstream connect error"), (None, None)
+            protocol_errors.upstream_error_evidence("upstream connect error"), (None, None)
         )
 
         # 取证要真的走到下游错误体，否则客户端看到的仍是一个裸状态码。
-        downstream = protocol.transform_error(nginx_504, 504)
+        downstream = protocol_errors.transform_error(nginx_504, 504)
         self.assertEqual(downstream["error"]["type"], "timeout_error")
         self.assertEqual(
             downstream["error"]["message"],
@@ -3350,7 +3351,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         # 详情要透传，前提就是清洗器先覆盖这些形状。
         # sk- 形状用拼接构造:仓库里不留完整 key 字面量,否则 secret_guard 会拦。
         key_shape = "sk-" + "fixtureSECRET0123456789"
-        redacted = protocol.sanitize_error_text(
+        redacted = protocol_errors.sanitize_error_text(
             "auth failed token=fixture-secret api_key: fixture-secret "
             f"key=fixture-secret {key_shape} "
             "Bearer fixture-secret https://vendor.invalid/x"
@@ -3365,13 +3366,13 @@ class ResponseCapabilityContractTests(unittest.TestCase):
 
         # 真实原因本身不含凭证形状时必须原样存活，中文不受影响。
         self.assertEqual(
-            protocol.sanitize_error_text("您的账户已达到速率限制，请控制请求频率"),
+            protocol_errors.sanitize_error_text("您的账户已达到速率限制，请控制请求频率"),
             "您的账户已达到速率限制，请控制请求频率",
         )
         # 长度有界、控制字符剥离、空文本回落 None。
-        self.assertEqual(len(protocol.sanitize_error_text("x" * 900)), 512)
-        self.assertEqual(protocol.sanitize_error_text("a\r\nb"), "a b")
-        self.assertIsNone(protocol.sanitize_error_text("   "))
+        self.assertEqual(len(protocol_errors.sanitize_error_text("x" * 900)), 512)
+        self.assertEqual(protocol_errors.sanitize_error_text("a\r\nb"), "a b")
+        self.assertIsNone(protocol_errors.sanitize_error_text("   "))
 
     def test_sanitizer_redacts_credential_shapes_without_an_assignment(self):
         """R5: four shapes walked straight through the earlier rules.
@@ -3428,7 +3429,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         for label, raw, secret in cases:
             with self.subTest(shape=label):
-                redacted = protocol.sanitize_error_text(raw)
+                redacted = protocol_errors.sanitize_error_text(raw)
                 self.assertNotIn(secret, redacted)
                 self.assertIn("[redacted", redacted)
 
@@ -3459,7 +3460,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         for label, raw in cases:
             with self.subTest(shape=label):
-                redacted = protocol.sanitize_error_text(raw)
+                redacted = protocol_errors.sanitize_error_text(raw)
                 self.assertNotIn(tail, redacted)
                 self.assertNotIn(secret, redacted)
                 self.assertIn("[redacted]", redacted)
@@ -3488,7 +3489,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
             "Authorization header Verification failed",
         ):
             with self.subTest(text=text):
-                self.assertEqual(protocol.sanitize_error_text(text), text)
+                self.assertEqual(protocol_errors.sanitize_error_text(text), text)
 
     def test_chat_stream_error_frame_terminates_with_the_real_reason(self) -> None:
         # OpenAI 兼容网关在流中报限额时发裸 {"error": ...} 帧。以前它会撞上

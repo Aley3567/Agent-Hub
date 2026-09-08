@@ -53,8 +53,10 @@ from claude1_protocol import (
     protocol_capability_matrix,
     provider_api_format,
     protocol_format_for_endpoint,
-    sanitize_error_text,
     sse_event,
+)
+from claude1_protocol_errors import (
+    sanitize_error_text,
     transform_error,
     upstream_error_evidence,
 )

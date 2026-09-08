@@ -4,6 +4,7 @@ import json
 import unittest
 
 import claude1_protocol as protocol
+import claude1_protocol_errors as protocol_errors
 
 
 class ProviderFormatTests(unittest.TestCase):
@@ -628,7 +629,7 @@ class ResponseTransformTests(unittest.TestCase):
                 )
 
     def test_upstream_error_is_redacted_to_anthropic_shape(self) -> None:
-        body = protocol.transform_error(
+        body = protocol_errors.transform_error(
             {"error": {"message": "rate limited", "type": "quota"}},
             429,
         )

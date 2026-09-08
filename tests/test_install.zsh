@@ -95,6 +95,9 @@ test_first_install_is_safe() {
   command cmp -s "$REPO_ROOT/claude1_protocol.py" \
     "$home/install root/scripts/claude1_protocol.py" ||
     fail "protocol bridge was not installed"
+  command cmp -s "$REPO_ROOT/claude1_protocol_errors.py" \
+    "$home/install root/scripts/claude1_protocol_errors.py" ||
+    fail "protocol errors module was not installed"
   command cmp -s "$REPO_ROOT/claude1_protocol_types.py" \
     "$home/install root/scripts/claude1_protocol_types.py" ||
     fail "protocol types module was not installed"
@@ -223,6 +226,7 @@ test_existing_files_are_backed_up() {
   print -r -- 'old hub catalog' > "$home/install root/scripts/claude_hub_catalog.py"
   print -r -- 'old account pool' > "$home/install root/scripts/claude1_account_pool.py"
   print -r -- 'old protocol' > "$home/install root/scripts/claude1_protocol.py"
+  print -r -- 'old protocol errors' > "$home/install root/scripts/claude1_protocol_errors.py"
   print -r -- 'old protocol types' > "$home/install root/scripts/claude1_protocol_types.py"
   print -r -- 'old protocol usage' > "$home/install root/scripts/claude1_protocol_usage.py"
   print -r -- 'old transport' > "$home/install root/scripts/claude1_transport.py"
@@ -245,6 +249,7 @@ test_existing_files_are_backed_up() {
   assert_file_content "old hub catalog" "$backup/claude_hub_catalog.py"
   assert_file_content "old account pool" "$backup/claude1_account_pool.py"
   assert_file_content "old protocol" "$backup/claude1_protocol.py"
+  assert_file_content "old protocol errors" "$backup/claude1_protocol_errors.py"
   assert_file_content "old protocol types" "$backup/claude1_protocol_types.py"
   assert_file_content "old protocol usage" "$backup/claude1_protocol_usage.py"
   assert_file_content "old transport" "$backup/claude1_transport.py"
