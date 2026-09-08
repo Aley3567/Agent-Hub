@@ -851,41 +851,12 @@ def _validate_routes(
     return routes
 
 
-def validate_config(
-    raw: object,
-    providers: dict | None = None,
-    *,
-    env: Mapping[str, str],
-) -> dict:
-    """Validate and return a normalized, detached configuration dictionary.
+def _validate_channels(channels_raw: object) -> dict[str, dict]:
+    """Normalize every declared channel, in declaration order.
 
-    Pure interpretation: every external fact arrives as an argument. ``raw`` is
-    the parsed config document, ``providers`` the already-read CC Switch
-    snapshot (``None`` when no route group declares ``requires``), and ``env``
-    the environment mapping supplying the port and local-token overrides. The
-    function reads no file, no database and no process state, so its only
-    failure mode is ``ConfigError`` describing the offending field.
+    A channel is validated to completion before the next alias starts, so a
+    config with several broken channels reports the first one.
     """
-    if not isinstance(raw, dict):
-        raise ConfigError("config root must be a JSON object")
-
-    version = raw.get("version", 1)
-    if type(version) is not int or version not in (1, 2):
-        raise ConfigError("version must be 1 or 2")
-
-    instance_id = None
-    if "instance_id" in raw:
-        instance_id_raw = raw["instance_id"]
-        if not isinstance(instance_id_raw, str) or not HUB_INSTANCE_ID_RE.fullmatch(
-            instance_id_raw
-        ):
-            raise ConfigError(
-                "instance_id must be 1-128 ASCII letters, digits, dots, underscores, "
-                "or hyphens, beginning with a letter or digit"
-            )
-        instance_id = instance_id_raw
-
-    channels_raw = raw.get("channels")
     if not isinstance(channels_raw, dict) or not channels_raw:
         raise ConfigError("channels must be a non-empty object")
 
@@ -965,6 +936,91 @@ def validate_config(
                 raise ConfigError(f"channels.{alias}.proxy must be a non-empty string or null")
             channel["proxy"] = proxy.strip() if isinstance(proxy, str) else None
         channels[alias] = channel
+    return channels
+
+
+def _validate_slot_mapping(
+    raw: dict,
+    channels: dict[str, dict],
+) -> tuple[str, dict[str, str], dict[str, str]]:
+    """Validate the version-2 launch slot, model slots and effort levels.
+
+    Every slot must resolve to a model the target channel declares, so a slot
+    can never introduce a model ID that routing would have to guess.
+    """
+    launch_slot = raw.get("launch_slot")
+    if launch_slot not in HUB_SLOT_ORDER:
+        raise ConfigError("launch_slot must be fable, opus, sonnet, or haiku")
+    model_slots = raw.get("model_slots")
+    if not isinstance(model_slots, dict):
+        raise ConfigError("model_slots must be an object")
+    normalized_slots: dict[str, str] = {}
+    for slot in HUB_SLOT_ORDER:
+        selector = model_slots.get(slot)
+        if not isinstance(selector, str):
+            raise ConfigError(f"model_slots.{slot} must be channel,model")
+        alias, separator, model = selector.strip().partition(",")
+        alias, model = alias.strip().lower(), model.strip()
+        if (
+            not separator
+            or alias not in channels
+            or model not in channels[alias]["models"]
+        ):
+            raise ConfigError(
+                f"model_slots.{slot} must reference a declared channel model"
+            )
+        normalized_slots[slot] = f"{alias},{model}"
+    model_slots = normalized_slots
+    effort_by_slot = raw.get("effort_by_slot")
+    if not isinstance(effort_by_slot, dict):
+        raise ConfigError("effort_by_slot must be an object")
+    normalized_efforts: dict[str, str] = {}
+    for slot in HUB_SLOT_ORDER:
+        effort = effort_by_slot.get(slot)
+        if effort not in HUB_EFFORT_LEVELS:
+            raise ConfigError(
+                f"effort_by_slot.{slot} must be low, medium, high, or xhigh"
+            )
+        normalized_efforts[slot] = effort
+    effort_by_slot = normalized_efforts
+    return launch_slot, model_slots, effort_by_slot
+
+
+def validate_config(
+    raw: object,
+    providers: dict | None = None,
+    *,
+    env: Mapping[str, str],
+) -> dict:
+    """Validate and return a normalized, detached configuration dictionary.
+
+    Pure interpretation: every external fact arrives as an argument. ``raw`` is
+    the parsed config document, ``providers`` the already-read CC Switch
+    snapshot (``None`` when no route group declares ``requires``), and ``env``
+    the environment mapping supplying the port and local-token overrides. The
+    function reads no file, no database and no process state, so its only
+    failure mode is ``ConfigError`` describing the offending field.
+    """
+    if not isinstance(raw, dict):
+        raise ConfigError("config root must be a JSON object")
+
+    version = raw.get("version", 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ConfigError("version must be 1 or 2")
+
+    instance_id = None
+    if "instance_id" in raw:
+        instance_id_raw = raw["instance_id"]
+        if not isinstance(instance_id_raw, str) or not HUB_INSTANCE_ID_RE.fullmatch(
+            instance_id_raw
+        ):
+            raise ConfigError(
+                "instance_id must be 1-128 ASCII letters, digits, dots, underscores, "
+                "or hyphens, beginning with a letter or digit"
+            )
+        instance_id = instance_id_raw
+
+    channels = _validate_channels(raw.get("channels"))
 
     default_channel = _require_nonempty_string(
         raw.get("default_channel"), "default_channel"
@@ -978,41 +1034,9 @@ def validate_config(
     model_slots = None
     effort_by_slot = None
     if version == 2:
-        launch_slot = raw.get("launch_slot")
-        if launch_slot not in HUB_SLOT_ORDER:
-            raise ConfigError("launch_slot must be fable, opus, sonnet, or haiku")
-        model_slots = raw.get("model_slots")
-        if not isinstance(model_slots, dict):
-            raise ConfigError("model_slots must be an object")
-        normalized_slots: dict[str, str] = {}
-        for slot in HUB_SLOT_ORDER:
-            selector = model_slots.get(slot)
-            if not isinstance(selector, str):
-                raise ConfigError(f"model_slots.{slot} must be channel,model")
-            alias, separator, model = selector.strip().partition(",")
-            alias, model = alias.strip().lower(), model.strip()
-            if (
-                not separator
-                or alias not in channels
-                or model not in channels[alias]["models"]
-            ):
-                raise ConfigError(
-                    f"model_slots.{slot} must reference a declared channel model"
-                )
-            normalized_slots[slot] = f"{alias},{model}"
-        model_slots = normalized_slots
-        effort_by_slot = raw.get("effort_by_slot")
-        if not isinstance(effort_by_slot, dict):
-            raise ConfigError("effort_by_slot must be an object")
-        normalized_efforts: dict[str, str] = {}
-        for slot in HUB_SLOT_ORDER:
-            effort = effort_by_slot.get(slot)
-            if effort not in HUB_EFFORT_LEVELS:
-                raise ConfigError(
-                    f"effort_by_slot.{slot} must be low, medium, high, or xhigh"
-                )
-            normalized_efforts[slot] = effort
-        effort_by_slot = normalized_efforts
+        launch_slot, model_slots, effort_by_slot = _validate_slot_mapping(
+            raw, channels
+        )
 
     token_env = raw.get("local_token_env", ENV_LOCAL_TOKEN)
     token_env = _require_nonempty_string(token_env, "local_token_env")
