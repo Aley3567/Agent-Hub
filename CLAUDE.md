@@ -85,6 +85,7 @@
 
 **参考矩阵**(随实现同步;改代码可能要一并改这里):
 
+- `request-flow.md` — 当前 Python 请求调用链、模块职责、实现边界与学习导读
 - `anthropic-protocol-implementation-status.md` — 协议能力矩阵与 disposition registry
 
 **证据层**(只追加,永不重写;**结论已落地也不要删**——排除项的唯一记录在这里):

@@ -6,16 +6,15 @@
 
 **See the route. Launch with confidence.**
 
-为本次 Claude Code 会话选择渠道 —— 不改全局配置，不接管 `claude`，不存储任何凭证
+为本次 Claude Code 会话选择渠道，通过本地网关适配模型协议，不改持久 Claude 配置
 
 <p>
   <a href="https://github.com/Aley3567/Agent-Hub/actions/workflows/tests.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Aley3567/Agent-Hub/tests.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=TESTS&labelColor=3A3A3A"></a>
-  <img alt="Test cases" src="https://img.shields.io/badge/CASES-718-2563FF?style=for-the-badge&logo=pytest&logoColor=white&labelColor=3A3A3A">
   <img alt="Python" src="https://img.shields.io/badge/PYTHON-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=3A3A3A">
 </p>
 <p>
   <img alt="Platform" src="https://img.shields.io/badge/MACOS_%7C_LINUX-supported-7C3AED?style=for-the-badge&logo=apple&logoColor=white&labelColor=3A3A3A">
-  <img alt="Credentials" src="https://img.shields.io/badge/CREDENTIALS-never_stored-06B6D4?style=for-the-badge&logo=bitwarden&logoColor=white&labelColor=3A3A3A">
+  <img alt="Gateway provider database is read only" src="https://img.shields.io/badge/GATEWAY_DB-read_only-06B6D4?style=for-the-badge&logo=bitwarden&logoColor=white&labelColor=3A3A3A">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/LICENSE-MIT-16A34A?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=3A3A3A"></a>
 </p>
 
@@ -35,6 +34,16 @@
 ---
 
 ## 这是什么 · Overview
+
+Claude-Hub 是 Coding Agent 基础设施中的 **Model / Protocol Gateway**：接收 Claude Code 的
+Anthropic 风格请求，按配置选择渠道与模型，转换 OpenAI Chat / Responses 的请求、响应和
+工具调用协议。工具由 Claude Code 执行；本项目不实现 Agent Loop、工具执行器或 Sandbox。
+
+从代码入门请先读 [真实请求链路与代码导读](docs/request-flow.md)：它标出可运行入口、每一步
+调用、原生/转换流的差别、配置来源与重构边界。当前主运行时在根 Python 文件中；
+`src/claude_hub/` 的 `claude1` / `claude-hub` console scripts 仍是 help/version 占位入口，
+不能代替下方现有安装流程。Standalone、Rust/UI 管理面与 `gateway/` Go 实验另有实现边界，
+不应当作已经统一接通的主请求链路。
 
 `claude1` 是 [Claude Code](https://claude.com/product/claude-code) 的**渠道启动器**：渠道和凭证继续由
 [CC Switch](https://github.com/farion1231/cc-switch) 管理，`claude1` 只为**本次会话**选择渠道。
@@ -60,11 +69,11 @@
 | **按会话隔离的渠道选择** | 凭证只注入本次 Claude Code 子进程环境与独享临时 settings（`0600`，退出即删） | 不动 CC Switch 全局 current，不改持久 settings，不接管普通 `claude` |
 | **会话内切渠道 + 切模型** | 可选 `claude-hub` 网关只听 `127.0.0.1`；进入 Claude Code 后用原生 `/model` 选 `渠道别名,模型名` | 请求发生时才从 CC Switch DB 只读取凭证，网关不落盘凭证 |
 | **四槽位模型路由** | Fable / Opus / Sonnet / Haiku 四个原生槽位各自绑定「渠道,模型」，每槽独立默认 effort | 手工分配；模型自动识别分槽属待建 |
-| **跨 provider 故障转移** | 顶层 `routes` 声明显式故障转移组，`/model` 写 `route:<组名>` 按序尝试 | 只有「上游尚未接受请求」的安全失败才转移；`5xx`、发送后断线、已开始响应都不转移 |
+| **跨 provider 故障转移** | 顶层 `routes` 声明显式故障转移组，`/model` 写 `route:<组名>` 按序尝试 | 拒绝状态、池耗尽和原生流尚未交付时重放耗尽可推进下一目标；普通上游 `5xx` 不转移，已交付内容不隐式重放。详见[四层重试边界](docs/request-flow.md#8-错误retryfallback-分属四层) |
 | **同 provider 多账号轮换** | 账号池按 priority 分层，层内 `round-robin` 或 `weighted`；`401/403` 停用该 key，`429` 遵守上游 `Retry-After` | 池里不保存 key，只组合 CC Switch 里现有 provider 的稳定 id |
 | **OpenAI 兼容上游接入** | 协议桥做 Anthropic ↔ OpenAI Chat / Responses 的 JSON / SSE 双向转换 | 转换失败或缺 uv 时明确报错，**不静默降级** |
 | **用量与缓存命中率** | `claude1 usage` 输出汇总表 + Braille 双曲线，数据来自 Hub 实时埋点或历史会话导入 | 只存 token 计数、时间和稳定账号 id，不含任何凭证或对话内容 |
-| **上游真实报错可见** | 非流式错误原因进下游 error 与 `x-hub-upstream-code` 头；流式错误发终态 `error` 事件而非静默断连 | 错误日志脱敏后只留 code / message / 渠道 / 状态码，**不存请求或响应 payload** |
+| **上游真实报错可见** | 跨协议错误和部分原生错误整形成下游 error；流式失败按所处阶段写 `error` 事件或中止连接 | 错误日志记录脱敏证据，**不存完整请求或响应 payload**；原生与转换流的处理边界见代码导读 |
 | **Codex CLI 同样支持** | `codex1` 用影子 `CODEX_HOME` + profile 层叠为本次 Codex 会话选渠道 | 不写用户任何文件；真实 `~/.codex/*` 与 CC Switch DB 全程只读 |
 
 设计上只有一条总规则：**协议数据默认放行，reject 只留给安全与因果**；失败绝不伪装成成功。
@@ -94,7 +103,7 @@ graph TB
     L -->|"生成"| TS
     TS -->|"注入本次会话"| CC
     CC -->|"原生 /model"| H
-    L -->|"直连模式"| UPA
+    CC -->|"启动器配置的直连模式"| UPA
     H -->|"原生协议"| UPA
     H -->|"协议桥转换"| UPO
     CX --> UPO
@@ -112,8 +121,9 @@ graph TB
 
 三条不可协商的边界：
 
-- **凭证只读**：全部凭证只从 `~/.cc-switch/cc-switch.db` 以 `mode=ro` 读取，一个字节都不写回；
-  不落盘、不进日志、不进 argv。
+- **网关凭证只读**：主 Python 网关从 `~/.cc-switch/cc-switch.db` 以 `mode=ro` 读取上游凭证，
+  不写回 DB，不持久复制上游 key。启动器直连时会把凭证写入权限 `0600` 的临时 settings，
+  退出后删除；Standalone 的系统凭证库属于另一条路径，不能套用同一存储承诺。
 - **只听回环**：Hub 只绑定 `127.0.0.1`，并要求配置、DB 及其 `-wal` / `-shm` 文件权限不超过 `0600`，
   否则拒绝启动。
 - **失败不伪装**：断流不补 `message_stop`，工具调用丢了不伪装 `completed`。
