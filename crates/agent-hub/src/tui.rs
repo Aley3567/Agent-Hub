@@ -35,10 +35,10 @@ impl Drop for TerminalGuard {
 }
 
 pub fn run() -> Result<()> {
-    let conn = db::open_readonly(&db::default_db_path()?)?;
-    let providers = db::list_providers(&conn, None)?;
+    let conn = crate::provider_store::open(&db::default_db_path()?)?;
+    let mut providers = db::list_providers(&conn, None)?;
 
-    let (_guard, mut terminal) = TerminalGuard::enter()?;
+    let (mut guard, mut terminal) = TerminalGuard::enter()?;
     let mut state = ListState::default();
     if !providers.is_empty() {
         state.select(Some(0));
@@ -52,6 +52,25 @@ pub fn run() -> Result<()> {
             }
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Char('a') | KeyCode::Char('i') | KeyCode::Char('f') => {
+                    drop(guard);
+                    let result = match key.code {
+                        KeyCode::Char('a') => crate::provider_form::add(),
+                        KeyCode::Char('i') => crate::provider_form::import_prompt(true),
+                        _ => crate::provider_form::import_prompt(false),
+                    };
+                    if let Err(err) = result {
+                        println!("操作失败：{err}");
+                    }
+                    let _ = crate::provider_form::prompt("按 Enter 返回", false);
+                    (guard, terminal) = TerminalGuard::enter()?;
+                    providers = db::list_providers(&conn, None)?;
+                    state.select(if providers.is_empty() { None } else { Some(0) });
+                }
+                KeyCode::Char('r') => {
+                    providers = db::list_providers(&conn, None)?;
+                    state.select(if providers.is_empty() { None } else { Some(0) });
+                }
                 KeyCode::Char('j') | KeyCode::Down => {
                     move_selection(&mut state, providers.len(), 1)
                 }
@@ -93,7 +112,7 @@ fn draw(frame: &mut Frame, providers: &[Provider], state: &mut ListState) {
         .collect();
 
     let title = format!(
-        "Agent-Hub 渠道（共 {}，* = 激活，j/k 移动，q 退出）",
+        "Agent-Hub 渠道（共 {}，* = 激活，a 添加/更新 · i 导入 CC Switch · f 导入文件 · r 刷新 · q 退出）",
         providers.len()
     );
     let list = List::new(items)

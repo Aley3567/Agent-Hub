@@ -31,7 +31,10 @@ pub struct Provider {
 /// 默认 DB 路径：`~/.cc-switch/cc-switch.db`。
 pub fn default_db_path() -> Result<PathBuf> {
     let home = dirs::home_dir().context("找不到 HOME 目录")?;
-    Ok(home.join(".cc-switch").join("cc-switch.db"))
+    Ok(std::env::var_os("AGENT_HUB_PROVIDER_DB")
+        .filter(|p| !p.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".agent-hub").join("providers.db")))
 }
 
 /// 以只读方式打开共享 DB，并校验 schema 版本。

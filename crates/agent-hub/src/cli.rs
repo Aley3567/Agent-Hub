@@ -1,9 +1,10 @@
 //! CLI 薄壳：clap 分发 + 输出格式化。业务逻辑在 `db`（M1）/ services（M2 起）。
 
-use crate::db;
+use crate::{db, provider_store};
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
@@ -27,6 +28,29 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum ProviderCommands {
+    /// 初始化独立 provider 存储
+    Init,
+    /// 从 CC Switch 或 version:1 JSON 文件显式导入
+    Import {
+        #[arg(long, conflicts_with = "file")]
+        cc_switch: bool,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long)]
+        source_db: Option<PathBuf>,
+        #[arg(long)]
+        replace: bool,
+        #[arg(long)]
+        preview: bool,
+    },
+    /// 交互添加 provider（API key 隐藏输入）
+    Add,
+    /// 删除一个本地 provider
+    Remove {
+        id: String,
+        #[arg(long)]
+        app: String,
+    },
     /// 列出渠道（只读）
     List {
         /// 只列某个 app：claude / codex
@@ -61,9 +85,63 @@ pub fn run() -> Result<()> {
 
 fn run_provider(command: ProviderCommands) -> Result<()> {
     match command {
+        ProviderCommands::Init => {
+            provider_store::open(&db::default_db_path()?)?;
+            println!("Provider 存储已就绪");
+            Ok(())
+        }
+        ProviderCommands::Add => crate::provider_form::add(),
+        ProviderCommands::Remove { id, app } => {
+            let mut conn = provider_store::open(&db::default_db_path()?)?;
+            let tx = conn.transaction()?;
+            let n = tx.execute(
+                "DELETE FROM providers WHERE id=?1 AND app_type=?2",
+                rusqlite::params![id, app],
+            )?;
+            tx.execute(
+                "DELETE FROM provider_sources WHERE id=?1 AND app_type=?2",
+                rusqlite::params![id, app],
+            )?;
+            tx.commit()?;
+            println!("已删除 {n} 个 provider");
+            Ok(())
+        }
+        ProviderCommands::Import {
+            cc_switch,
+            file,
+            source_db,
+            replace,
+            preview,
+        } => {
+            let providers = if cc_switch {
+                let path = source_db.unwrap_or(
+                    dirs::home_dir()
+                        .ok_or_else(|| anyhow::anyhow!("HOME unavailable"))?
+                        .join(".cc-switch/cc-switch.db"),
+                );
+                provider_store::read_cc(&path)?
+            } else if let Some(path) = file {
+                provider_store::read_file(&path)?
+            } else {
+                anyhow::bail!("请选择 --cc-switch 或 --file PATH");
+            };
+            let mut conn = provider_store::open(&db::default_db_path()?)?;
+            let (changed, skipped) = provider_store::import(
+                &mut conn,
+                &providers,
+                if cc_switch { "cc-switch" } else { "file" },
+                replace,
+                preview,
+            )?;
+            println!(
+                "{} {changed} 个，保留已有 {skipped} 个",
+                if preview { "将导入" } else { "已导入" }
+            );
+            Ok(())
+        }
         ProviderCommands::List { app, json } => print_list(app.as_deref(), json),
         ProviderCommands::Current { json } => {
-            let conn = db::open_readonly(&db::default_db_path()?)?;
+            let conn = provider_store::open(&db::default_db_path()?)?;
             let providers = db::current_providers(&conn)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&providers)?);
@@ -80,7 +158,7 @@ fn run_provider(command: ProviderCommands) -> Result<()> {
 }
 
 fn print_list(app: Option<&str>, json: bool) -> Result<()> {
-    let conn = db::open_readonly(&db::default_db_path()?)?;
+    let conn = provider_store::open(&db::default_db_path()?)?;
     let providers = db::list_providers(&conn, app)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&providers)?);

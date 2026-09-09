@@ -335,11 +335,10 @@ test_missing_dependencies_are_clear() {
   assert_missing_dependency "missing Claude Code" "找不到 claude" \
     "$home_claude" "$path_claude"
 
-  local home_db="${TEMP_ROOT}/missing-db"
-  command mkdir -p -- "$home_db"
-  local path_db="$(make_dependency_path "$home_db" zsh python3 claude)"
-  assert_missing_dependency "missing CC Switch DB" "CC Switch 数据库" \
-    "$home_db" "$path_db"
+  local home_db="$(make_home without-cc-switch)"
+  command rm -- "$home_db/.cc-switch/cc-switch.db"
+  run_install "$home_db" >/dev/null
+  [[ -f "$home_db/.agent-hub/providers.db" ]] || fail "standalone provider DB was not created"
 
   pass "missing hard dependencies have actionable errors"
 }

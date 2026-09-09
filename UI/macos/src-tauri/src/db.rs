@@ -1,4 +1,4 @@
-//! CC Switch 数据库的只读访问。
+//! Hub provider 数据库的只读访问。
 //!
 //! 两条不容协商的边界（README.md 安全边界）：
 //! 1. 连接一律 `SQLITE_OPEN_READ_ONLY` 再叠一道 `PRAGMA query_only`，本模块不存在任何写入路径；
@@ -37,10 +37,10 @@ pub fn open_readonly(path: &Path) -> Result<Connection, String> {
     }
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let conn = Connection::open_with_flags(path, flags)
-        .map_err(|err| format!("打不开 CC Switch 数据库 {}：{}", error::tilde(path), err))?;
+        .map_err(|err| format!("打不开 Hub provider 数据库 {}：{}", error::tilde(path), err))?;
     // 只读连接之外再上一道保险：即使以后有人误加了 execute，也会被 SQLite 直接拒绝。
     conn.pragma_update(None, "query_only", 1)
-        .map_err(|err| format!("无法把 CC Switch 数据库置为只读模式：{err}"))?;
+        .map_err(|err| format!("无法把 Hub provider 数据库置为只读模式：{err}"))?;
     Ok(conn)
 }
 
@@ -78,7 +78,7 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
     for required in ["id", "name"] {
         if !available.contains(required) {
             return Err(format!(
-                "CC Switch 数据库的 providers 表缺少 {required} 列，渠道无法标识；请升级 CC Switch"
+                "Hub provider 数据库的 providers 表缺少 {required} 列，渠道无法标识；请升级 Agent Hub"
             ));
         }
     }
@@ -122,14 +122,14 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
 
     let mut stmt = conn
         .prepare(&sql)
-        .map_err(|err| format!("无法查询 CC Switch 渠道：{err}"))?;
+        .map_err(|err| format!("无法查询 Hub provider：{err}"))?;
     let mut rows = stmt
         .query([])
-        .map_err(|err| format!("无法查询 CC Switch 渠道：{err}"))?;
+        .map_err(|err| format!("无法查询 Hub provider：{err}"))?;
     let mut out: Vec<ProviderRow> = Vec::new();
     while let Some(row) = rows
         .next()
-        .map_err(|err| format!("读取 CC Switch 渠道时出错：{err}"))?
+        .map_err(|err| format!("读取 Hub provider时出错：{err}"))?
     {
         let id = read_text(row, 0)?.unwrap_or_default();
         if id.trim().is_empty() {
@@ -252,12 +252,19 @@ pub fn load_model_pricing(conn: &Connection) -> crate::journal::PriceTable {
         let Ok((id, input, output, cache_read, cache_creation)) = row else {
             continue;
         };
-        let (Some(input), Some(output)) = (parse_price_text(&input), parse_price_text(&output)) else {
+        let (Some(input), Some(output)) = (parse_price_text(&input), parse_price_text(&output))
+        else {
             continue;
         };
         // cache 价老数据可能缺失或为 NULL，缺省按 0 处理，让有输入输出价的模型仍可估算。
-        let cache_read = cache_read.as_deref().and_then(parse_price_text).unwrap_or(0.0);
-        let cache_write = cache_creation.as_deref().and_then(parse_price_text).unwrap_or(0.0);
+        let cache_read = cache_read
+            .as_deref()
+            .and_then(parse_price_text)
+            .unwrap_or(0.0);
+        let cache_write = cache_creation
+            .as_deref()
+            .and_then(parse_price_text)
+            .unwrap_or(0.0);
         table.insert(
             id.to_lowercase(),
             ModelPrice {

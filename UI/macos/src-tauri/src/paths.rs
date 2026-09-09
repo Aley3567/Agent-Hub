@@ -36,7 +36,8 @@ pub fn cc_switch_dir() -> Result<PathBuf, String> {
 pub fn db_path() -> Result<PathBuf, String> {
     match env_path("CLAUDE1_DB_PATH") {
         Some(path) => Ok(path),
-        None => Ok(cc_switch_dir()?.join("cc-switch.db")),
+        None => Ok(env_path("AGENT_HUB_PROVIDER_DB")
+            .unwrap_or(home_dir()?.join(".agent-hub/providers.db"))),
     }
 }
 

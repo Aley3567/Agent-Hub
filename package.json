@@ -45,7 +45,8 @@
     "scripts/alert.sh",
     "scripts/zsh-functions.sh",
     "scripts/zsh-sticky-integration.sh",
-    "examples"
+    "examples",
+    "provider-schema.sql"
   ],
   "keywords": [
     "claude-code",

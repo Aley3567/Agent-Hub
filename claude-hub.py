@@ -108,7 +108,7 @@ HEALTH_PAYLOAD = {
 
 HOME = Path.home()
 DEFAULT_CONFIG_PATH = HOME / ".cc-switch" / "claude-hub.json"
-DEFAULT_DB_PATH = HOME / ".cc-switch" / "cc-switch.db"
+DEFAULT_DB_PATH = Path(os.environ.get("AGENT_HUB_PROVIDER_DB") or HOME / ".agent-hub" / "providers.db")
 DEFAULT_LOG_PATH = HOME / ".cc-switch" / "logs" / "claude-hub.log"
 DEFAULT_USAGE_PATH = HOME / ".cc-switch" / "logs" / "claude-hub-usage.jsonl"
 DEFAULT_ERRORS_PATH = HOME / ".cc-switch" / "logs" / "claude-hub-errors.jsonl"

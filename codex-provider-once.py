@@ -47,7 +47,7 @@ def _env_path(name: str, default: Path) -> Path:
 
 
 HOME = _env_path("CODEX1_HOME", Path.home())
-DB_PATH = _env_path("CODEX1_DB_PATH", HOME / ".cc-switch" / "cc-switch.db")
+DB_PATH = _env_path("CODEX1_DB_PATH", _env_path("AGENT_HUB_PROVIDER_DB", HOME / ".agent-hub" / "providers.db"))
 MRU_PATH = _env_path("CODEX1_MRU_PATH", HOME / ".cc-switch" / "codex1-mru.json")
 
 

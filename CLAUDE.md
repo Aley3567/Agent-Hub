@@ -45,7 +45,7 @@
 
 ## 仍然 fail-closed 的边界
 
-凭证(只读 CC Switch DB、不落盘、不进日志)、tool_use/tool_result 因果校验(防止错乱调用真实工具)、本地鉴权与 `0600` 文件权限。宽容只针对上游数据形状的多样性,不针对安全边界。
+凭证(CC Switch 仅显式只读导入；Hub 自有 provider DB 为 0600，不进日志或展示输出)、tool_use/tool_result 因果校验(防止错乱调用真实工具)、本地鉴权与 `0600` 文件权限。宽容只针对上游数据形状的多样性,不针对安全边界。
 
 ## 硬约束
 
@@ -69,6 +69,7 @@
 - `claude-hub-0.2-task-pack.md` — 0.2 Standalone 安全快速启动任务包
 - `claude-hub-0.3-task-pack.md` — 0.3 发现、计划、批准与安全写入任务包
 - `claude1-refactor-design.md` — 重构宪法
+- `provider-management.md` — Hub 自有 provider 存储、TUI/CLI 导入、自定义格式
 - `agent-hub-design.md` — Agent-Hub（Rust 管理面 + TUI/CLI + 编排式对话）决策树与架构
 - `product-definition.md` — 产品定位与三档口径(现状/部分/待建)
 - `codex1-design.md` — codex1 渠道启动器设计

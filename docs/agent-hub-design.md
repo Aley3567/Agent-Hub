@@ -1,3 +1,5 @@
+> 2026-09-09 更新：provider 所有权以 `provider-management.md` 为准。0.2 使用 Hub 自有 DB，本文早期 M1 的“共享 CC Switch DB / 只读 TUI”约定已被取代；CC Switch 仅为显式导入适配器。
+
 # Agent-Hub 设计：Rust 管理面 + TUI/CLI + 编排式对话
 
 > 2026-08-24 定稿。Agent-Hub 是本仓库的最终产品形态：一个统一渠道管理器，

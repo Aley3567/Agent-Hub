@@ -117,7 +117,7 @@ def _env_path(name: str, default: Path) -> Path:
 
 
 HOME = _env_path("CLAUDE1_HOME", Path.home())
-DB_PATH = _env_path("CLAUDE1_DB_PATH", HOME / ".cc-switch" / "cc-switch.db")
+DB_PATH = _env_path("CLAUDE1_DB_PATH", _env_path("AGENT_HUB_PROVIDER_DB", HOME / ".agent-hub" / "providers.db"))
 DEFAULT_CLAUDE_BIN = _env_path(
     "CLAUDE1_DEFAULT_CLAUDE_BIN", HOME / ".local" / "bin" / "claude"
 )
@@ -752,7 +752,7 @@ def _provider_uses_local_gateway(provider: dict) -> bool:
 
 def db_claude_rows() -> list[sqlite3.Row]:
     if not DB_PATH.exists():
-        raise RuntimeError(f"CC Switch DB 不存在: {DB_PATH}")
+        raise RuntimeError(f"Hub provider 数据库不存在，请先运行 agent-hub provider import --cc-switch 或 agent-hub provider add: {DB_PATH}")
     db_uri = DB_PATH.resolve(strict=False).as_uri() + "?mode=ro"
     conn = sqlite3.connect(db_uri, uri=True)
     conn.row_factory = sqlite3.Row
@@ -931,7 +931,7 @@ def slot_context_plan(
 def subagent_model_overrides() -> tuple[list[tuple[str, str]], list[str]]:
     """List providers whose persisted settings pin every Claude subagent."""
     if not DB_PATH.exists():
-        raise RuntimeError(f"CC Switch DB 不存在: {DB_PATH}")
+        raise RuntimeError(f"Hub provider 数据库不存在，请先运行 agent-hub provider import --cc-switch 或 agent-hub provider add: {DB_PATH}")
     db_uri = DB_PATH.resolve(strict=False).as_uri() + "?mode=ro"
     conn = sqlite3.connect(db_uri, uri=True)
     try:

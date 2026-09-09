@@ -88,13 +88,19 @@ fi
 
 require_command claude "请先安装 Claude Code CLI，并确认 claude 已加入 PATH。"
 
-if [ ! -f "$CC_SWITCH_DB" ] || [ ! -r "$CC_SWITCH_DB" ]; then
-  printf '%s\n' \
-    "[claude1] 安装失败：找不到可读的 CC Switch 数据库：$CC_SWITCH_DB" \
-    "[claude1] 请先安装并启动一次 CC Switch，完成至少一个 Claude provider 配置。" \
-    >&2
-  exit 1
-fi
+# Provider ownership belongs to Hub. CC Switch is only an optional import source.
+python3 - "$SCRIPT_DIR/provider-schema.sql" <<'PYINIT'
+import os, pathlib, sqlite3, sys
+path = pathlib.Path(os.environ.get("AGENT_HUB_PROVIDER_DB") or pathlib.Path.home() / ".agent-hub/providers.db")
+path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+if path.is_symlink():
+    raise SystemExit("Hub provider database must not be a symlink")
+fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+os.close(fd)
+with sqlite3.connect(path) as conn:
+    conn.executescript(pathlib.Path(sys.argv[1]).read_text())
+PYINIT
+
 
 for source_file in \
   "$SCRIPT_DIR/claude-provider-once.py" \
