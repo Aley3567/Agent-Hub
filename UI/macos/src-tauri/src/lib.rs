@@ -5,6 +5,7 @@
 
 mod channels;
 mod chat;
+mod codex_usage;
 mod cron;
 mod db;
 mod doctor;
@@ -84,43 +85,90 @@ fn set_hub_slot_effort(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-fn usage_summary(
+async fn usage_summary(
     hub_name: Option<String>,
     from_ts: i64,
     to_ts: i64,
     granularity: String,
 ) -> Result<journal::UsageSummary, String> {
-    let granularity = Granularity::parse(&granularity)?;
-    let primary = hubs::usage_path_for(hub_name.as_deref())?;
-    let files = journal::journal_files(&primary);
-    let (rows, _report) = journal::scan_usage(&files)?;
-
-    // 定价优先级：model-pricing.json 优先；否则回退 CC Switch DB；都没有就不估算。
-    let file_table = journal::load_price_table()?;
-    let (table, cost_source) = if !file_table.is_empty() {
-        (file_table, Some("pricing-file".to_string()))
-    } else {
-        let db_path = paths::db_path()?;
-        let conn = db::open_readonly(&db_path)?;
-        let db_table = db::load_model_pricing(&conn);
-        if !db_table.is_empty() {
-            (db_table, Some("cc-switch-db".to_string()))
-        } else {
-            (journal::PriceTable::new(), None)
+    tauri::async_runtime::spawn_blocking(move || {
+        let granularity = Granularity::parse(&granularity)?;
+        let primary = hubs::usage_path_for(hub_name.as_deref())?;
+        let files = journal::journal_files(&primary);
+        let (mut rows, _report) = journal::scan_usage(&files)?;
+        if hub_name.is_none() {
+            rows.extend(codex_usage::read(from_ts, to_ts)?);
         }
-    };
 
-    let mut summary = journal::summarize_rows(&rows, from_ts, to_ts, granularity, &table)?;
-    journal::apply_pricing(&mut summary, &table);
-    summary.cost_source = cost_source;
-    Ok(summary)
+        // 定价优先级：model-pricing.json 优先；否则回退 CC Switch DB；都没有就不估算。
+        let file_table = journal::load_price_table()?;
+        let (table, cost_source) = if !file_table.is_empty() {
+            (file_table, Some("pricing-file".to_string()))
+        } else {
+            let db_path = paths::db_path()?;
+            let db_table = if db_path.exists() {
+                db::load_model_pricing(&db::open_readonly(&db_path)?)
+            } else {
+                journal::PriceTable::new()
+            };
+            if !db_table.is_empty() {
+                (db_table, Some("hub-db".to_string()))
+            } else {
+                (journal::PriceTable::new(), None)
+            }
+        };
+
+        let mut summary = journal::summarize_rows(&rows, from_ts, to_ts, granularity, &table)?;
+        journal::apply_pricing(&mut summary, &table);
+        summary.cost_source = cost_source;
+        let provider_path = paths::db_path()?;
+        if provider_path.exists() {
+            let conn = db::open_readonly(&provider_path)?;
+            let mut stmt = conn
+                .prepare("SELECT app_type,id,name FROM providers")
+                .map_err(|_| "无法读取 provider 名称")?;
+            let entries = stmt
+                .query_map([], |r| {
+                    Ok((
+                        format!("{}:{}", r.get::<_, String>(0)?, r.get::<_, String>(1)?),
+                        r.get::<_, String>(2)?,
+                    ))
+                })
+                .map_err(|_| "无法读取 provider 名称")?;
+            for entry in entries {
+                let (key, name) = entry.map_err(|_| "无法读取 provider 名称")?;
+                summary.provider_labels.insert(key, name);
+            }
+        }
+        Ok(summary)
+    })
+    .await
+    .map_err(|_| "用量扫描任务失败".to_string())?
 }
 
 #[tauri::command]
-fn recent_usage(limit: usize, hub_name: Option<String>) -> Result<Vec<journal::UsageRow>, String> {
-    let primary = hubs::usage_path_for(hub_name.as_deref())?;
-    let files = journal::journal_files(&primary);
-    journal::recent_usage(&files, limit)
+async fn recent_usage(
+    limit: usize,
+    hub_name: Option<String>,
+    from_ts: Option<i64>,
+    to_ts: Option<i64>,
+) -> Result<Vec<journal::UsageRow>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let from = from_ts.unwrap_or(i64::MIN);
+        let to = to_ts.unwrap_or(i64::MAX);
+        let primary = hubs::usage_path_for(hub_name.as_deref())?;
+        let files = journal::journal_files(&primary);
+        let (mut rows, _) = journal::scan_usage(&files)?;
+        if hub_name.is_none() {
+            rows.extend(codex_usage::read(from, to)?);
+        }
+        rows.retain(|r| r.ts >= from && r.ts <= to);
+        rows.sort_by(|a, b| b.ts.cmp(&a.ts));
+        rows.truncate(limit.min(5000));
+        Ok(rows)
+    })
+    .await
+    .map_err(|_| "用量明细读取失败".to_string())?
 }
 
 #[tauri::command]

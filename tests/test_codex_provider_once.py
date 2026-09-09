@@ -473,7 +473,7 @@ class LaunchAuthIsolationTest(unittest.TestCase):
         self.assertEqual(captured["command"], ["/fake/codex", "-p", "codex1", "exec", "hi"])
         self.assertEqual(captured["auth"], {"OPENAI_API_KEY": FAKE_API_KEY})
         self.assertNotIn(
-            "env_key", captured["profile"]["model_providers"]["codex1"]
+            "env_key", captured["profile"]["model_providers"][captured["profile"]["model_provider"]]
         )
         self.assertIsNone(captured["api_key_env"])
         self.assertEqual((self.real / "auth.json").read_text(), self.real_auth)

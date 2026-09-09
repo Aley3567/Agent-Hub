@@ -21,7 +21,7 @@ export const PRESET_DAYS: Record<RangePreset, number> = {
 };
 
 export const PRESET_LABEL: Record<RangePreset, string> = {
-  today: '今天',
+  today: '24 小时',
   week: '7 天',
   month: '30 天',
 };
@@ -34,12 +34,13 @@ export const PRESET_GRANULARITY: Record<RangePreset, 'hour' | 'day'> = {
 };
 
 export function presetFrom(preset: RangePreset): number {
-  return startOfTodaySeconds() - (PRESET_DAYS[preset] - 1) * SECONDS_PER_DAY;
+  if(preset==='today')return Math.floor(Date.now()/1000)-SECONDS_PER_DAY;
+  const day=new Date(startOfTodaySeconds()*1000);day.setDate(day.getDate()-(PRESET_DAYS[preset]-1));return Math.floor(day.getTime()/1000);
 }
 
 /** 预设对应的时间窗。终点取当下，不取当天 24:00，免得图上多出一段永远为 0 的未来 */
-export function rangeFor(preset: RangePreset): { fromTs: number; toTs: number } {
-  return { fromTs: presetFrom(preset), toTs: Math.floor(Date.now() / 1000) };
+export function rangeFor(preset: RangePreset): { fromTs: number; toTs: number; preset: RangePreset } {
+  return { fromTs: presetFrom(preset), toTs: Math.floor(Date.now() / 1000),preset };
 }
 
 /**
@@ -49,7 +50,7 @@ export function rangeFor(preset: RangePreset): { fromTs: number; toTs: number } 
 export function matchPreset(fromTs: number): RangePreset | null {
   const presets: RangePreset[] = ['today', 'week', 'month'];
   for (const preset of presets) {
-    if (presetFrom(preset) === fromTs) return preset;
+    if (Math.abs(presetFrom(preset) - fromTs) < 2) return preset;
   }
   return null;
 }

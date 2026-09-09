@@ -437,6 +437,8 @@ def record_usage(
     source: str = "upstream",
     degrade_codes: tuple[str, ...] = (),
     stream_metrics: dict | None = None,
+    harness: str | None = None,
+    provider_id: str | None = None,
 ) -> None:
     """把一条请求的 token 用量追加到 JSONL。统计绝不能搞挂转发主路径，全部异常静默。
 
@@ -455,6 +457,11 @@ def record_usage(
             "format": api_format,
             "source": source,
         }
+        if harness is not None:
+            row["harness"] = harness
+        if provider_id is not None:
+            row["provider_id"] = provider_id
+            row["provider_app"] = "claude"
         for source_key, target_key in (
             ("input_tokens", "in"),
             ("output_tokens", "out"),
@@ -2452,6 +2459,8 @@ async def _handle_transformed_messages(
         instance_id=cfg.get("instance_id"),
         started=started,
         degrade_codes=request_warning_codes,
+        harness=request_harness(request),
+        provider_id=target.provider.get("selector", "unknown").removeprefix("id:"),
     )
 
     try:
@@ -2559,15 +2568,10 @@ async def _handle_transformed_messages(
                 # was rendered from, so schema-complete zero placeholders
                 # never reach accounting.
                 usage_view = prepared_response.usage_for_accounting()
-                record_usage(
-                    alias,
-                    model_out,
-                    api_format,
+                journal._replace(degrade_codes=warning_codes).usage(
                     usage_view,
-                    instance_id=cfg.get("instance_id"),
                     account_id=account_attempt.lease.member,
                     source=("upstream" if usage_view else "unavailable"),
-                    degrade_codes=warning_codes,
                 )
                 log(
                     f"{request.path} '{model_in}' -> {alias}/{model_out} "
@@ -2670,16 +2674,11 @@ async def _handle_transformed_messages(
                     # write_eof 已过，此处 seal 即流的终点，速度画像同行落盘。
                     stream_telemetry.seal()
                     stream_usage = bridge.usage_for_accounting()
-                    record_usage(
-                        alias,
-                        model_out,
-                        api_format,
+                    journal._replace(degrade_codes=warning_codes).usage(
                         stream_usage,
-                        instance_id=cfg.get("instance_id"),
                         account_id=account_attempt.lease.member,
                         source=("upstream" if stream_usage else "unavailable"),
-                        degrade_codes=warning_codes,
-                        stream_metrics=stream_telemetry.snapshot(),
+                        telemetry=stream_telemetry,
                     )
             except (
                 aiohttp.ClientError,
@@ -2981,6 +2980,11 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
         )
 
 
+def request_harness(request: web.Request) -> str:
+    agent = request.headers.get("user-agent", "").lower()
+    return "claude" if "claude-cli" in agent or "claude-code" in agent else "unknown"
+
+
 class _TurnJournal(NamedTuple):
     """Identity fields every journal row of one forwarded turn shares.
 
@@ -2997,6 +3001,8 @@ class _TurnJournal(NamedTuple):
     instance_id: str | None
     started: float
     degrade_codes: tuple[str, ...]
+    harness: str = "unknown"
+    provider_id: str = "unknown"
 
     def marked_replayed(self) -> "_TurnJournal":
         """Return a copy whose rows carry the invisible-replay marker.
@@ -3050,6 +3056,8 @@ class _TurnJournal(NamedTuple):
             source=source,
             degrade_codes=self.degrade_codes,
             stream_metrics=stream_metrics,
+            harness=self.harness,
+            provider_id=account_id.removeprefix("id:") if account_id.startswith("id:") else self.provider_id,
         )
 
 
@@ -3571,6 +3579,8 @@ async def _forward_to_channel_attempt(
         instance_id=cfg.get("instance_id"),
         started=started,
         degrade_codes=protocol_warning_codes,
+        harness=request_harness(request),
+        provider_id=target.provider.get("selector", "unknown").removeprefix("id:"),
     )
     try:
         data = json.dumps(

@@ -1,7 +1,7 @@
 {
   "name": "claude1-desktop",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.2.1",
   "type": "module",
   "description": "claude1 macOS 桌面端",
   "scripts": {

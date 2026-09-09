@@ -476,6 +476,14 @@ class ClaudeHubTests(unittest.TestCase):
             {"web_search_requests": 1},
         )
 
+    def test_usage_records_explicit_harness_and_stable_provider_identity(self):
+        hub.record_usage("route", "model", "anthropic", {"input_tokens": 7},
+                         harness="claude", provider_id="stable-id")
+        row = json.loads(self.usage_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["harness"], "claude")
+        self.assertEqual(row["provider_id"], "stable-id")
+        self.assertNotIn("cr", row)
+
     def test_usage_log_records_degrade_codes(self):
         hub.record_usage(
             "fast",

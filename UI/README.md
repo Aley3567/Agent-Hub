@@ -76,3 +76,7 @@ WebView2 Runtime。`UI/windows` 的 Rust 侧只能在 Windows 上构建；在 ma
   （CRUD + 展示，执行层未做），后端 seam 留在 IPC 层，签名不变。
 - 插件视图的渠道级扩展点（settings_config 内）只读展示；可写项（enabled 切换）只落
   `claude1-config.json` 本地覆盖，绝不写 DB。
+
+## macOS 0.2
+
+新增独立 provider 存储读取、可切换维度的堆叠用量柱图、自定义时间范围和 Codex 本地会话统计。Provider 导入与自定义使用随发布包附带的 `agent-hub` TUI/CLI，见 `../docs/provider-management.md`。数据口径见 `CONTRACT.md` 最后一节；早期 CC Switch 只读源描述仅适用于 0.1。

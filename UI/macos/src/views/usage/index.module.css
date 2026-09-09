@@ -1,5 +1,6 @@
 .view {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: var(--sp-4);
 }
@@ -36,9 +37,9 @@
 
 .grid2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(var(--content-max-w) / 3), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-4);
-  align-items: start;
+  align-items: stretch;
 }
 
 .footNote {
@@ -53,3 +54,10 @@
 .tableEmpty {
   padding: var(--sp-6) var(--sp-4);
 }
+
+.customRange {display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:12px;}
+.customRange input,.customRange button {font:inherit;padding:7px;border:1px solid var(--border-subtle,#8885);border-radius:6px;background:transparent;color:var(--text-primary);}
+
+@media(max-width:1100px){.grid2{grid-template-columns:1fr;}}
+
+.view .rangeToolbar {position:static;}

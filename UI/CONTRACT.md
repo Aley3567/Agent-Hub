@@ -596,3 +596,17 @@ export type IconName =
 | `plugins` | 插件 | 插件 | hooks、输出风格、状态栏、权限这些扩展点各自是什么状态 |
 | `tasks` | 任务 | 计划任务 | 哪些事被定时触发，下一次什么时候跑 |
 | `settings` | 设置 | 设置 | 外观、路径与本机环境 |
+
+
+## macOS 0.2 用量契约
+
+- Provider 数据库默认 `~/.agent-hub/providers.db`。CC Switch 仅在管理 TUI/CLI 执行导入时读取。桌面端对该库只读；凭据仍不进入 IPC。
+- 图表范围：最近 24 小时、含今天的 7/30 个本地自然日、自定义起止时刻；小时或日分桶。自定义窗口在自动刷新时保持不变。
+- `UsageRow.harness` 为 `claude` / `codex` / `unknown`。Hub 从明确的 Claude CLI User-Agent 记录归属；缺少 harness 的旧 Claude Code 网关流水按其已确认来源归为 claude，`harnessEvidence=legacy-claude-hub`，显式 unknown 不覆盖。Codex 来自本地会话 token_count。`providerId` 优先显式 ID，再读旧流水 account 的 id: 稳定引用；无可靠映射时为 unknown。
+- `series` 每个桶增加 `cw`、`harnesses`、`providers` 与 `components_cost`。后者顺序固定为普通输入、输出、缓存读、缓存写，单位 USD；任意未知字段或缺价使该桶完整成本为 null。维度切换不改变计量单位。
+- 普通输入 `in` 不含缓存读写；总 Token 为 `in + out + cr + cw`。Hub 已完成上游协议归一化，UI 不再次扣除缓存。Codex 通过累计计数差分去掉重复快照，用 `total_tokens` 验证输入是否包含缓存子集；无法证明时保持未知。reasoning_output 不再叠加到 output。
+- 缓存读取占输入比例为 `sum(cr) / (sum(in) + sum(cr) + sum(cw))`，不平均每请求比例。缺失字段通过 `incompleteTurns` 报告；缓存率仅对 in/cr/cw 完整的记录做加权计算，`cacheKnownTurns` 提供覆盖记录数。四类 Token 构成百分比以已记录总量为分母。
+- `turns` 是用量记录数（Hub 已记账请求 + Codex 累计量更新事件），不是合并后的 HTTP 请求总数。明细表合并两种来源，跟随时间范围、每页 20 行，最多返回最近 5,000 条；点击行查看完整名称和来源。
+- 定价是配置单价估算，不是账单结算。缺价格或计量字段时显示未知；费用图中的已知部分不代表完整费用。
+- Codex 只读取 `sessions/**/*.jsonl` 的元数据、模型和 token_count，不返回对话正文；只消费一种用量事件，避免 token_usage_record 重复记账。缓存只保存归一化统计，不保存正文。
+- 0.2 本轮桌面交付为 macOS，Windows 独立工程未同步此版本。

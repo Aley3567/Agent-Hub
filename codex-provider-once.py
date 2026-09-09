@@ -113,7 +113,7 @@ def record_use(provider_id: str) -> None:
 
 def db_codex_rows() -> list[sqlite3.Row]:
     if not DB_PATH.exists():
-        raise RuntimeError(f"CC Switch DB 不存在: {DB_PATH}")
+        raise RuntimeError(f"Hub provider 数据库不存在，请先运行 agent-hub provider import --cc-switch 或 agent-hub provider add: {DB_PATH}")
     db_uri = DB_PATH.resolve(strict=False).as_uri() + "?mode=ro"
     conn = sqlite3.connect(db_uri, uri=True)
     conn.row_factory = sqlite3.Row
@@ -246,7 +246,7 @@ def render_toml(scalars: dict, tables: dict[str, dict]) -> str:
 # ------------------------------------------------------------ profile build
 
 
-def build_profile(config_text: str, auth: dict) -> dict:
+def build_profile(config_text: str, auth: dict, provider_id: str | None = None) -> dict:
     """Turn a CC Switch codex channel into a self-contained profile overlay.
 
     上游段被重命名为 ``codex1`` 并由 profile 顶层的 ``model_provider`` 选中,
@@ -283,7 +283,8 @@ def build_profile(config_text: str, auth: dict) -> dict:
     else:
         section.pop("env_key", None)
 
-    scalars: dict = {"model_provider": PROFILE_NAME}
+    runtime_provider = "agenthub_" + provider_id.encode().hex() if provider_id else PROFILE_NAME
+    scalars: dict = {"model_provider": runtime_provider}
     dropped: list[str] = []
     for key, value in base.items():
         if key in ("model_provider", "model_providers"):
@@ -302,7 +303,7 @@ def build_profile(config_text: str, auth: dict) -> dict:
         )
 
     return {
-        "toml": render_toml(scalars, {f"model_providers.{PROFILE_NAME}": section}),
+        "toml": render_toml(scalars, {f"model_providers.{runtime_provider}": section}),
         "kind": kind,
         "api_key": api_key,
         "auth_payload": (
@@ -530,7 +531,7 @@ def print_listing(providers: list[dict]) -> None:
 def main(argv: list[str]) -> int:
     providers = list_providers()
     if not providers:
-        raise RuntimeError("CC Switch 里没有任何 codex 渠道；请先在 CC Switch 添加一个")
+        raise RuntimeError("Hub 没有 Codex provider；请使用 agent-hub 添加或导入")
 
     if argv and argv[0] in ("--list", "-l"):
         print_listing(providers)
@@ -549,7 +550,7 @@ def main(argv: list[str]) -> int:
     provider = choose(ordered, hint)
 
     auth, config_text = provider_settings(provider)
-    profile = build_profile(config_text, auth)
+    profile = build_profile(config_text, auth, str(provider["id"]))
     binary = codex_binary()
 
     auth_text = json.dumps(profile["auth_payload"], ensure_ascii=False)

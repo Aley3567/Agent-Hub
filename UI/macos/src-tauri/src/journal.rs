@@ -61,6 +61,10 @@ impl Granularity {
 pub struct UsageRow {
     pub ts: i64,
     pub channel: String,
+    pub harness: String,
+    pub harness_evidence: String,
+    pub provider_id: String,
+    pub provider_app: String,
     pub model: String,
     pub format: String,
     pub source: String,
@@ -115,6 +119,17 @@ pub struct SeriesPoint {
     pub turns: i64,
     /// 该桶的估算成本。桶内任一模型无价时断点，不补 0。
     pub cost: Option<f64>,
+    pub cw: i64,
+    pub components_cost: Option<[f64; 4]>,
+    pub harnesses: Vec<StackSlice>,
+    pub providers: Vec<StackSlice>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StackSlice {
+    pub key: String,
+    pub tokens: i64,
+    pub cost: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -145,6 +160,9 @@ pub struct UsageSummary {
     pub window_to: i64,
     pub totals: Totals,
     pub cache_hit_rate: Option<f64>,
+    pub incomplete_turns: i64,
+    pub cache_known_turns: i64,
+    pub provider_labels: BTreeMap<String, String>,
     pub by_channel: Vec<UsageBucket>,
     pub by_model: Vec<UsageBucket>,
     pub series: Vec<SeriesPoint>,
@@ -310,6 +328,19 @@ pub fn parse_usage_line(line: &str) -> Option<UsageRow> {
     Some(UsageRow {
         ts,
         channel: as_text(row.get("channel")).unwrap_or_default(),
+        // Legacy files originate from the Claude Code gateway. Preserve explicit unknown.
+        harness: as_text(row.get("harness")).unwrap_or_else(|| "claude".into()),
+        harness_evidence: if row.contains_key("harness") {
+            "reported".into()
+        } else {
+            "legacy-claude-hub".into()
+        },
+        provider_id: as_text(row.get("provider_id"))
+            .or_else(|| {
+                as_text(row.get("account")).and_then(|s| s.strip_prefix("id:").map(str::to_owned))
+            })
+            .unwrap_or_else(|| "unknown".into()),
+        provider_app: as_text(row.get("provider_app")).unwrap_or_else(|| "claude".into()),
         model: as_text(row.get("model")).unwrap_or_default(),
         format: as_text(row.get("format")).unwrap_or_default(),
         // hub 写 source 时可能是 null（本机现有流水里过半如此）。写空串表示「没记」，
@@ -519,6 +550,7 @@ pub fn count_usage_lines(files: &[PathBuf]) -> Result<ScanReport, String> {
 }
 
 /// 倒序最近 N 行用量。
+#[cfg(test)]
 pub fn recent_usage(files: &[PathBuf], limit: usize) -> Result<Vec<UsageRow>, String> {
     let mut out: Vec<UsageRow> = Vec::new();
     for file in files {
@@ -567,6 +599,11 @@ struct Accumulator {
     degraded_turns: i64,
     /// 该聚合范围内的估算成本；任一模型无价时置为 None。
     cost: Option<f64>,
+    components_cost: Option<[f64; 4]>,
+    incomplete_turns: i64,
+    cache_known_turns: i64,
+    cache_known_input: i64,
+    cache_known_read: i64,
 }
 
 impl Accumulator {
@@ -579,6 +616,11 @@ impl Accumulator {
             turns: 0,
             degraded_turns: 0,
             cost: Some(0.0),
+            components_cost: Some([0.0; 4]),
+            incomplete_turns: 0,
+            cache_known_turns: 0,
+            cache_known_input: 0,
+            cache_known_read: 0,
         }
     }
 
@@ -588,6 +630,19 @@ impl Accumulator {
         self.cr += row.cr.unwrap_or(0);
         self.cw += row.cw.unwrap_or(0);
         self.turns += 1;
+        if let (Some(input), Some(cr), Some(cw)) = (row.input, row.cr, row.cw) {
+            self.cache_known_turns += 1;
+            self.cache_known_input += input + cw;
+            self.cache_known_read += cr;
+        }
+        if [row.input, row.output, row.cr, row.cw]
+            .iter()
+            .any(Option::is_none)
+        {
+            self.incomplete_turns += 1;
+            self.cost = None;
+            self.components_cost = None;
+        }
         if !row.deg.is_empty() {
             self.degraded_turns += 1;
         }
@@ -598,6 +653,7 @@ impl Accumulator {
         }
         let Some(price) = price_table.get(&row.model.to_lowercase()) else {
             self.cost = None;
+            self.components_cost = None;
             return;
         };
         let mut add = 0.0f64;
@@ -606,6 +662,19 @@ impl Accumulator {
         add += row.cr.unwrap_or(0) as f64 * price.cache_read / 1_000_000.0;
         add += row.cw.unwrap_or(0) as f64 * price.cache_write / 1_000_000.0;
         self.cost = Some(self.cost.unwrap_or(0.0) + add);
+        if let Some(parts) = &mut self.components_cost {
+            for (i, (n, rate)) in [
+                (row.input, price.input),
+                (row.output, price.output),
+                (row.cr, price.cache_read),
+                (row.cw, price.cache_write),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                parts[i] += n.unwrap_or(0) as f64 * rate / 1_000_000.0;
+            }
+        }
     }
 
     fn into_bucket(self, key: String) -> UsageBucket {
@@ -616,7 +685,7 @@ impl Accumulator {
             cr: self.cr,
             cw: self.cw,
             turns: self.turns,
-            cache_hit_rate: cache_hit_rate(self.input, self.cr),
+            cache_hit_rate: cache_hit_rate(self.cache_known_input, self.cache_known_read),
             degraded_turns: self.degraded_turns,
         }
     }
@@ -654,12 +723,25 @@ pub fn summarize_rows(
     let mut by_model: BTreeMap<String, Accumulator> = BTreeMap::new();
     let mut buckets: BTreeMap<i64, Accumulator> = BTreeMap::new();
     let mut degrades: BTreeMap<String, i64> = BTreeMap::new();
+    let mut grouped: BTreeMap<(i64, String, String), Accumulator> = BTreeMap::new();
 
     for row in rows {
         if row.ts < from_ts || row.ts > to_ts {
             continue;
         }
         totals.add(row, price_table);
+        let t = bucket_start(row.ts, granularity);
+        let provider_key = if row.provider_id == "unknown" {
+            "unknown".into()
+        } else {
+            format!("{}:{}", row.provider_app, row.provider_id)
+        };
+        for (dimension, key) in [("harness", &row.harness), ("provider", &provider_key)] {
+            grouped
+                .entry((t, dimension.into(), key.clone()))
+                .or_insert_with(Accumulator::new)
+                .add(row, price_table);
+        }
         by_channel
             .entry(display_key(&row.channel))
             .or_insert_with(Accumulator::new)
@@ -690,6 +772,10 @@ pub fn summarize_rows(
             cr: point.map(|bucket| bucket.cr).unwrap_or(0),
             turns: point.map(|bucket| bucket.turns).unwrap_or(0),
             cost: point.and_then(|bucket| bucket.cost),
+            cw: point.map(|bucket| bucket.cw).unwrap_or(0),
+            components_cost: point.and_then(|bucket| bucket.components_cost),
+            harnesses: stack_slices(&grouped, cursor, "harness"),
+            providers: stack_slices(&grouped, cursor, "provider"),
         });
         if cursor >= last {
             break;
@@ -718,7 +804,10 @@ pub fn summarize_rows(
     Ok(UsageSummary {
         window_from: from_ts,
         window_to: to_ts,
-        cache_hit_rate: cache_hit_rate(totals.input, totals.cr),
+        cache_hit_rate: cache_hit_rate(totals.cache_known_input, totals.cache_known_read),
+        incomplete_turns: totals.incomplete_turns,
+        cache_known_turns: totals.cache_known_turns,
+        provider_labels: BTreeMap::new(),
         by_channel: sorted_buckets(by_channel),
         by_model: sorted_buckets(by_model),
         series,
@@ -734,6 +823,22 @@ pub fn summarize_rows(
             turns: totals.turns,
         },
     })
+}
+
+fn stack_slices(
+    groups: &BTreeMap<(i64, String, String), Accumulator>,
+    t: i64,
+    dimension: &str,
+) -> Vec<StackSlice> {
+    groups
+        .range((t, dimension.into(), String::new())..)
+        .take_while(|((time, d, _), _)| *time == t && d == dimension)
+        .map(|((_, _, key), a)| StackSlice {
+            key: key.clone(),
+            tokens: a.weight(),
+            cost: a.cost,
+        })
+        .collect()
 }
 
 /// 空的渠道名/模型名在界面上要能读，不留空白单元格。
@@ -830,7 +935,7 @@ pub fn load_price_table() -> Result<PriceTable, String> {
 
 /// 按 `by_model` 逐个模型定价。任何一个模型定不出价，整体就返回 `null`。
 pub fn apply_pricing(summary: &mut UsageSummary, table: &PriceTable) {
-    if table.is_empty() || summary.by_model.is_empty() {
+    if table.is_empty() || summary.by_model.is_empty() || summary.incomplete_turns > 0 {
         summary.estimated_cost_usd = None;
         return;
     }
@@ -853,8 +958,49 @@ mod tests {
     use super::*;
 
     const LINE_A: &str = r#"{"ts": 1787102022, "channel": "direct", "model": "claude-opus-5", "format": "anthropic", "source": "upstream", "in": 100, "out": 10, "cr": 60, "cw": 5, "cache_creation": {"ephemeral_1h_input_tokens": 5}, "account": "id:abc", "deg": ["HUB_DEGRADE_SYSTEM_ROLE_PROMOTED"]}"#;
-    const LINE_B: &str = r#"{"ts": 1787102122, "channel": "glm", "model": "glm-5.2", "format": "openai_chat", "source": null, "in": 200, "out": 20}"#;
+    const LINE_B: &str = r#"{"ts": 1787102122, "channel": "glm", "model": "glm-5.2", "format": "openai_chat", "source": null, "in": 200, "out": 20, "cr": 0, "cw": 0}"#;
 
+    #[test]
+    fn missing_counters_and_dimensions_are_not_invented() {
+        let rows = vec![parse_usage_line(r#"{"ts":10,"in":100,"out":5}"#).unwrap()];
+        let summary = summarize_rows(&rows, 0, 20, Granularity::Hour, &PriceTable::new()).unwrap();
+        assert_eq!(summary.incomplete_turns, 1);
+        assert!(summary.cache_hit_rate.is_none());
+        assert_eq!(summary.series[0].harnesses[0].key, "claude");
+        assert!(summary.series[0].cost.is_none());
+    }
+    #[test]
+    fn legacy_hub_identity_and_complete_subset_cache_ratio() {
+        let legacy = parse_usage_line(LINE_A).unwrap();
+        assert_eq!(legacy.harness, "claude");
+        assert_eq!(legacy.provider_id, "abc");
+        assert_eq!(legacy.harness_evidence, "legacy-claude-hub");
+        let explicit =
+            parse_usage_line(r#"{"ts":1787102023,"harness":"unknown","in":500}"#).unwrap();
+        assert_eq!(explicit.harness, "unknown");
+        let summary = summarize_rows(
+            &[legacy, explicit],
+            1787102000,
+            1787102200,
+            Granularity::Hour,
+            &PriceTable::new(),
+        )
+        .unwrap();
+        assert_eq!(summary.cache_known_turns, 1);
+        assert!((summary.cache_hit_rate.unwrap() - 60.0 / 165.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn groups_conserve_token_counts_including_cache_write() {
+        let rows = vec![parse_usage_line(
+            r#"{"ts":10,"harness":"codex","provider_id":"p1","in":60,"out":10,"cr":40,"cw":5}"#,
+        )
+        .unwrap()];
+        let summary = summarize_rows(&rows, 0, 20, Granularity::Hour, &PriceTable::new()).unwrap();
+        assert_eq!(summary.series[0].harnesses[0].tokens, 115);
+        assert_eq!(summary.series[0].providers[0].tokens, 115);
+        assert!((summary.cache_hit_rate.unwrap() - 40.0 / 105.0).abs() < 1e-9);
+    }
     #[test]
     fn parses_the_real_field_names() {
         let row = parse_usage_line(LINE_A).unwrap();
@@ -876,7 +1022,7 @@ mod tests {
     fn null_source_becomes_empty_not_a_fake_label() {
         let row = parse_usage_line(LINE_B).unwrap();
         assert_eq!(row.source, "");
-        assert_eq!(row.cr, None);
+        assert_eq!(row.cr, Some(0));
     }
 
     #[test]
@@ -904,7 +1050,14 @@ mod tests {
             parse_usage_line(LINE_A).unwrap(),
             parse_usage_line(LINE_B).unwrap(),
         ];
-        let summary = summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &PriceTable::new()).unwrap();
+        let summary = summarize_rows(
+            &rows,
+            1787102000,
+            1787102200,
+            Granularity::Hour,
+            &PriceTable::new(),
+        )
+        .unwrap();
         assert_eq!(summary.totals.input, 300);
         assert_eq!(summary.totals.output, 30);
         assert_eq!(summary.totals.cr, 60);
@@ -912,7 +1065,7 @@ mod tests {
         assert_eq!(summary.granularity, "hour");
         // 60 / (300 + 60)
         let rate = summary.cache_hit_rate.unwrap();
-        assert!((rate - 60.0 / 360.0).abs() < 1e-9);
+        assert!((rate - 60.0 / 365.0).abs() < 1e-9);
         assert_eq!(summary.by_channel.len(), 2);
         // 权重大的排前面
         assert_eq!(summary.by_channel[0].key, "glm");
@@ -944,7 +1097,14 @@ mod tests {
     fn series_is_zero_filled_across_the_window() {
         let rows = vec![parse_usage_line(LINE_A).unwrap()];
         let from = LINE_A_TS - 3 * 3_600;
-        let summary = summarize_rows(&rows, from, LINE_A_TS, Granularity::Hour, &PriceTable::new()).unwrap();
+        let summary = summarize_rows(
+            &rows,
+            from,
+            LINE_A_TS,
+            Granularity::Hour,
+            &PriceTable::new(),
+        )
+        .unwrap();
         assert_eq!(summary.series.len(), 4);
         assert!(summary.series.windows(2).all(|pair| pair[0].t < pair[1].t));
         assert_eq!(summary.series.last().unwrap().input, 100);
@@ -959,7 +1119,14 @@ mod tests {
             parse_usage_line(LINE_A).unwrap(),
             parse_usage_line(LINE_B).unwrap(),
         ];
-        let mut summary = summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &PriceTable::new()).unwrap();
+        let mut summary = summarize_rows(
+            &rows,
+            1787102000,
+            1787102200,
+            Granularity::Hour,
+            &PriceTable::new(),
+        )
+        .unwrap();
         let mut table = PriceTable::new();
         table.insert(
             "claude-opus-5".into(),
@@ -995,7 +1162,14 @@ mod tests {
     #[test]
     fn empty_price_table_means_no_cost() {
         let rows = vec![parse_usage_line(LINE_A).unwrap()];
-        let mut summary = summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &PriceTable::new()).unwrap();
+        let mut summary = summarize_rows(
+            &rows,
+            1787102000,
+            1787102200,
+            Granularity::Hour,
+            &PriceTable::new(),
+        )
+        .unwrap();
         apply_pricing(&mut summary, &PriceTable::new());
         assert!(summary.estimated_cost_usd.is_none());
     }
@@ -1017,7 +1191,8 @@ mod tests {
             },
         );
         // glm-5.2 无价，桶内任一模型无价 → 该桶 cost 断点。
-        let summary = summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &table).unwrap();
+        let summary =
+            summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &table).unwrap();
         assert_eq!(summary.series.len(), 1);
         assert!(summary.series[0].cost.is_none());
 
@@ -1030,7 +1205,8 @@ mod tests {
                 cache_write: 1.0,
             },
         );
-        let summary = summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &table).unwrap();
+        let summary =
+            summarize_rows(&rows, 1787102000, 1787102200, Granularity::Hour, &table).unwrap();
         let expected = (100.0 * 3.0 + 10.0 * 15.0 + 60.0 * 0.3 + 5.0 * 3.75) / 1e6
             + (200.0 * 1.0 + 20.0 * 2.0) / 1e6;
         assert!((summary.series[0].cost.unwrap() - expected).abs() < 1e-12);

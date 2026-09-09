@@ -1,42 +1,7 @@
-/* 没有降级码的回合：破折号压到三级文字，让有降级的行自己跳出来 */
-.clean {
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-}
+.pagination{display:flex;align-items:center;gap:12px;padding:10px 16px;font-size:12px;color:var(--text-secondary);flex-wrap:wrap;border-bottom:1px solid var(--border-subtle)}
+.pagination>span:first-child{margin-right:auto}.pagination button,.degrade{font:inherit;font-size:12px;padding:5px 10px;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-surface);color:var(--text-primary);cursor:pointer}.pagination button:disabled{opacity:.4;cursor:default}
+.usageTable tbody tr{cursor:pointer}.usageTable tbody td{font-size:12px;line-height:1.5;padding:9px 8px}.usageTable thead th{padding:9px 8px;font-size:11px}
+.name{white-space:normal;overflow-wrap:anywhere;word-break:normal}.harness{display:inline-flex;gap:7px;align-items:center;white-space:nowrap;font-size:12px}.harness i{display:block;width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.details{display:flex;flex-direction:column;gap:0;font-size:12px}.details>div{display:grid;grid-template-columns:140px minmax(0,1fr);gap:12px;padding:8px 0;border-bottom:1px solid var(--border-subtle)}.details dt{color:var(--text-secondary)}.details dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
 
-.degrade {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--icon-btn-size);
-  padding: 0 var(--sp-2);
-  margin-left: calc(-1 * var(--sp-2));
-  border-radius: var(--radius-sm);
-  color: inherit;
-  text-align: left;
-  /* 里面是「N 项」这个降级码计数（DESIGN.md 2.3 点名的一类） */
-  font-variant-numeric: tabular-nums;
-  /* 基态时长服务 hover：DESIGN.md 2.5 的反向判据说 hover 里只过渡背景色的规则必须是
-     --dur-instant。属性写长写法 background-color，不写 background shorthand——真正在变的
-     只有底色，shorthand 会把 background-image / position 这些一起列进过渡清单。 */
-  transition: background-color var(--dur-instant) var(--ease-out);
-}
-
-.degrade:hover:not(:disabled) {
-  background-color: var(--bg-hover);
-}
-
-/* 按下：DESIGN.md 2.4.1 要求 active 与 hover 视觉可区分（--bg-active 比 --bg-hover 深一档），
-   时长按 2.5 语义表走 --dur-fast——140ms 才让「到底按下了没有」看得出来 */
-.degrade:active:not(:disabled) {
-  background-color: var(--bg-active);
-  transition-duration: var(--dur-fast);
-}
-
-/* 这个按钮没有 selected 态：它是跳转动作，不是可选项。
-   focus-visible 由 global.css 的 :focus-visible 统一画（2px --accent + 2px offset），
-   本文件绝不把它归零。
-   disabled 目前调用方不会传，但五态要有明确定义：不靠颜色单独表意，指针也变回默认。 */
-.degrade:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
-}
+.tableViewport {max-height:620px;overflow:auto;}

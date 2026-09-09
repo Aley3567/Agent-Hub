@@ -108,7 +108,7 @@ export interface AppState {
   doctorFixSubagentPins(): Promise<DoctorCheck[]>;
   openPath(path: string): Promise<void>;
   revealInFolder(path: string): Promise<void>;
-  usageRange: { fromTs: number; toTs: number; granularity: 'hour' | 'day' };
+  usageRange: { fromTs: number; toTs: number; granularity: 'hour' | 'day'; preset?: 'today'|'week'|'month'|'custom' };
   setUsageRange(r: Partial<AppState['usageRange']>): void;
 }
 
@@ -146,6 +146,7 @@ function defaultUsageRange(): AppState['usageRange'] {
     fromTs: startOfTodaySeconds() - 6 * SECONDS_PER_DAY,
     toTs: Math.floor(Date.now() / 1000),
     granularity: 'day',
+    preset: 'week',
   };
 }
 
@@ -157,11 +158,11 @@ function defaultUsageRange(): AppState['usageRange'] {
  * 新一天）；不命中（自定义窗口）说明用户钉死了这段历史，原样保留。
  */
 function rollUsageRange(range: AppState['usageRange']): AppState['usageRange'] {
-  const presets = [1, 7, 30];
-  const today = startOfTodaySeconds();
-  const matched = presets.some((days) => today - (days - 1) * SECONDS_PER_DAY === range.fromTs);
-  if (!matched) return range;
-  return { ...range, toTs: Math.floor(Date.now() / 1000) };
+  if(range.preset==='custom'||!range.preset)return range;
+  const now=Math.floor(Date.now()/1000);
+  const days=range.preset==='week'?7:30;
+  const start=new Date();start.setHours(0,0,0,0);start.setDate(start.getDate()-(days-1));
+  return {...range,fromTs:range.preset==='today'?now-86400:Math.floor(start.getTime()/1000),toTs:now};
 }
 
 /**
@@ -281,7 +282,7 @@ export const useApp = create<AppState>()((set, get) => {
             const rolled = rollUsageRange(get().usageRange);
             const [summary, rows] = await Promise.all([
               usageSummary(rolled.fromTs, rolled.toTs, rolled.granularity),
-              recentUsage(RECENT_LIMIT),
+              recentUsage(5000, null, rolled.fromTs, rolled.toTs),
             ]);
             if (!isStale(key, ticket)) set({ usage: summary, recentUsage: rows, usageRange: rolled });
             break;

@@ -20,6 +20,7 @@ export interface KpiItem {
   progress?: number;
   /** 是否用 --success 色突出（有成本时） */
   accent?: boolean;
+  color?: string;
 }
 
 export interface KpiRowProps {
@@ -64,12 +65,15 @@ export function KpiRow({
         </div>
       </div>
 
+      <div className={styles.composition} aria-label="已记录 Token 构成">
+        {bars.slice(0,4).map(item=><span key={item.label} title={`${item.label} ${item.value} · ${item.caption}`} style={{flex:item.progress??0,background:item.color}}/>)}
+      </div>
       <ul className={styles.barRow} aria-label="用量汇总">
         {bars.map((item) => (
           <li key={item.label} className={styles.barCell}>
             <span className={styles.barLabel}>{item.label}</span>
             <span className={styles.barValue}>{item.value}</span>
-            {item.progress !== undefined ? (
+            {item.progress !== undefined && item.color === undefined ? (
               <span className={styles.barProgressTrack} aria-hidden="true">
                 <span
                   className={styles.barProgressFill}

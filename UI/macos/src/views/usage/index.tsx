@@ -18,7 +18,6 @@ import {
   SearchInput,
   SegmentedControl,
   Spinner,
-  TimeSeries,
   Toolbar,
 } from '../../components';
 import type { SegmentedOption } from '../../components';
@@ -34,6 +33,7 @@ import { useApp } from '../../store';
 import { useNav } from '../../store/nav';
 import type { UsageRow } from '../../types/contract';
 import { useDiagnosticsHandoff } from '../diagnostics/handoff';
+import { UsageChart } from './parts/UsageChart';
 import { KpiRow } from './parts/KpiRow';
 import type { KpiItem } from './parts/KpiRow';
 import { UsageTable } from './parts/UsageTable';
@@ -45,7 +45,7 @@ import styles from './index.module.css';
 const TOP_N = 8;
 
 /** 明细表默认显示条数，避免一屏拉出两百行 */
-const TABLE_PREVIEW = 60;
+const TABLE_PREVIEW = 5000;
 
 const GRANULARITY_OPTIONS: ReadonlyArray<SegmentedOption<'hour' | 'day'>> = [
   { value: 'hour', label: '按小时', title: '每小时一个桶，适合看今天的分布' },
@@ -92,6 +92,13 @@ export default function UsageView() {
   const requestDiagnostics = useDiagnosticsHandoff((state) => state.request);
 
   const [query, setQuery] = useState('');
+  const [custom,setCustom]=useState(false);
+  const localInput=(ts:number)=>{const d=new Date(ts*1000);return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);};
+  const [from,setFrom]=useState(()=>localInput(range.fromTs));
+  const [to,setTo]=useState(()=>localInput(range.toTs));
+  const [rangeError,setRangeError]=useState('');
+  const channels=useApp(s=>s.channels);
+  const providerNames=Object.fromEntries(channels.map(c=>[c.id,c.name]));
   const [showAll, setShowAll] = useState(false);
   const [autorefresh, setAutorefresh] = useState<AutorefreshChoice>(readAutorefresh);
 
@@ -133,26 +140,17 @@ export default function UsageView() {
     [requestDiagnostics, setView],
   );
 
-  const preset = matchPreset(range.fromTs);
+  const preset = range.preset && range.preset!=='custom' ? range.preset : matchPreset(range.fromTs);
   const rangeOptions: ReadonlyArray<SegmentedOption<RangeChoice>> = [
-    { value: 'today', label: PRESET_LABEL.today, title: '今天零点到现在' },
+    { value: 'today', label: PRESET_LABEL.today, title: '最近 24 小时' },
     { value: 'week', label: PRESET_LABEL.week, title: '含今天的 7 个自然日' },
     { value: 'month', label: PRESET_LABEL.month, title: '含今天的 30 个自然日' },
-    ...(preset === null
-      ? ([
-          {
-            value: 'custom',
-            label: '自定义',
-            disabled: true,
-            title: '当前时间窗与三个预设都不相等（多半是开着窗口跨过了零点），下面那行写的是真实窗口',
-          },
-        ] as ReadonlyArray<SegmentedOption<RangeChoice>>)
-      : []),
+    {value:'custom',label:'自定义'},
   ];
 
   const chooseRange = useCallback(
     (next: RangeChoice) => {
-      // 'custom' 只是个如实的展示态，不可选中
+      setCustom(next==='custom');
       if (next === 'custom') return;
       setUsageRange({ ...rangeFor(next), granularity: PRESET_GRANULARITY[next] });
     },
@@ -166,38 +164,38 @@ export default function UsageView() {
     const totals = usage.totals;
     const totalTokens = totals.in + totals.out + totals.cr + totals.cw;
     const heroItem: KpiItem = {
-      label: '真实消耗 Tokens',
+      label: '已记录 Tokens',
       value: formatCount(totalTokens),
-      caption: '输入 + 输出 + 缓存读 + 缓存写，窗口内真实 token 总量',
+      caption: '输入 + 输出 + 缓存读 + 缓存写，窗口内已报告 token 合计',
       subValue: totalTokens >= 10_000 ? `≈ ${formatTokensCn(totalTokens)}` : undefined,
     };
     const sideItems: [KpiItem, KpiItem] = [
       {
-        label: '总请求数',
+        label: '用量记录数',
         value: formatCount(totals.turns),
-        caption: '窗口内记了账的回合数',
+        caption: 'Hub 请求与 Codex 用量事件，非 HTTP 请求总数',
       },
       {
-        label: '总成本',
+        label: '估算费用',
         value: usage.estimatedCostUsd === null ? '—' : formatCostUsd(usage.estimatedCostUsd),
         caption:
           usage.costSource === null
-            ? '未配置价格表，不估算成本；可来自 CC Switch 定价表'
-            : usage.costSource === 'cc-switch-db'
-              ? '按 CC Switch DB 的 model_pricing 估算'
+            ? '无可用定价，不估算费用'
+            : usage.costSource === 'cc-switch-db' || usage.costSource === 'hub-db'
+              ? '按导入的模型价格估算'
               : '按 model-pricing.json 的单价估算',
         accent: usage.estimatedCostUsd !== null,
       },
     ];
     const barItems: KpiItem[] = [
-      { label: '输入', value: formatTokens(totals.in), caption: '不含缓存读写的新输入 token' },
-      { label: '输出', value: formatTokens(totals.out), caption: '模型生成的 token' },
-      { label: '创建', value: formatTokens(totals.cw), caption: '写入提示缓存的输入 token' },
-      { label: '命中', value: formatTokens(totals.cr), caption: '命中提示缓存的输入 token' },
+      { label: '普通输入', value: formatTokens(totals.in), caption: `${formatPercent(totalTokens?totals.in/totalTokens:null)} · 占已记录总量，不含缓存`, progress: totalTokens?totals.in/totalTokens:0,color:'#5982c9' },
+      { label: '输出', value: formatTokens(totals.out), caption: `${formatPercent(totalTokens?totals.out/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.out/totalTokens:0,color:'#9b77d4' },
+      { label: '缓存写入', value: formatTokens(totals.cw), caption: `${formatPercent(totalTokens?totals.cw/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.cw/totalTokens:0,color:'#d69b35' },
+      { label: '缓存读取', value: formatTokens(totals.cr), caption: `${formatPercent(totalTokens?totals.cr/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.cr/totalTokens:0,color:'#12a59a' },
       {
-        label: '缓存命中率',
+        label: '缓存读取占输入比例',
         value: formatPercent(usage.cacheHitRate),
-        caption: '缓存读 ÷（总输入 + 缓存读）',
+        caption: `按输入字段完整的 ${formatCount(usage.cacheKnownTurns ?? 0)} / ${formatCount(totals.turns)} 条记录加权计算`,
         // 缺失时不画进度条（progress 可选）：数值侧 formatPercent(null) 显示「—」，
         // 图形侧画 0% 就是「数值说不存在、图形说零命中」的口径自相矛盾
         progress: usage.cacheHitRate ?? undefined,
@@ -274,6 +272,7 @@ export default function UsageView() {
       <p className={styles.windowNote}>{windowNote}</p>
 
       <Toolbar
+        className={styles.rangeToolbar}
         sticky
         divider
         aria-label="时间范围"
@@ -308,7 +307,7 @@ export default function UsageView() {
       >
         <SegmentedControl
           options={rangeOptions}
-          value={preset ?? 'custom'}
+          value={custom ? 'custom' : preset ?? 'custom'}
           onChange={chooseRange}
           aria-label="时间范围"
         />
@@ -319,6 +318,11 @@ export default function UsageView() {
           aria-label="分桶粒度"
         />
       </Toolbar>
+      {custom&&<form className={styles.customRange} onSubmit={e=>{e.preventDefault();const f=Date.parse(from)/1000,t=Date.parse(to)/1000;if(!Number.isFinite(f)||!Number.isFinite(t)||f>=t){setRangeError('结束时间须晚于开始时间');return;}setRangeError('');setUsageRange({fromTs:f,toTs:t,granularity:t-f>3*86400?'day':'hour',preset:'custom'});}}>
+        <label>开始 <input aria-label="开始时间" type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} required/></label>
+        <label>结束 <input aria-label="结束时间" type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} required/></label>
+        <button type="submit">应用范围</button><span role="alert">{rangeError}</span>
+      </form>}
 
       {usage.totals.turns === 0 ? (
         rows.length === 0 ? (
@@ -340,16 +344,7 @@ export default function UsageView() {
         )
       ) : (
         <>
-          <Card title="token 走势" subtitle="青线输入、紫线输出、灰线缓存读；红色虚线为成本副轴。悬浮看具体数值">
-            <TimeSeries
-              data={usage.series}
-              series={['in', 'out', 'cr']}
-              secondary={{ key: 'cost', label: '成本', formatValue: formatCostUsd }}
-              granularity={usage.granularity}
-              height={220}
-              ariaLabel="窗口内输入、输出、缓存读 token 走势及成本"
-            />
-          </Card>
+          <UsageChart usage={usage} names={{...providerNames,...usage.providerLabels}}/>
 
           <div className={styles.grid2}>
             <Card
@@ -382,8 +377,8 @@ export default function UsageView() {
 
       <Card
         flush
-        title="最近用量明细"
-        subtitle={`流水里最近 ${formatCount(rows.length)} 条，倒序。这张表不受上面的时间窗限制——它读的是同一份 journal 的尾部`}
+        title="调用用量明细"
+        subtitle={`当前时间范围内的 Claude Code 与 Codex 用量，最新在前；最多读取 5,000 条`}
         actions={
           <SearchInput
             value={query}
@@ -432,7 +427,7 @@ export default function UsageView() {
             />
           </div>
         ) : (
-          <UsageTable rows={visible} onInspectDegrade={inspectDegrade} />
+          <UsageTable rows={filtered} names={{...providerNames,...usage.providerLabels}} onInspectDegrade={inspectDegrade} />
         )}
       </Card>
     </div>

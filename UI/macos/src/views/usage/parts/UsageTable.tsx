@@ -1,137 +1,36 @@
-/**
- * 最近用量明细。
- *
- * 两个刻意的选择：
- *   1. 多一列「用量来源」——journal 的 source 区分「上游给的数字」和「本地估算」，
- *      这是一页讲 token 记账的视图里最该说清的一件事，藏起来就等于让估算值冒充实测值。
- *   2. 降级列是个按钮，点了跳诊断视图并把这一回合的码带过去；这里只报数量，不在两个视图
- *      各写一遍人话（文案唯一来源是 degradeCatalog）。
- */
-import { Badge, StatusDot, Table, Td, Th } from '../../../components';
-import type { BadgeTone, StatusToneInput } from '../../../components';
-import type { KeyboardEvent } from 'react';
-import { MISSING, formatTime, formatTokens } from '../../../lib';
+import { useEffect, useState } from 'react';
+import { Dialog, Table, Td, Th } from '../../../components';
+import { formatTime, formatPercent } from '../../../lib';
 import type { UsageRow } from '../../../types/contract';
-import { SEVERITY_TONE } from '../../diagnostics/parts/aggregate';
-import { worstSeverity } from '../../../data/degradeCatalog';
 import styles from './UsageTable.module.css';
 
-export interface UsageTableProps {
-  rows: readonly UsageRow[];
-  /** 点降级列：跳到诊断视图看这一回合到底降级了什么 */
-  onInspectDegrade: (row: UsageRow) => void;
-}
-
-/** 协议格式的配色：anthropic 是原生（青），OpenAI 系是跨协议（紫），其余中性 */
-function formatTone(format: string): BadgeTone {
-  if (format === 'anthropic') return 'accent';
-  if (format === 'openai_chat' || format === 'openai_responses') return 'violet';
-  return 'neutral';
-}
-
-/** 用量来源：上游报的数才是实测，estimated 是本地按 token 估的，必须区分 */
-function sourceView(source: string): { tone: StatusToneInput; text: string; title: string } {
-  if (source === 'upstream') {
-    return { tone: 'ok', text: '上游', title: '上游在响应里报了 usage，这些数字是实测值' };
-  }
-  if (source === 'estimated') {
-    return { tone: 'degraded', text: '本地估算', title: '上游没报 usage，数字由本地估算，与账单可能有差' };
-  }
-  if (source === '') {
-    return { tone: 'off', text: '未记录', title: 'journal 没写 source 字段，无法判断数字来自哪里' };
-  }
-  return { tone: 'off', text: source, title: `journal 里的 source 是 ${source}，本视图没有对应口径说明` };
-}
-
-/**
- * 表格内的 ↑↓ 行移动（键盘事件局部绑定）：焦点在某行里时，↓/↑ 移到相邻行的主操作
- * （降级列按钮）上，没有降级码的行没有按钮、自动跳过；Enter 由按钮原生激活，
- * 不需要额外绑定。
- */
-function onBodyKeyDown(event: KeyboardEvent<HTMLTableSectionElement>) {
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  const row = target.closest('tr[data-row]');
-  if (row === null) return;
-  const rows = Array.from(event.currentTarget.querySelectorAll('tr[data-row]'));
-  const index = rows.indexOf(row);
-  if (index < 0) return;
-  const step = event.key === 'ArrowDown' ? 1 : -1;
-  for (let i = index + step; i >= 0 && i < rows.length; i += step) {
-    const control = rows[i].querySelector('button');
-    if (control !== null) {
-      event.preventDefault();
-      control.focus();
-      return;
-    }
-  }
-}
-
-export function UsageTable({ rows, onInspectDegrade }: UsageTableProps) {
-  return (
-    <Table stickyHeader minWidth={1040} aria-label="最近用量明细">
-      <thead>
-        <tr>
-          <Th>时间</Th>
-          <Th>渠道</Th>
-          <Th>模型</Th>
-          <Th>协议格式</Th>
-          <Th>用量来源</Th>
-          <Th numeric>输入</Th>
-          <Th numeric>输出</Th>
-          <Th numeric>缓存读</Th>
-          <Th numeric>缓存写</Th>
-          <Th>降级</Th>
-        </tr>
-      </thead>
-      <tbody onKeyDown={onBodyKeyDown}>
-        {rows.map((row, index) => {
-          const source = sourceView(row.source);
-          const worst = worstSeverity(row.deg);
-          return (
-            <tr key={`${row.ts}-${row.channel}-${row.model}-${index}`} data-row="">
-              <Td mono title={formatTime(row.ts)}>
-                {formatTime(row.ts)}
-              </Td>
-              <Td mono truncate title={row.channel === '' ? '流水未记录渠道名' : row.channel}>
-                {row.channel === '' ? MISSING : row.channel}
-              </Td>
-              <Td mono truncate title={row.model === '' ? '流水未记录模型 id' : row.model}>
-                {row.model === '' ? MISSING : row.model}
-              </Td>
-              <Td>
-                <Badge tone={formatTone(row.format)}>{row.format === '' ? '未记录' : row.format}</Badge>
-              </Td>
-              <Td>
-                <StatusDot tone={source.tone} title={source.title}>
-                  {source.text}
-                </StatusDot>
-              </Td>
-              <Td numeric>{formatTokens(row.in)}</Td>
-              <Td numeric>{formatTokens(row.out)}</Td>
-              <Td numeric>{formatTokens(row.cr)}</Td>
-              <Td numeric>{formatTokens(row.cw)}</Td>
-              <Td>
-                {worst === null ? (
-                  <span className={styles.clean} title="这一回合没有记录任何降级码">
-                    {MISSING}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.degrade}
-                    onClick={() => onInspectDegrade(row)}
-                    title={`${row.deg.join('、')}\n点击到诊断视图看这几个码的人话解释`}
-                  >
-                    <StatusDot tone={SEVERITY_TONE[worst]}>{`${row.deg.length} 项`}</StatusDot>
-                  </button>
-                )}
-              </Td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </Table>
-  );
+export interface UsageTableProps { rows:readonly UsageRow[]; names?:Record<string,string>; onInspectDegrade:(row:UsageRow)=>void }
+const PAGE_SIZE=20;
+const count=(n:number|null)=>n===null?'—':n.toLocaleString('en-US');
+function ratio(r:UsageRow){if(r.in===null||r.cr===null||r.cw===null)return null;const input=r.in+r.cr+r.cw;return input>0?r.cr/input:null;}
+function shortTime(ts:number){const d=new Date(ts*1000);return `${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} ${d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}`;}
+function harness(row:UsageRow){return row.harness==='codex'?'Codex':row.harness==='claude'?'Claude Code':'未记录';}
+export function UsageTable({rows,names={},onInspectDegrade}:UsageTableProps){
+ const [page,setPage]=useState(0),[selected,setSelected]=useState<UsageRow|null>(null);
+ const pages=Math.max(1,Math.ceil(rows.length/PAGE_SIZE)),current=Math.min(page,pages-1),start=current*PAGE_SIZE;
+ useEffect(()=>setPage(0),[rows.length]);
+ const provider=(r:UsageRow)=>names[`${r.providerApp??'claude'}:${r.providerId}`]??(r.providerId&&r.providerId!=='unknown'?r.providerId:'未记录');
+ return <>
+  <div className={styles.pagination}><span>点击一行查看完整详情</span><span>{rows.length?start+1:0}–{Math.min(start+PAGE_SIZE,rows.length)} / {rows.length.toLocaleString()}</span><button disabled={current===0} onClick={()=>setPage(current-1)}>上一页</button><button disabled={current===pages-1} onClick={()=>setPage(current+1)}>下一页</button></div>
+  <Table stickyHeader framed={false} minWidth={920} layout="fixed" className={styles.usageTable} wrapperClassName={styles.tableViewport} aria-label="调用用量明细">
+   <colgroup><col style={{width:100}}/><col style={{width:90}}/><col style={{width:168}}/><col style={{width:112}}/><col style={{width:78}}/><col style={{width:78}}/><col style={{width:90}}/><col style={{width:68}}/><col style={{width:78}}/></colgroup>
+   <thead><tr><Th>时间（最新在前）</Th><Th>Harness</Th><Th>模型</Th><Th>Provider</Th><Th numeric>输入</Th><Th numeric>缓存写入</Th><Th numeric>缓存读取</Th><Th numeric>缓存率</Th><Th numeric>输出</Th></tr></thead>
+   <tbody>{rows.slice(start,start+PAGE_SIZE).map((r,i)=><tr key={`${r.ts}-${r.model}-${i}`} tabIndex={0} onClick={()=>setSelected(r)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();setSelected(r);}}} aria-label={`${formatTime(r.ts)} ${harness(r)} ${r.model} 用量详情`}>
+    <Td mono title={formatTime(r.ts)}>{shortTime(r.ts)}</Td>
+    <Td><span className={styles.harness}><i style={{background:r.harness==='codex'?'#3986e6':r.harness==='claude'?'#d88043':'#8b8b96'}}/>{harness(r)}</span></Td>
+    <Td mono className={styles.name}>{r.model||'未记录'}</Td><Td className={styles.name}>{provider(r)}</Td>
+    <Td numeric>{count(r.in)}</Td><Td numeric>{count(r.cw)}</Td><Td numeric>{count(r.cr)}</Td><Td numeric>{formatPercent(ratio(r))}</Td><Td numeric>{count(r.out)}</Td>
+   </tr>)}</tbody>
+  </Table>
+  <Dialog open={selected!==null} onClose={()=>setSelected(null)} title="用量详情" description="按实际报告字段显示；缺失字段为 —，不回填估算数。">
+   {selected&&<><dl className={styles.details}>{[
+    ['时间',formatTime(selected.ts)],['Harness',harness(selected)],['归属依据',selected.harnessEvidence==='legacy-claude-hub'?'历史 Claude Code 网关流水':'明确记录'],['Provider',provider(selected)],['Provider ID',selected.providerId??'未记录'],['渠道',selected.channel||'未记录'],['模型',selected.model||'未记录'],['协议',selected.format],['用量来源',selected.source==='codex-session'?'Codex 本地会话':selected.source||'未记录'],['普通输入',count(selected.in)],['缓存写入',count(selected.cw)],['缓存读取',count(selected.cr)],['缓存读取占输入比例',formatPercent(ratio(selected))],['输出',count(selected.out)],['降级信息',selected.deg.join('、')||'无'],
+   ].map(([k,v])=><div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>{selected.deg.length>0&&<button className={styles.degrade} onClick={()=>{onInspectDegrade(selected);setSelected(null);}}>查看降级诊断</button>}</>}
+  </Dialog>
+ </>;
 }

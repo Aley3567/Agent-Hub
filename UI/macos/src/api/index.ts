@@ -149,8 +149,8 @@ export function usageSummary(
   );
 }
 
-export function recentUsage(limit: number, hubName?: string | null): Promise<UsageRow[]> {
-  return read('recent_usage', { limit, hubName: hubName ?? null }, () => {
+export function recentUsage(limit: number, hubName?: string | null, fromTs?:number, toTs?:number): Promise<UsageRow[]> {
+  return read('recent_usage', { limit, hubName: hubName ?? null,fromTs:fromTs??null,toTs:toTs??null }, () => {
     const name = hubName ?? null;
     const rows = name === null ? MOCK_USAGE : MOCK_USAGE.filter((row) => row.hub === name);
     // 契约要求倒序最近 N 行；示例数据按时间升序存着，这里不改原数组

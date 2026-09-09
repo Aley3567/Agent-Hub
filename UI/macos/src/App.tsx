@@ -88,7 +88,7 @@ export default function App() {
       case 'slots':
         return `${hubCount} 个 hub`;
       case 'usage':
-        return turns === null ? null : `${turns} 个回合`;
+        return turns === null ? null : `${turns} 条用量记录`;
       case 'diagnostics':
         return `${errorCount} 条错误`;
       case 'accounts':

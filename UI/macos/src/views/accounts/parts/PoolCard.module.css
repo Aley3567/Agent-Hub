@@ -28,7 +28,8 @@
    但 overflow 不落在 td 上——否则 IconButton 的 focus 环会被裁掉（DESIGN.md 2.4.1）。
    截断改由内侧 .refText 承担。 */
 .refTd {
-  max-width: 0;
+  min-width: 18ch;
+  max-width: 36ch;
 }
 
 .refCell {
@@ -42,9 +43,8 @@
 .refText {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* 渠道名是标识符，一律等宽（DESIGN.md 1 节第 3 条） */

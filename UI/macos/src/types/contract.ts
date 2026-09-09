@@ -81,6 +81,10 @@ export interface HubConfig {
 }
 
 export interface UsageRow {
+  harness?: string;
+  harnessEvidence?: string;
+  providerApp?: string;
+  providerId?: string;
   ts: number; // unix 秒
   channel: string;
   model: string;
@@ -113,6 +117,9 @@ export interface ErrorRow {
 
 /** 聚合结果，Rust 侧算好再给前端，避免在 JS 里遍历十万行 */
 export interface UsageSummary {
+  incompleteTurns?: number;
+  cacheKnownTurns?: number;
+  providerLabels?: Record<string,string>;
   windowFrom: number;
   windowTo: number;
   totals: { in: number; out: number; cr: number; cw: number; turns: number };
@@ -121,14 +128,18 @@ export interface UsageSummary {
   byChannel: UsageBucket[];
   byModel: UsageBucket[];
   /** 按桶的时间序列，桶宽由 granularity 决定 */
-  series: { t: number; in: number; out: number; cr: number; turns: number; cost: number | null }[];
+  series: { t: number; in: number; out: number; cr: number; cw?: number; turns: number; cost: number | null;
+    components_cost?: [number,number,number,number] | null;
+    harnesses?: {key:string;tokens:number;cost:number|null}[];
+    providers?: {key:string;tokens:number;cost:number|null}[];
+  }[];
   granularity: 'hour' | 'day';
   /** 降级码计数，降序 */
   degradeCounts: { code: string; count: number }[];
   /** 定价缺失时为 null，绝不猜 */
   estimatedCostUsd: number | null;
   /** 成本数据来源：`pricing-file` 优先，回退 `cc-switch-db`，都没有为 null */
-  costSource: 'pricing-file' | 'cc-switch-db' | null;
+  costSource: 'pricing-file' | 'cc-switch-db' | 'hub-db' | null;
 }
 
 export interface UsageBucket {

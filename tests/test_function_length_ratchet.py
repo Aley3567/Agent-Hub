@@ -47,7 +47,7 @@ BASELINE = {
 # the launcher stopped republishing it through a module global.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 460,
+    "claude-hub.py": 456,
     "claude-provider-once.py": 312,
     "claude1_account_pool.py": 124,
 }

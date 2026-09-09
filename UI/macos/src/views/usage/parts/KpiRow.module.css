@@ -6,7 +6,7 @@
 
 .heroSection {
   display: grid;
-  grid-template-columns: 1fr minmax(calc(var(--sp-10) * 5), 280px);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: var(--sp-4);
 }
 
@@ -49,8 +49,8 @@
 }
 
 .heroValue {
-  font-size: var(--fs-28);
-  line-height: var(--lh-28);
+  font-size: 26px;
+  line-height: 1.25;
   font-weight: var(--fw-semibold);
 }
 
@@ -78,7 +78,7 @@
 
 .sideCards {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: var(--sp-4);
 }
 
@@ -91,7 +91,7 @@
 /* 外轮廓用 default 立住整条汇总条；1px gap 透出的底色是格子之间的内部分隔线，仍用 subtle */
 .barRow {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(180px, 1.5fr);
   gap: 1px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
@@ -148,3 +148,5 @@
     grid-template-columns: repeat(auto-fit, minmax(calc(var(--sp-10) * 3), 1fr));
   }
 }
+
+.composition {display:flex;height:9px;border-radius:5px;overflow:hidden;gap:2px;background:var(--bg-inset);margin-bottom:-10px;}
