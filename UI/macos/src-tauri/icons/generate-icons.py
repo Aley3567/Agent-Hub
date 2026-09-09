@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Agent Hub 应用图标生成器。
 
-输入固定为仓库根目录的 assets/brand/agent-hub/mark.svg（青→紫渐变折纸 A）。
+输入固定为仓库根目录的 assets/brand/agent-hub/app-icon.svg（石墨底、单色汇聚标识）。
 macOS 上用 sips 渲染/缩放，再用 iconutil 合成 icon.icns；同时用 Python 标准库
 打包 PNG 数据生成 Windows 用的 icon.ico，实现同名文件同步。
 
@@ -24,7 +24,7 @@ import tempfile
 
 # 仓库根目录（本文件在 UI/macos/src-tauri/icons/，向上四级到仓库根）
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
-MARK_SVG = REPO_ROOT / "assets" / "brand" / "agent-hub" / "mark.svg"
+MARK_SVG = REPO_ROOT / "assets" / "brand" / "agent-hub" / "app-icon.svg"
 
 SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
 
@@ -64,13 +64,13 @@ def run_sips(args: list[str]) -> None:
 def render_mark(size: int, out: pathlib.Path) -> None:
     """把 mark.svg 渲染成 size×size 的 PNG。
 
-    sips 直接从 SVG 缩放输出指定尺寸不可靠，先转成 256×256 的临时 PNG，
+    sips 直接从 SVG 缩放输出指定尺寸不可靠，先按 SVG 原生 1024×1024 输出临时 PNG，
     再用 -Z 得到目标尺寸（保持宽高比，按长边适配）。
     """
     with tempfile.TemporaryDirectory() as tmp:
-        base = pathlib.Path(tmp) / "mark-256.png"
+        base = pathlib.Path(tmp) / "mark-1024.png"
         run_sips(["-s", "format", "png", str(MARK_SVG), "--out", str(base)])
-        if size == 256:
+        if size == 1024:
             out.write_bytes(base.read_bytes())
         else:
             run_sips(["-Z", str(size), str(base), "--out", str(out)])
