@@ -117,10 +117,10 @@
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-mono);
-  font-size: var(--fs-14);
-  line-height: var(--lh-14);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--fs-12);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 /* 模型列上限 240px（DESIGN.md 4.1.1「模型名列：240px 上限 + 中截断」）。
@@ -135,7 +135,8 @@
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
-  white-space: nowrap;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 .mono {

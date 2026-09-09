@@ -4,7 +4,10 @@
    于是包裹层本身就是滚动容器、圆角处会裁掉内容，同时横滚没有被 overflow: hidden 掐死。 */
 .scroll {
   width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior-x: contain;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
 }
@@ -20,8 +23,8 @@
   border-collapse: collapse;
   color: var(--text-primary);
   font-family: var(--font-ui);
-  font-size: var(--fs-14);
-  line-height: var(--lh-14);
+  font-size: var(--fs-12);
+  line-height: 1.5;
 }
 
 /* DESIGN.md 4.1.1「列宽策略」：只有声明了 <colgroup> 的表才切 fixed。
@@ -38,7 +41,7 @@
 .table thead th,
 .th {
   height: var(--control-h-sm);
-  padding: 0 var(--sp-3);
+  padding: 7px var(--sp-2);
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-tertiary);
   font-size: var(--fs-11);
@@ -55,7 +58,7 @@
 .table tbody td,
 .td {
   height: var(--row-h);
-  padding: 0 var(--sp-3);
+  padding: 7px var(--sp-2);
   vertical-align: middle;
 }
 
@@ -130,36 +133,19 @@
 }
 
 .truncate {
-  max-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 12ch;
+  max-width: 36ch;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- 中截断（DESIGN.md 4.1.1「模型名列」）---------------------------------
    双 span：前段可收缩并用 ellipsis 吃掉溢出，后段 nowrap + 不收缩，所以尾部的日期戳
    （0805 / 20250805）永远可见——DESIGN.md 4.1.1 说砍尾部等于把两个不同模型显示成同一个。
    DOM 里两段文本仍是完整原串，所以选中复制拿到的是完整值，不是截断后的显示串。 */
-.midTruncate {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.midTruncateHead {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.midTruncateTail {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
+.midTruncate { display: inline; white-space: normal; overflow-wrap: anywhere; }
+.midTruncateHead, .midTruncateTail { display: inline; white-space: normal; }
+.table tbody td.align-right { white-space: nowrap; }
 
 /* --- sticky 操作列（DESIGN.md 4.1.1「sticky 操作列」）---------------------
    1. 背景必须完全不透明，否则横滚时透出下面滚过去的单元格文字：非当前行取行底

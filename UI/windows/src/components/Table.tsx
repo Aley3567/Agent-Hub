@@ -109,7 +109,7 @@ export interface TdProps extends Omit<ComponentPropsWithRef<'td'>, 'align'> {
   /** 技术标识（模型 id、渠道名、降级码）转等宽 */
   mono?: boolean;
   align?: 'left' | 'center' | 'right';
-  /** 超长内容单行截断，靠 title 兜住完整值 */
+  /** 长文本使用受限列宽并换行，避免 auto 表格把名称压成几个字符 */
   truncate?: boolean;
   /** 操作列单元格：钉在右侧，不透明底 + 左侧分隔线 + 向左的渐变 */
   stickyAction?: boolean;

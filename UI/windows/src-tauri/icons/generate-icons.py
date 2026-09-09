@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Agent Hub 应用图标生成器（Windows 工程）。
 
-输入固定为仓库根目录的 assets/brand/agent-hub/mark.svg（青→紫渐变折纸 A）。
+输入固定为仓库根目录的 assets/brand/agent-hub/app-icon.svg（石墨底、单色汇聚标识）。
 本脚本优先使用系统已安装的渲染器把 SVG 转成各尺寸 PNG，再用 Python 标准库打包
 icon.ico；macOS 上还会用 iconutil 额外生成 icon.icns，方便两侧文件同步。
 
@@ -25,7 +25,7 @@ import tempfile
 
 # 仓库根目录（本文件在 UI/windows/src-tauri/icons/，向上四级到仓库根）
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[4]
-MARK_SVG = REPO_ROOT / "assets" / "brand" / "agent-hub" / "mark.svg"
+MARK_SVG = REPO_ROOT / "assets" / "brand" / "agent-hub" / "app-icon.svg"
 
 SIZES = (16, 24, 32, 48, 64, 128, 256, 512, 1024)
 
