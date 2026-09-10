@@ -6,21 +6,15 @@
  * 折叠状态下报错等于没报（AGENTS.md：错误原样暴露）。
  */
 import { useId, useState } from 'react';
-import { Badge, Button, IconButton, Icon, MidTruncate, StatusDot, Td } from '../../../components';
-import { MISSING, cx, formatTokens, redactSecrets } from '../../../lib';
+import { Badge, Button, Icon, MidTruncate, StatusDot, Td } from '../../../components';
+import { cx, formatTime } from '../../../lib';
 import { errorText } from '../../../store';
 import { useToast } from '../../../store/toast';
 import type { Channel, LaunchResult, UsageRow } from '../../../types/contract';
 import ChannelDetail from './ChannelDetail';
 import {
-  API_FORMAT_NOTE,
-  API_FORMAT_TONE,
-  COMPATIBILITY_LABEL,
-  COMPATIBILITY_TONE,
-  CONTEXT_WINDOW_UNKNOWN_TITLE,
   channelModel,
   channelStatuses,
-  contextWindowTitle,
   type ChannelActions,
 } from '../model';
 import styles from './ChannelRow.module.css';
@@ -59,10 +53,10 @@ export default function ChannelRow({
   const statuses = channelStatuses(channel);
   const model = channelModel(channel);
   const incompatible = channel.compatibility === 'incompatible';
-  /* 语义兼容性列占 DESIGN.md 4.1.1「备注列：min 160 / max 320，两行截断」那一档预算：
-     两行截断后完整文本进 title，而显示串与 title 两份文本都得先过 redactSecrets
-     （CONTRACT.md 1.2 凭证脱敏（fail-closed）），不能因为「只是 tooltip」就绕过。 */
-  const compatReason = redactSecrets(channel.compatibilityReason).trim();
+  // 只使用稳定 provider 身份匹配；同名渠道和旧别名记录不能互相认领。
+  const latest = recentUsage
+    .filter((row) => 'providerId' in row && row.providerId === channel.id && 'providerApp' in row && row.providerApp === 'claude')
+    .reduce<UsageRow | null>((last, row) => last === null || row.ts > last.ts ? row : last, null);
 
   async function runLaunch(): Promise<void> {
     setBusy('launch');
@@ -105,16 +99,6 @@ export default function ChannelRow({
     <>
       <tr className={cx(channel.isCurrent && styles.currentRow, channel.hidden && styles.hiddenRow)}>
         <Td className={cx(styles.statusCell, channel.isCurrent && styles.currentCell)}>
-          <span className={styles.statusStack}>
-            {statuses.map((status) => (
-              <StatusDot key={status.text} tone={status.tone} title={status.title}>
-                {status.text}
-              </StatusDot>
-            ))}
-          </span>
-        </Td>
-
-        <Td>
           <span className={styles.nameCell}>
             <button
               type="button"
@@ -128,10 +112,6 @@ export default function ChannelRow({
                   那一档「图标旋转翻转」的过渡（DESIGN.md 2.5 时长语义表）。
                   chevron-right 转 90° 与 chevron-down 逐点相同，静态形态不变。 */}
               <Icon name="chevron-right" size={16} className={styles.nameChevron} />
-              {/* 渠道列定宽 150px：长名字单行截断，完整名进 title（title 里的串与显示的是
-                  同一个值，没有引入新的上游文本）。这里刻意不用中截断——名字的辨识度在头部，
-                  而 DESIGN.md 4.1.1「模型名列：240px 上限 + 中截断」保尾部是为了日期戳；
-                  实测 150px 的格子里还要放别名 Badge，中截断会把头段压到 0px，只剩尾巴 */}
               <span className={styles.nameText} title={channel.name}>
                 {channel.name}
               </span>
@@ -146,18 +126,12 @@ export default function ChannelRow({
               </Badge>
             )}
           </span>
+          <span className={styles.statusStack}>
+            {statuses.map((status) => (
+              <StatusDot key={status.text} tone={status.tone} title={status.title}>{status.text}</StatusDot>
+            ))}
+          </span>
         </Td>
-
-        <Td>
-          <Badge
-            className={styles.formatBadge}
-            tone={API_FORMAT_TONE[channel.apiFormat]}
-            title={API_FORMAT_NOTE[channel.apiFormat]}
-          >
-            {channel.apiFormat}
-          </Badge>
-        </Td>
-
         <Td className={styles.modelCell}>
           {/* title 只挂一层。标识符分支交给 MidTruncate——它的 title 盖在最内层，
               外层再挂一个的话浏览器只显示内层，来源说明就永远看不到了，所以两段合成一条。 */}
@@ -198,56 +172,15 @@ export default function ChannelRow({
           </span>
         </Td>
 
-        <Td
-          numeric
-          title={
-            channel.contextWindow === null
-              ? CONTEXT_WINDOW_UNKNOWN_TITLE
-              : contextWindowTitle(channel.contextWindow)
-          }
-        >
-          {channel.contextWindow === null ? MISSING : formatTokens(channel.contextWindow)}
-        </Td>
-
-        <Td className={styles.compatCell}>
-          <span className={styles.compatInner}>
-            <StatusDot
-              className={styles.compatDot}
-              tone={COMPATIBILITY_TONE[channel.compatibility]}
-              title={
-                channel.compatibility === 'unassessed'
-                  ? '展开详情看这一档的含义'
-                  : `Claude Code 语义闸门结论：${COMPATIBILITY_LABEL[channel.compatibility]}`
-              }
-            >
-              {COMPATIBILITY_LABEL[channel.compatibility]}
-            </StatusDot>
-            {compatReason === '' ? null : (
-              <span className={styles.compatReasonBox}>
-                <span
-                  className={incompatible ? styles.compatReasonBad : styles.compatReason}
-                  title={compatReason}
-                >
-                  {compatReason}
-                </span>
-              </span>
-            )}
+        <Td>
+          <span className={styles.recent} title={usageError ?? '当前载入记录中最近的一条；不代表当前配置可用或请求完整成功'}>
+            {usageError !== null ? '记录读取失败' : latest === null ? '暂无记录' : formatTime(latest.ts)}
+            {latest === null ? null : <span className={styles.muted}>{latest.model}</span>}
           </span>
         </Td>
 
-        {/* sticky 操作列全部交给原语（DESIGN.md 4.1.1「sticky 操作列」）：当前行必须显式传
-            currentRow，底色才换成不透明的 --bg-selected-table-solid。视图只留 .actionCell
-            改已隐藏行的底色变量，不再有第二套 position: sticky */}
         <Td stickyAction currentRow={channel.isCurrent} className={styles.actionCell}>
           <span className={styles.actionsCell}>
-            {/* 动作列的硬预算是 132px（DESIGN.md 4.1.1「宽度预算」，扣掉左右 --sp-3 只剩 108px；
-                分隔线是 inset box-shadow、不占盒宽，所以不用再扣 1px），
-                下面三个控件实测正好 107px（31 + 8 + 30 + 8 + 30），**余量只有 1px**——
-                动 gap 或 padding 之前先重算，溢出会被 sticky 列的滚动容器直接裁掉，
-                带「启动会话」四个字的按钮加两个 IconButton 实测要 171px，装不进去：末列 sticky，
-                溢出的部分会被滚动容器裁掉，隐藏与编辑两个按钮在 1440px 下就点不到了。
-                这里只去掉可见文字，组件、loading 态与点击行为都不动，文案落到 aria-label 与
-                title 上——预算是别人的文件里的 token，不能在视图里自己加宽。 */}
             <Button
               size="sm"
               icon="play"
@@ -260,21 +193,14 @@ export default function ChannelRow({
                   ? '启动会话：新终端窗口执行 claude1 id:<渠道 id>。该渠道被判为不兼容，这条路径只用于诊断'
                   : '启动会话：新终端窗口执行 claude1 id:<渠道 id>'
               }
-            />
-            <IconButton
-              icon={channel.hidden ? 'eye' : 'eye-off'}
-              aria-label={channel.hidden ? `取消隐藏 ${channel.name}` : `隐藏 ${channel.name}`}
-              tooltip={channel.hidden ? '取消隐藏' : '隐藏：普通列表不再列出它'}
-              disabled={busy !== null}
-              onClick={() => void toggleHidden()}
-            />
-            <IconButton
-              icon="edit"
-              aria-label={`编辑 ${channel.name} 的别名与覆盖`}
-              tooltip="改别名、覆盖模型与 effort"
-              active={expanded}
+            >启动会话</Button>
+            <Button
+              size="sm"
+              aria-label={`更多：${channel.name}`}
+              aria-expanded={expanded}
+              aria-controls={detailId}
               onClick={() => onSetExpanded(channel.id, !expanded)}
-            />
+            >更多</Button>
           </span>
         </Td>
       </tr>
@@ -282,6 +208,13 @@ export default function ChannelRow({
       {expanded ? (
         <tr>
           <td className={styles.detailCell} colSpan={columnCount - 1} id={detailId}>
+            <Button
+              size="sm"
+              icon={channel.hidden ? 'eye' : 'eye-off'}
+              loading={busy === 'hidden'}
+              disabled={busy !== null}
+              onClick={() => void toggleHidden()}
+            >{channel.hidden ? '取消隐藏' : '隐藏渠道'}</Button>
             <ChannelDetail
               channel={channel}
               actions={actions}

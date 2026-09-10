@@ -1,8 +1,4 @@
-/* 渠道行。七列宽度由 index.tsx 的 <colgroup> 按 DESIGN.md 4.1.1「宽度预算」写死（table-layout:
-   fixed），所以每个单元格自己负责吸收溢出，谁都不许把列撑宽——撑宽了整张表就横滚：
-   状态靠 StatusDot 自己的 text-overflow，渠道名单行截断，模型名中截断（保尾部日期戳），
-   语义兼容性两行截断。协议格式那格是 Badge，它 max-width: 100% 封在格子里，但被压窄是硬裁
-   （Badge 是 inline-flex，它的 text-overflow 管不到里面的文字），完整值在它的 title 上。 */
+/* 渠道名吸收剩余宽度并换行，当前标记与配置状态置于名称下方。 */
 
 .currentRow {
   background: var(--bg-selected-table);
@@ -46,18 +42,18 @@
 
 .statusStack {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
   min-width: 0;
 }
 
-/* 渠道列定宽 150px：该让的宽度全由 .nameText 的单行截断让出来，别名 Badge 不收缩
-   （见上面 .cellBadge） */
 .nameCell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 /* 渠道名兼「展开详情」的折叠开关。五态按 DESIGN.md 2.4.1：
@@ -111,8 +107,7 @@
   transform: rotate(90deg);
 }
 
-/* 渠道名是技术标识，一律等宽（DESIGN.md 第 1 节第 3 条硬规则）。
-   150px 的列放不下长名字时单行截断，完整名在 title 上——和原语 Td 的 truncate 同一套做法 */
+/* 渠道名完整展示，长标识符按需换行。 */
 .nameText {
   min-width: 0;
   overflow: hidden;
@@ -149,57 +144,6 @@
   color: var(--text-tertiary);
 }
 
-/* 语义兼容性列占 DESIGN.md 4.1.1「备注列：min 160 / max 320，两行截断」那一档预算，是整张表
-   唯一的 flexible 列：min 160 由 index.module.css 的 .channelTable 的 min-width 兜住，
-   max 320 只能封在内容盒上——<col> 只认 width，不认 min/max-width。 */
-.compatCell {
-  overflow: hidden;
-}
-
-.compatInner {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-  max-width: var(--table-col-note-max);
-}
-
-/* 结论（已验收 / 不兼容 / 未评估）是这一列的主信息，不参与收缩 */
-.compatDot {
-  flex: 0 0 auto;
-}
-
-/* 两行截断挂在这一层的子元素上，而不是直接挂在 flex 项上：flex 项的 display 会被 blockify，
-   而 safari15 走的是 legacy 的 -webkit-box + -webkit-line-clamp，blockify 掉就没了依附。
-   （Chrome 151 换了新实现，两种写法都能截断，所以这条只在 safari15 上看得出差别。）
-   外面这层只做「能收缩的块」，不带任何视觉。 */
-.compatReasonBox {
-  display: block;
-  min-width: 0;
-}
-
-/* 真实结论才配一行原因；未评估的默认值在这里什么都不显示。
-   原因超过两行就折断，完整文本进 title；这套 -webkit- 前缀写法 safari15 就支持，
-   两行 18px 行高共 36px，还在 40px 的行高里，折断不会把整表行高顶乱。 */
-.compatReason,
-.compatReasonBad {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  min-width: 0;
-  overflow: hidden;
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
-}
-
-.compatReason {
-  color: var(--text-tertiary);
-}
-
-.compatReasonBad {
-  color: var(--danger);
-}
-
 .actionsCell {
   display: inline-flex;
   align-items: center;
@@ -228,4 +172,13 @@
    td.xxx（0,1,1）压过它（0,1,0），不去赌两个 CSS Modules 文件的打包先后。 */
 td.detailActionCell {
   --sticky-action-bg: var(--bg-surface);
+}
+
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-12);
 }

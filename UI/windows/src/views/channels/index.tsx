@@ -1,12 +1,4 @@
-/**
- * 渠道视图：哪些渠道可用、各自说什么协议、这次用哪个。
- *
- * 标题与副标题由外壳的 ViewHeader 按 CONTRACT.md 第 6.5 节的文案锚点渲染，本视图不再重复一遍。
- *
- * 这一页要回答的问题决定了列的顺序：先看能不能用（状态点），再看是谁（渠道名与别名），
- * 再看说什么协议（跨协议就会降级），然后才是模型、上下文窗口与语义兼容性。
- * 隐藏的渠道折到最底下的分区里——它们仍然可以用别名和 id 启动，所以不能真的藏掉。
- */
+/** 渠道选择：名称、模型、历史记录与启动入口。配置放在展开详情。 */
 import { useMemo, useState } from 'react';
 import {
   EmptyState,
@@ -19,7 +11,6 @@ import {
   Td,
   Th,
   Toolbar,
-  Tooltip,
 } from '../../components';
 import { useApp } from '../../store';
 import type { Channel } from '../../types/contract';
@@ -35,7 +26,7 @@ import {
 import styles from './index.module.css';
 
 /** 表格总列数。展开的详情行与分区标题行都占「除末列以外」的全部列，末列留给 sticky 操作列 */
-const COLUMN_COUNT = 7;
+const COLUMN_COUNT = 4;
 
 export default function ChannelsView() {
   const channels = useApp((state) => state.channels);
@@ -132,8 +123,8 @@ export default function ChannelsView() {
         <Switch
           checked={onlyUsable}
           onChange={setOnlyUsable}
-          label="只看可用"
-          aria-label="只看可用渠道：凭证已配置、未隐藏、未判为不兼容"
+          label="只看配置就绪"
+          aria-label="凭证已配置、未隐藏、未判为不兼容；不代表已通过网络测试"
         />
       </Toolbar>
 
@@ -160,36 +151,18 @@ export default function ChannelsView() {
         />
       ) : (
         <Table className={styles.channelTable} stickyHeader aria-label="渠道列表">
-          {/* 七列宽度按 DESIGN.md 4.1.1「宽度预算」表声明；有 colgroup 时 Table 自动切
-              table-layout: fixed，240px 的模型列上限只有 fixed 下才是硬约束 */}
           <colgroup>
-            <col className={styles.colStatus} />
-            <col className={styles.colChannel} />
-            <col className={styles.colProtocol} />
-            <col className={styles.colModel} />
-            <col className={styles.colContext} />
-            {/* 语义兼容性列占备注那一档预算，是整张表唯一的 flexible 列：不给宽，由它吸收
-                剩余宽度。给了宽 fixed 会把富余摊给每一列，模型列的 240px 上限就没了 */}
             <col />
+            <col className={styles.colModel} />
+            <col className={styles.colRecent} />
             <col className={styles.colAction} />
           </colgroup>
           <thead>
             <tr>
-              <Th>状态</Th>
               <Th>渠道</Th>
-              <Th>
-                <Tooltip content="anthropic 是原生直通；openai_chat / openai_responses 需要协议转换，会记 HUB_DEGRADE_* 降级；unknown 是解析不出协议格式。">
-                  <span>协议格式</span>
-                </Tooltip>
-              </Th>
               <Th>模型</Th>
-              <Th numeric>上下文窗口</Th>
-              <Th>
-                <Tooltip content="Claude Code 语义闸门结论：已验收 / 不兼容 / 未评估（没人验过，不是不能用）。">
-                  <span>语义兼容性</span>
-                </Tooltip>
-              </Th>
-              <Th stickyAction>动作</Th>
+              <Th>最近记录</Th>
+              <Th stickyAction>操作</Th>
             </tr>
           </thead>
           <tbody>
@@ -254,14 +227,7 @@ export default function ChannelsView() {
       )}
 
       {listed.length === 0 ? null : (
-        <div className={styles.notes}>
-          <p className={styles.note}>
-            {/* 动作列只放得下图标（132px 硬预算），这句话得替读者把图标和名字对上 */}
-            <span>动作列最左边的「启动会话」会在新的终端窗口执行 </span>
-            <span className={styles.mono}>claude1 id:&lt;渠道 id&gt;</span>
-            <span>，会话由终端里的 claude1 接管，桌面端不代管进程。</span>
-          </p>
-        </div>
+        <p className={styles.note}>启动会话将在新终端中打开。最近记录仅反映历史调用，未进行主动测活。</p>
       )}
     </div>
   );
@@ -327,6 +293,6 @@ function describeFilters(query: string, formatFilter: FormatFilter, onlyUsable: 
   const trimmed = query.trim();
   if (trimmed !== '') parts.push(`搜索「${trimmed}」`);
   if (formatFilter !== 'all') parts.push(`协议格式 ${formatFilter}`);
-  if (onlyUsable) parts.push('只看可用');
+  if (onlyUsable) parts.push('只看配置就绪');
   return parts.length === 0 ? '没有任何筛选' : parts.join('、');
 }
