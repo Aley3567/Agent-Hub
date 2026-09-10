@@ -325,6 +325,8 @@ host-managed 场景删除该键）；启动路径发探测请求。
 ## S14 · Agent-Hub：Rust 管理面（TUI + CLI + 编排式对话）
 
 **状态**：✅ M1 代码 checkpoint（`0841520`）；继续 M2 前仍需手动打开真实 TUI 列表验收。
+2026-09-10：M4「远程任务 → 本地 CLI 受限执行」一段改由独立仓库 Local Agent Bridge
+（`~/Desktop/local-agent-bridge`）提供，M4 设计时消费其会话/结果，不再自建（见 `agent-hub-design.md` M4）。
 2026-08-24 决策树 Q1–Q11 已定稿（`agent-hub-design.md`），
 四路调研完成（cc-switch-cli / All API Hub / ai-switch 家族 / T3 Code），
 参考实现已浅克隆至 `~/Documents/Codex/2026-06-07/cc-switch-cli`。

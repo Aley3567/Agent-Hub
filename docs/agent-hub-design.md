@@ -80,6 +80,9 @@ claude-hub/                    # 本仓库（Agent-Hub 的家）
 - **M2 事务切换**：`use <id>`（快照/回滚/写后自检）+ `start <id>` 启动 claude/codex。
 - **M3 观测看板**：只读聚合 hub 日志，TUI 财务/健康页（余额后置到 Q8 扩展决策）。
 - **M4 对话编排**：T3 模式，claude/codex CLI 线程 + worktree 隔离 + 流式订阅。
+  - 2026-09-10 决定（先独立、后收编）：「远程结构化任务 → 本地 CLI 受限执行 → 会话/限额/回传」这一段
+    由独立仓库 Local Agent Bridge（`~/Desktop/local-agent-bridge`，GitHub Issue 控制面，Python，零依赖）
+    提供；M4 消费 Bridge 的会话与结果，不再自建第二套 harness。产品身份明确后再评估收编进 `crates/agent-hub/`。
 - **M5 GUI 接线**：UI/ Tauri 复用 Rust core；claude1/codex1 菜单退役评审。
 
 ## 明确不做
