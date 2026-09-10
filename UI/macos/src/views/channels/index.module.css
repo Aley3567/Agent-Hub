@@ -20,47 +20,13 @@
   flex: 0 1 220px;
 }
 
-/* ---- 列宽 · DESIGN.md 4.1.1「宽度预算」表 ----
-   七列宽度一律由 <colgroup> 声明（配 Table 的 table-layout: fixed），值取 --table-col-* token，
-   这里不写 px。语义兼容性（占备注那一档预算）列刻意不给宽：4.1.1「列宽策略」只准留一个
-   flexible 列吸收剩余宽度。给它也写上宽度反而有害——七列合计小于表宽时 fixed 会把富余按
-   比例摊给每一列，模型列被撑过 240px，上限就失效了。 */
-
-/* 六个定宽列 + 备注取 min 160 合计 970px：容器比它窄就交给 Table 自带的横滚，不把列挤扁。
-   备注列的内容宽上限落在 ChannelRow.module.css 的 .compatInner 上（<col> 只认 width，
-   不认 min/max-width，所以 --table-col-note-max 约束不了列宽本身）。.compatCell 只负责
-   overflow: hidden。 */
+/* 四列共享原有宽度 token，将协议与兼容性让出的空间留给渠道名称。 */
 .channelTable {
-  min-width: calc(
-    var(--table-col-status) + var(--table-col-channel) + var(--table-col-protocol) +
-      var(--table-col-model-max) + var(--table-col-context) + var(--table-col-note-min) +
-      var(--table-col-action)
-  );
+  min-width: calc(var(--table-col-model-max) * 2 + var(--table-col-channel) + var(--table-col-note-min));
 }
-
-.colStatus {
-  width: var(--table-col-status);
-}
-
-.colChannel {
-  width: var(--table-col-channel);
-}
-
-.colProtocol {
-  width: var(--table-col-protocol);
-}
-
-.colModel {
-  width: var(--table-col-model-max);
-}
-
-.colContext {
-  width: var(--table-col-context);
-}
-
-.colAction {
-  width: var(--table-col-action);
-}
+.colModel { width: var(--table-col-model-max); }
+.colRecent { width: var(--table-col-note-min); }
+.colAction { width: var(--table-col-model-max); }
 
 /* 读取失败时把 store 里的中文原因原样摆出来，不换成「加载失败」 */
 .error {

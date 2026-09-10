@@ -127,7 +127,7 @@ export interface ChannelStatus {
 
 /**
  * 一行最多两枚状态点：当前渠道的青点，以及真正影响可用性的那一条。
- * 没有问题且不是当前渠道时只显示一枚绿点。
+ * 没有已知配置问题时显示中性的已配置，不推断网络健康。
  */
 export function channelStatuses(channel: Channel): ChannelStatus[] {
   const out: ChannelStatus[] = [];
@@ -135,7 +135,7 @@ export function channelStatuses(channel: Channel): ChannelStatus[] {
     out.push({
       tone: 'current',
       text: '当前',
-      title: 'CC Switch 的当前渠道：不指定选择器时 claude1 用它',
+      title: '当前默认渠道：不指定选择器时 claude1 用它',
     });
   }
   const problem = channelProblem(channel);
@@ -143,9 +143,9 @@ export function channelStatuses(channel: Channel): ChannelStatus[] {
     out.push(problem);
   } else if (!channel.isCurrent) {
     out.push({
-      tone: 'ok',
-      text: '可用',
-      title: '凭证已配置，没有被隐藏，也没有被语义闸门判为不兼容',
+      tone: 'off',
+      text: '已配置',
+      title: '凭证已配置；尚未验证当前连接是否可用',
     });
   }
   return out;

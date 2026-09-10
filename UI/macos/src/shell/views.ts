@@ -75,7 +75,7 @@ export const VIEW_META: Record<ViewId, ViewMeta> = {
     id: 'channels',
     navLabel: '渠道',
     title: '渠道',
-    subtitle: '哪些渠道可用、各自说什么协议、这次用哪个',
+    subtitle: '选择渠道与模型，开始会话',
     icon: 'channels',
     group: 'session',
     fullWidth: true,
