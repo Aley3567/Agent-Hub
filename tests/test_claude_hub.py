@@ -5939,6 +5939,90 @@ class ClaudeHubTests(unittest.TestCase):
         # 空 code 不是证据,不该写进 journal 冒充上游代码。
         self.assertNotIn("code", row)
 
+    def test_transport_failure_names_provider_cause_and_journal_on_both_paths(self):
+        class BrokenUpstream:
+            async def __aenter__(self):
+                raise aiohttp.ServerDisconnectedError("secret-token-must-not-leak")
+
+            async def __aexit__(self, *args):
+                return False
+
+        for api_format in ("anthropic", "openai_chat", "openai_responses"):
+            with self.subTest(api_format=api_format):
+                self._configure_provider_and_channel(
+                    "fast", "custom-model", "https://upstream.invalid/v1/messages", api_format
+                )
+                self._write_config(transport={"mode": "direct", "proxies": []})
+                session = _FakeSession(BrokenUpstream())
+                request = self._request(
+                    {"model": "fast,custom-model", "messages": [
+                        {"role": "user", "content": "hello"}
+                    ]}, session=session,
+                )
+                response = asyncio.run(hub.handle_messages(request))
+                self.assertEqual(response.status, 502)
+                message = json.loads(response.text)["error"]["message"]
+                self.assertIn("Fixture HTTPS", message)
+                self.assertIn("before response headers", message)
+                self.assertIn("ServerDisconnectedError", message)
+                self.assertIn("HUB_UPSTREAM_DISCONNECTED", message)
+                self.assertNotIn("secret-token", message)
+                self.assertNotIn("cannot reach channel", message)
+                self.assertEqual(len(session.calls), 1)
+                row = json.loads(self.errors_file.read_text().splitlines()[-1])
+                self.assertEqual(row["message"], message)
+                self.assertEqual(row["code"], response.headers["x-hub-error-code"])
+
+                # Existing automatic fallback must still hide the failed first
+                # connection and preserve the real response from the next path.
+                self._write_config(transport={
+                    "mode": "auto", "proxies": ["http://127.0.0.1:7897"],
+                })
+                hub.reset_caches()
+                fallback = _SequencedFakeSession([
+                    BrokenUpstream(),
+                    _FakeUpstream(401, {"Content-Type": "application/json"},
+                                  [b'{"error":{"message":"credential rejected"}}']),
+                ])
+                request = self._request(
+                    {"model": "fast,custom-model", "messages": [
+                        {"role": "user", "content": "hello"}
+                    ]}, session=fallback,
+                )
+                with mock.patch.object(hub.web, "StreamResponse", _FakeDownstream):
+                    recovered = asyncio.run(hub.handle_messages(request))
+                self.assertEqual(recovered.status, 401)
+                self.assertEqual([call[1]["proxy"] for call in fallback.calls],
+                                 [None, "http://127.0.0.1:7897"])
+
+    def test_transport_timeout_and_mixed_causes_keep_truthful_status(self):
+        for errors, status, code in (
+            ((asyncio.TimeoutError(),), 504, "HUB_UPSTREAM_TIMEOUT"),
+            ((ConnectionRefusedError(),), 502, "HUB_UPSTREAM_CONNECTION_REFUSED"),
+            ((socket.gaierror(),), 502, "HUB_UPSTREAM_DNS_FAILED"),
+            ((hub.ssl.SSLError(),), 502, "HUB_UPSTREAM_TLS_FAILED"),
+            ((asyncio.TimeoutError(), ConnectionRefusedError()), 502,
+             "HUB_UPSTREAM_TRANSPORT_FAILED"),
+        ):
+            with self.subTest(code=code):
+                failure = hub.transport_error_response(
+                    hub.TransportUnavailable("unsafe secret", errors=errors),
+                    provider_name="Fixture", elapsed_ms=61000,
+                )
+                self.assertEqual(failure.status, status)
+                self.assertEqual(failure.headers["x-hub-error-code"], code)
+                self.assertIn("61.0s", failure.text)
+                self.assertNotIn("unsafe secret", failure.text)
+
+    def test_transport_read_failure_does_not_claim_connect_failure(self):
+        response = hub.transport_error_response(
+            aiohttp.ClientPayloadError("secret response body"),
+            provider_name="Fixture", elapsed_ms=100,
+        )
+        self.assertIn("while requesting or reading the response", response.text)
+        self.assertNotIn("before response headers", response.text)
+        self.assertNotIn("secret response body", response.text)
+
     def test_auto_transport_retries_network_rejection_through_proxy(self):
         self._write_config(
             transport={

@@ -87,6 +87,7 @@ from claude1_routing import (
     route_group_name,
 )
 from claude1_transport import (
+    TransportUnavailable,
     UpstreamExecutor,
     resolve_transport_policy,
 )
@@ -935,6 +936,68 @@ def anthropic_error(
         {"type": "error", "error": {"type": etype, "message": message}},
         status=status,
     )
+
+
+def transport_error_response(
+    exc: BaseException, *, provider_name: object, elapsed_ms: int, record=None
+) -> web.Response:
+    """Describe an exhausted transport without leaking exception payloads.
+
+    Only TransportUnavailable proves that no response headers arrived. Other
+    client errors can come from reading a response; do not call those connect
+    failures or encourage automatic replay of an already accepted request.
+    """
+    causes = (
+        exc.errors
+        if isinstance(exc, TransportUnavailable) and exc.errors
+        else (exc,)
+    )
+
+    def classify(cause):
+        underlying = getattr(cause, "os_error", None) or cause
+        if isinstance(cause, (ssl.SSLError, aiohttp.ClientSSLError)):
+            return "TLS_FAILED", "TLS connection failed", "Check the provider certificate and proxy settings."
+        if isinstance(underlying, socket.gaierror):
+            return "DNS_FAILED", "DNS lookup failed", "Check the provider address and network DNS settings."
+        if isinstance(cause, asyncio.TimeoutError):
+            return "TIMEOUT", "request timed out", "Try again later or select another provider."
+        if isinstance(underlying, ConnectionRefusedError):
+            return "CONNECTION_REFUSED", "connection was refused", "Check that the provider or configured proxy is running."
+        if isinstance(cause, (aiohttp.ServerDisconnectedError, ConnectionResetError)):
+            return "DISCONNECTED", "connection closed unexpectedly", "Try again later or select another provider."
+        return "TRANSPORT_FAILED", "transport request failed", "Check the provider and configured network path."
+
+    kinds = [classify(cause) for cause in causes]
+    kind, reason, action = kinds[0] if all(k == kinds[0] for k in kinds) else (
+        "TRANSPORT_FAILED", "connection attempts failed for different reasons",
+        "Check the provider and configured network paths.",
+    )
+    code = "HUB_UPSTREAM_" + kind
+    provider = (
+        sanitize_error_text(str(provider_name or "Upstream provider"))
+        or "Upstream provider"
+    )[:80]
+    # Exception strings can contain request URLs, proxy credentials or payloads.
+    # Their classes retain the useful cause without exposing those values.
+    types = ", ".join(dict.fromkeys(type(cause).__name__ for cause in causes))[:160]
+    phase = (
+        " before response headers"
+        if isinstance(exc, TransportUnavailable)
+        else " while requesting or reading the response"
+    )
+    message = (
+        f"{provider}: {reason}{phase} after {max(0, elapsed_ms) / 1000:.1f}s. "
+        f"{action} [{code}; {types}]"
+    )
+    response = anthropic_error(504 if kind == "TIMEOUT" else 502, message, "api_error")
+    response.headers["x-hub-error-code"] = code
+    if record is not None:
+        log(message)
+        record(
+            phase="response", exc_type=type(exc).__name__,
+            code=code, message=message, status=response.status,
+        )
+    return response
 
 
 def protocol_request_error(exc: ProtocolRequestError) -> web.Response:
@@ -2820,27 +2883,15 @@ async def _handle_transformed_messages(
             "api_error",
         )
     except TRANSPORT_BROKEN_ERRORS as exc:
-        log(
-            f"{request.path} '{model_in}' -> {alias}/{model_out} "
-            f"{api_format} CONNECT FAIL: {type(exc).__name__}"
-        )
-        record_error(
-            phase="response",
-            channel=alias,
-            model=model_out,
-            api_format=api_format,
-            exc_type=type(exc).__name__,
-            route=route_name,
-            status=502,
-            instance_id=cfg.get("instance_id"),
-            account_id=journal_account,
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-            degrade_codes=request_warning_codes,
-        )
-        return anthropic_error(
-            502,
-            f"hub: cannot reach channel '{alias}'",
-            "api_error",
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        return transport_error_response(
+            exc, provider_name=target.provider.get("name"), elapsed_ms=elapsed_ms,
+            record=lambda **evidence: record_error(
+                channel=alias, model=model_out, api_format=api_format,
+                route=route_name, instance_id=cfg.get("instance_id"),
+                account_id=journal_account, elapsed_ms=elapsed_ms,
+                degrade_codes=request_warning_codes, **evidence,
+            ),
         )
 
 
@@ -3920,17 +3971,12 @@ async def _forward_to_channel_attempt(
         log(f"{log_prefix} ACCOUNT POOL FAIL: {type(exc).__name__}: {exc}")
         return _account_pool_error(exc)
     except TRANSPORT_BROKEN_ERRORS as exc:
-        log(f"{log_prefix} CONNECT FAIL: {type(exc).__name__}")
-        journal.error(
-            phase="response",
-            account_id=journal_account,
-            exc_type=type(exc).__name__,
-            status=502,
-        )
-        return anthropic_error(
-            502,
-            f"hub: cannot reach channel '{alias}'",
-            "api_error",
+        return transport_error_response(
+            exc, provider_name=target.provider.get("name"),
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            record=lambda **evidence: journal.error(
+                account_id=journal_account, **evidence,
+            ),
         )
 
 
