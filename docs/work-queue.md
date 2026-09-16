@@ -12,7 +12,7 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）主体已完成，安装器路径保护正在收口；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）代码与本机可用检查已完成；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
@@ -25,7 +25,7 @@
 4. **L4 桌面操作**：G0 双应用身份 → G1 macOS 命令与启动 → G2 渠道交互；G3 独立 Windows 适配。维持现有渠道页面视觉与结构。
 5. **L5 运行交付**：H0/H1 真实平台、实际 CLI 与合成上游 → H2 安装及文档。编译通过不等于凭证/启动/窗口验收通过。
 
-**A0 核对（2026-09-16）**：macOS 15.6 arm64；Rust/Cargo 1.96.0、Node 24.14.0、Python 3.12.8；Claude Code 2.1.261，Codex 0.154.0-alpha.6.2。已安装 `x86_64-pc-windows-msvc` target，但 Windows 实机尚无证据，用户已同意环境验收后置。Linux 暂保留已有写能力，新凭证后端未验收不切换。默认仍以“含启动临时文件的零明文”为最终目标；持久库迁移完成不能替代它。未读取或迁移真实 provider/Keychain，未安装到用户运行目录。
+**A0 核对（2026-09-16）**：macOS 15.6 arm64；Rust/Cargo 1.96.0、Node 24.14.0、Python 3.12.8；Claude Code 2.1.261，Codex 0.154.0-alpha.6.2。已安装 `x86_64-pc-windows-msvc` target，但 Windows 实机尚无证据，用户已同意环境验收后置。Linux 暂保留已有写能力，新凭证后端未验收不切换。默认仍以“含启动临时文件的零明文”为最终目标；持久库迁移完成不能替代它。未修改或迁移真实 provider/Keychain，未安装到用户运行目录。
 
 **目标**：桌面三源发现及预览、保留 JSON 文件导入、两类渠道自定义 CRUD、统一安全存储、显式旧数据迁移，以及 CLI/桌面/运行时正确取用同一身份。先打通读路径，再启用 Keychain-only 写路径。三源/双平台目标不删减；Windows 未实机验证时单列状态。
 
@@ -45,17 +45,18 @@
 |---|---|---|---|
 | B0 ✅ 代码/依赖图 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
 | B1 ✅ 2026-09-16 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 ✅ 代码/依赖图 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
-| B2 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 ✅ 2026-09-16 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
+| B2 ✅ 代码，Windows 后验 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 ✅ 2026-09-16 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
 
 **B 分层进度**：
-- B0a ✅ 2026-09-16：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
-- B0b ✅ 2026-09-16：macOS 接入共享 crate；完整 locked metadata 只有一份 SQLite，Tauri Rust 测试 72 项通过。
-- B0c ✅ 依赖接入，2026-09-16：Windows 完整 locked metadata 验证 path 依赖与单一 SQLite；原生编译/测试随 Windows 环境后验，不标平台验收通过。
-- B1 ✅ 2026-09-16：模型、读写、来源解析迁入共享层，CLI 删除事务一起收口；根 schema 仍唯一。移除未使用的 CC schema v17 闸门，Hub 不再继承外部版本号。11 项共享层测试通过，包括缺必需列先失败再修复、跨应用同 ID、SQL 中途回滚、源文件字节/mtime 不变。
-- B2a ✅ 2026-09-16：共享路径分离读覆盖与 Hub 写目标；CLI/TUI 导入先检查同文件，识别符号链接/硬链接；写入口拒绝外部库并兼容已有 Hub 库，schema 增加 Hub application_id。18 项共享层与 3 项真实 CLI 子进程测试通过，0600 外部库拒写回归在旧实现上确认失败；断链 CC 来源不阻断独立 Hub。Python 992 项、安装集成 6 项通过。
-- B2b ✅ 2026-09-16：macOS 读取共享路径；缺库/空库引导不要求 CC Switch；定价文件优先，DB 定价仅通过独立 `AGENT_HUB_PRICING_DB` 显式选入。文件打开/显示仅增加精确当前 provider DB 许可，不放行其父目录与相邻文件。Rust 75 项、typecheck、renderer build 通过。浏览器连接不可用，窗口验收未完成。
-- B2c ✅ 代码，2026-09-16：Windows 默认改读 Hub 库，共享读路径、空库引导、独立定价与精确文件操作许可。typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
+- B0a ✅ 2026-09-16 (`8ff1b1f`)：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
+- B0b ✅ 2026-09-16 (`d15dde4`)：macOS 接入共享 crate；完整 locked metadata 只有一份 SQLite，Tauri Rust 测试 72 项通过。
+- B0c ✅ 依赖接入，2026-09-16 (`3bd29fa`)：Windows 完整 locked metadata 验证 path 依赖与单一 SQLite；原生编译/测试随 Windows 环境后验，不标平台验收通过。
+- B1 ✅ 2026-09-16 (`dd1b31b`)：模型、读写、来源解析迁入共享层，CLI 删除事务一起收口；根 schema 仍唯一。移除未使用的 CC schema v17 闸门，Hub 不再继承外部版本号。11 项共享层测试通过，包括缺必需列先失败再修复、跨应用同 ID、SQL 中途回滚、源文件字节/mtime 不变。
+- B2a ✅ 2026-09-16 (`11460de`)：共享路径分离读覆盖与 Hub 写目标；CLI/TUI 导入先检查同文件，识别符号链接/硬链接；写入口拒绝外部库并兼容已有 Hub 库，schema 增加 Hub application_id。18 项共享层与 3 项真实 CLI 子进程测试通过，0600 外部库拒写回归在旧实现上确认失败；断链 CC 来源不阻断独立 Hub。Python 992 项、安装集成 6 项通过。
+- B2b ✅ 2026-09-16 (`b2516f0`)：macOS 读取共享路径；缺库/空库引导不要求 CC Switch；定价文件优先，DB 定价仅通过独立 `AGENT_HUB_PRICING_DB` 显式选入。文件打开/显示仅增加精确当前 provider DB 许可，不放行其父目录与相邻文件。Rust 75 项、typecheck、renderer build 通过。浏览器连接不可用，窗口验收未完成。
+- B2c ✅ 代码，2026-09-16 (`8375ce8`)：Windows 默认改读 Hub 库，共享读路径、空库引导、独立定价与精确文件操作许可。typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
 - Windows 编译边界：本机交叉 check 在 bundled SQLite C 编译处缺 Windows SDK `stdlib.h`，不是 links 冲突；原生编译和测试后置，未用 macOS 测试冒充。
+- B2d ✅ 2026-09-16，安装器边界收口；owner：`install.sh` / `tests/test_install.zsh`。新增失败测试证明已有外部 DB 会被初始化脚本修改；安装器改为只初始化新文件，拒绝已知外部库及别名，不重复实现共享存储的迁移规则。验收：8 项安装集成通过，已有 DB 字节不变、默认独立安装可用、来源目标及软/硬链接冲突不写入。
 
 ### C · 凭证引用与平台适配
 
@@ -109,7 +110,7 @@
 
 ### 并行纪律与停止点
 
-- 主对话拥有设计合同、共享模型/schema、提交检查点和最终复核。Luna 一次只领一张卡或一个更小的证据问题，回报结论、文件行号、最小验证和不确定项。
+- 主对话拥有设计合同、共享模型/schema、提交检查点和最终复核。后续子代理统一使用 Astra，一次只领一张卡或一个更小的证据问题，回报结论、文件行号、最小验证和不确定项。
 - 首批可并行：A1、A2、B0（A0完成后）；下一批：稳定C0之后，C1、C2、F1/F2/F3按空闲槽排队。F0由主线先锁定，不让scanner各造一种DTO。
 - D1/D3可并行；D2若触及launcher bridge由主线协调，禁止与D1同时改同一段。G1完成后G2和Windows适配可按文件归属并行，mac/Windows提交独立。
 - 每张卡只改指定owner文件，发现跨卡需求回报主线，不顺手重构。每张实现卡先有最小失败证据，再修复并跑其接口测试；最终全量门禁见设计文档。

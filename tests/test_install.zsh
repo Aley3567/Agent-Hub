@@ -343,11 +343,43 @@ test_missing_dependencies_are_clear() {
   pass "missing hard dependencies have actionable errors"
 }
 
+test_existing_provider_database_is_not_modified() {
+  local test_home="$(make_home provider-existing)"
+  local provider_target="$test_home/external.db"
+  "$SYSTEM_PYTHON" - "$provider_target" <<'PYDB'
+import sqlite3, sys
+with sqlite3.connect(sys.argv[1]) as conn:
+    conn.executescript("CREATE TABLE settings (key TEXT, value TEXT); PRAGMA user_version=10;")
+PYDB
+  command cp -- "$provider_target" "$test_home/before.db"
+  AGENT_HUB_PROVIDER_DB="$provider_target" run_install "$test_home" >/dev/null
+  command cmp -s "$provider_target" "$test_home/before.db" || fail "installer modified an existing provider database"
+  pass "existing provider databases are never modified by installer"
+}
+
+test_cc_switch_target_is_rejected() {
+  local test_home="$(make_home provider-external-target)"
+  local source_db="$test_home/.cc-switch/cc-switch.db"
+  command ln -- "$source_db" "$test_home/hardlink.db"
+  command ln -s -- "$test_home/.cc-switch" "$test_home/source-alias"
+  local provider_target output
+  for provider_target in "$source_db" "$test_home/hardlink.db" "$test_home/source-alias/cc-switch.db"; do
+    if output="$(AGENT_HUB_PROVIDER_DB="$provider_target" run_install "$test_home" 2>&1)"; then
+      fail "installer accepted CC Switch as Hub write target"
+    fi
+    [[ "$output" == *"external CC Switch"* ]] || fail "external target error was unclear"
+    [[ ! -s "$provider_target" ]] || fail "installer changed external source bytes"
+  done
+  pass "CC Switch database is rejected as an initialization target"
+}
+
 test_first_install_is_safe
 test_repeated_install_is_idempotent
 test_explicit_sticky_install_routes_ordinary_claude_and_survives_safe_reinstall
 test_disable_sticky_removes_only_managed_sticky_source
 test_existing_files_are_backed_up
 test_missing_dependencies_are_clear
+test_existing_provider_database_is_not_modified
+test_cc_switch_target_is_rejected
 
 print -- "1..${PASSED}"

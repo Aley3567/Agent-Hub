@@ -92,13 +92,25 @@ require_command claude "请先安装 Claude Code CLI，并确认 claude 已加�
 python3 - "$SCRIPT_DIR/provider-schema.sql" <<'PYINIT'
 import os, pathlib, sqlite3, sys
 path = pathlib.Path(os.environ.get("AGENT_HUB_PROVIDER_DB") or pathlib.Path.home() / ".agent-hub/providers.db")
-path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+source = pathlib.Path.home() / ".cc-switch/cc-switch.db"
 if path.is_symlink():
     raise SystemExit("Hub provider database must not be a symlink")
-fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-os.close(fd)
-with sqlite3.connect(path) as conn:
-    conn.executescript(pathlib.Path(sys.argv[1]).read_text())
+if path.resolve() == source.resolve() or (path.exists() and source.exists() and path.samefile(source)):
+    raise SystemExit("Cannot initialize the external CC Switch database as a Hub provider store")
+# Installation only bootstraps a new database. Existing stores are migrated by
+# provider-store, never by an unvalidated executescript during runtime installation.
+schema = pathlib.Path(sys.argv[1]).read_text()
+path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+try:
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+except FileExistsError:
+    if not path.is_file():
+        raise SystemExit("Hub provider database path is not a regular file")
+else:
+    os.close(fd)
+    with sqlite3.connect(path) as conn:
+        conn.executescript("BEGIN IMMEDIATE;\n" + schema + "\nCOMMIT;")
+
 PYINIT
 
 

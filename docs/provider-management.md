@@ -58,7 +58,7 @@ Claude provider 的协议可以是 `anthropic`、`openai_chat`、`openai_respons
 
 Hub 自有 SQLite 继续使用运行时已验证的 `providers` 记录格式，但维护自己的 schema；Rust 读写与来源解析由 `crates/provider-store` 统一拥有，CLI/TUI 只负责交互；`provider_sources` 记录来源和最近导入时间。外部导入为批量事务，格式校验失败不写入半批数据。相同导入重复执行默认幂等，本地编辑不会被静默覆盖。
 
-写入口仅使用 `AGENT_HUB_PROVIDER_DB` 或 `~/.agent-hub/providers.db`，不继承运行时只读覆盖。共享层检查 Hub 数据库身份，拒绝外部库和与导入来源相同的文件（包括符号链接、硬链接别名）；旧 Hub 库保留数据并补记 Hub application_id。
+写入口仅使用 `AGENT_HUB_PROVIDER_DB` 或 `~/.agent-hub/providers.db`，不继承运行时只读覆盖。共享层检查 Hub 数据库身份，拒绝外部库和与导入来源相同的文件（包括符号链接、硬链接别名）；旧 Hub 库在共享存储打开时保留数据并补记 Hub application_id。运行时安装器只初始化新文件，不修改已有数据库或承担 schema 迁移。
 
 为了保留已有路由、账号池和历史用量，0.2 不搬迁 `~/.cc-switch` 中原有的 Hub JSON 配置与日志。这些是 Hub 自身文件，目录名称不代表必须安装 CC Switch。定价继续优先使用 `~/.cc-switch/model-pricing.json`；文件无价格时，只读取 `AGENT_HUB_PRICING_DB` 显式指定的 `model_pricing` 表。未指定则不读定价 DB、不估算缺价费用，不再从 provider 路径推导定价来源。
 
