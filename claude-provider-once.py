@@ -1169,8 +1169,11 @@ def _provider_settings(provider: dict, *, resolve_secret: bool = True) -> dict:
                           if str(row["id"]) == str(provider.get("id"))), None)
             if fresh is None or fresh.get("credential_ref") == provider.get("credential_ref"):
                 raise
-            raw = _provider_settings(fresh, resolve_secret=False)
-            settings, _ = resolve_credentials(fresh, "claude", raw)
+            # Callers may already own settings, routing and pool candidates from
+            # this record. Replacing only its secret would mix provider versions.
+            raise RuntimeError(
+                "provider_changed: provider 配置已更新，请重新启动以使用完整的新配置"
+            ) from exc
     return settings
 
 

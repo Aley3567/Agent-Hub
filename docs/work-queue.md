@@ -64,6 +64,8 @@
 
 **L3 未提交变更账本**：用户要求交接时已开始 F0–F3，只保留草稿、未开放任何入口。修改的跟踪文件为 `Cargo.lock`、`crates/provider-store/Cargo.toml`、`src/lib.rs`、`src/model.rs`、`src/sources.rs`（后三者均位于该 crate）；未跟踪新增为 `src/plan.rs`、`src/plan_tests.rs`、`src/sources/user.rs`。包含安全候选 DTO、来源/目标/精确 env 的 revision 检查、选择确认、Claude/Codex 纯 scanner；新增 6 项测试通过，共享 crate 当前 27 passed / 1 手动 Keychain probe ignored。这是草稿检查，不代表 F 卡验收；尚未独立安全审查、未接 CLI/UI，两个 UI Cargo.lock 也尚未同步新增依赖。下一对话须保留并审查这些文件，不能 reset/覆盖；纯预览与安全提交之间的并发复核尚待 E0 统一。
 
+**审查修复 1（2026-09-16）**：合成 DB 在 build_settings 之后同时轮换 endpoint/ref，原生账号池测试在旧实现上因未中止而失败；启动器现在在 NotFound 后发现 ref 更换时返回 `provider_changed`，要求重新启动以整体重建配置，禁止局部注入新版本凭证。修改 owner 为 `_provider_settings`；Hub 快照整体重载合同不变。6 项 reader 集成与 launcher 全套通过；未使用真实凭证。L3 既有草稿另含 `src/snapshot.rs`，仍未提交，不并入此修复。
+
 **第二层剩余验收**：macOS stdin 合成写读删已通过，签名 App、真实锁定/拒绝/超时仍未验收；Windows 仅独立 target metadata 类型检查，非原生运行；真实 Claude CLI 只证实拒绝非普通 settings 文件，未完成选定账号 B 对全局 A 的真实上游正向验收，Codex 同项仍待实验。现有 Claude 临时 settings/Codex shadow auth 的 0600 明文机制保留，禁止称全程零明文。新引用写协议、清理恢复与迁移未启用。
 
 **L2 当前检查点（2026-09-16）**：C0 已实现 provider/v1/UUID 引用、绑定 app/id/revision 的 v1 envelope、独立错误码及旧库增列；根级只读 resolver 与安装/npm 分发已接入。macOS adapter 用 `security -i` 单命令 stdin 的 `-X` 输入，完整命令超过 4094 字节在启动前拒绝，秘密不进 argv；真实合成写/读/删通过，并确认 control/Unicode 载荷可能被 security 输出为 hex，已解码校验。此检查点尚未启用业务写入或迁移；签名 App、拒绝/锁定场景仍待验收；runtime readers 的后续提交证据见 D 段。独立 UUID 接口未改。

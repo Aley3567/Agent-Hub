@@ -64,6 +64,39 @@ class ProviderReaderTests(unittest.TestCase):
             self.assertEqual(rows[1][1], "{}")
             conn.close()
 
+    def test_native_pool_aborts_if_reclaimed_reference_changes_endpoint(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            env = isolated_env(home)
+            path = Path(env["CLAUDE1_DB_PATH"])
+            path.parent.mkdir(parents=True)
+            conn = database(path)
+            Path(env["CLAUDE1_ACCOUNT_POOL_CONFIG"]).write_text(json.dumps({
+                "version": 1, "providers": {"id:same-id": {
+                    "strategy": "round_robin", "members": [{"provider": "id:same-id"}]
+                }}
+            }))
+            Path(env["CLAUDE1_ACCOUNT_POOL_CONFIG"]).chmod(0o600)
+            with loaded_launcher(env) as launcher:
+                provider = launcher._provider_from_row(launcher.db_claude_rows()[0])
+                with patch.object(credentials, "read_secret", return_value=envelope()):
+                    settings = launcher.build_settings(provider)
+                rotated = {"env": {"ANTHROPIC_BASE_URL": "https://rotated.test",
+                                   "ANTHROPIC_MODEL": "rotated-model"}}
+                conn.execute("UPDATE providers SET credential_ref=?, revision=2, settings_config=?",
+                             (REF_B, json.dumps(rotated)))
+                conn.commit()
+                def read(reference):
+                    if reference == REF_A:
+                        raise credentials.CredentialError("credential_missing")
+                    return envelope(revision=2, token="fake-rotated-key")
+                with patch.object(credentials, "read_secret", side_effect=read):
+                    with self.assertRaisesRegex(RuntimeError, "provider_changed"):
+                        launcher.apply_native_account_pool(provider, settings)
+                self.assertEqual(settings["env"]["ANTHROPIC_BASE_URL"], "https://example.test")
+                self.assertEqual(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "fake-selected-key")
+            conn.close()
+
     def test_codex_new_schema_listing_is_metadata_only_and_launch_resolves(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "providers.db"
