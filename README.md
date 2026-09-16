@@ -42,11 +42,10 @@ Agent-Hub manages connections and routing. Claude Code and Codex remain responsi
 
 ### macOS preview package
 
-The first Apple Silicon desktop preview is **0.2.1**. Download the complete ZIP
+The first Apple Silicon desktop preview is **0.2.1**. Download the `.pkg` installer
 from [GitHub Releases](https://github.com/Aley3567/Agent-Hub/releases), verify its
-SHA-256, and run `Install.command` before opening `Agent Hub.app`. The ZIP includes
-the desktop app, management CLI and Python runtime; a standalone DMG contains only
-the desktop app. Python 3.11+, Claude Code and `uv` remain external prerequisites;
+SHA-256, quit Agent Hub and double-click the installer. It installs the desktop app
+in Applications and the management CLI and Python runtime for the signed-in user. Python 3.11+, Claude Code and `uv` remain external prerequisites;
 install Codex CLI separately for Codex sessions.
 
 This preview is ad-hoc signed and **not Apple notarized**. macOS may require an

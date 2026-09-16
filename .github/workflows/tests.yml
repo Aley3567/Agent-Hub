@@ -46,10 +46,13 @@ jobs:
         run: npm run build -- --bundles app
       - name: Assemble versioned release kit
         run: python3 scripts/package-agent-hub-macos.py
+      - name: Build double-click installer
+        run: python3 scripts/package-agent-hub-macos-pkg.py --kit dist/Agent-Hub-*-macOS-arm64 --output-dir dist
       - uses: actions/upload-artifact@v4
         with:
           name: macOS-arm64-release-kit
           path: |
+            dist/*.pkg
             dist/*.zip
             dist/*.sha256
           if-no-files-found: error
