@@ -12,7 +12,7 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）代码与本机可用检查已完成；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）代码与本机可用检查已完成；第二层核心凭证合同、reader 和平台 adapter 代码已提交，运行态验收尚未全部通过。用户要求在此交接，第三、四层留待新对话。该任务优先于 S24 历史英文整理。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
@@ -60,16 +60,20 @@
 
 **L1 收口证据**：根 Rust workspace 18 个共享层单测 + 3 个 CLI 进程测试；macOS Tauri Rust 75 项；Python 全量 992 项；安装集成 8 项；双端 TypeScript 与 renderer build；双端完整 Cargo metadata；文档索引与 staged secret guard 均通过。实施树无混入原树未跟踪文件；未推送、未改写历史、未覆盖真实运行目录。Windows 原生编译与窗口、macOS 真实窗口仍未验收。
 
-**下一层入口**：A1 先证明安全凭证输入通道，A2 先证明真实 CLI 的账号优先级；C0 固定跨语言 envelope/错误/引用合同后再接 reader。保留严格的临时文件零明文最终目标；若实验不支持，记录明确阻塞，不通过删认证字段或回退明文掩盖。桌面写入、四来源预览和显式迁移继续分别由 E/F/G/H 验收，不计入本层已完成成果。
+**交接入口（2026-09-16）**：当前 HEAD 的第二层实现提交为 `a05223d`（合同/安全 OS 读取/安装）、`35ae4f3`（所有 runtime readers）、`7e29da4`（Windows adapter 代码）。后续先核对工作树和下述草稿，不重做第一层；补齐 A1/A2 的运行态放行条件，再推进 E0/E1 与 F/G。用户尚未批准降低“含启动临时文件零明文”的最终目标；已确认 Windows 实机验收后置。
 
-**L2 当前检查点（2026-09-16）**：C0 已实现 provider/v1/UUID 引用、绑定 app/id/revision 的 v1 envelope、独立错误码及旧库增列；根级只读 resolver 与安装/npm 分发已接入。macOS adapter 用 `security -i` 单命令 stdin 的 `-X` 输入，完整命令超过 4094 字节在启动前拒绝，秘密不进 argv；真实合成写/读/删通过，并确认 control/Unicode 载荷可能被 security 输出为 hex，已解码校验。此检查点尚未启用业务写入或迁移；签名 App、拒绝/锁定场景和所有 runtime readers 仍在后续卡验收。独立 UUID 接口未改。
+**L3 未提交变更账本**：用户要求交接时已开始 F0–F3，只保留草稿、未开放任何入口。修改的跟踪文件为 `Cargo.lock`、`crates/provider-store/Cargo.toml`、`src/lib.rs`、`src/model.rs`、`src/sources.rs`（后三者均位于该 crate）；未跟踪新增为 `src/plan.rs`、`src/plan_tests.rs`、`src/sources/user.rs`。包含安全候选 DTO、来源/目标/精确 env 的 revision 检查、选择确认、Claude/Codex 纯 scanner；新增 6 项测试通过，共享 crate 当前 27 passed / 1 手动 Keychain probe ignored。这是草稿检查，不代表 F 卡验收；尚未独立安全审查、未接 CLI/UI，两个 UI Cargo.lock 也尚未同步新增依赖。下一对话须保留并审查这些文件，不能 reset/覆盖；纯预览与安全提交之间的并发复核尚待 E0 统一。
+
+**第二层剩余验收**：macOS stdin 合成写读删已通过，签名 App、真实锁定/拒绝/超时仍未验收；Windows 仅独立 target metadata 类型检查，非原生运行；真实 Claude CLI 只证实拒绝非普通 settings 文件，未完成选定账号 B 对全局 A 的真实上游正向验收，Codex 同项仍待实验。现有 Claude 临时 settings/Codex shadow auth 的 0600 明文机制保留，禁止称全程零明文。新引用写协议、清理恢复与迁移未启用。
+
+**L2 当前检查点（2026-09-16）**：C0 已实现 provider/v1/UUID 引用、绑定 app/id/revision 的 v1 envelope、独立错误码及旧库增列；根级只读 resolver 与安装/npm 分发已接入。macOS adapter 用 `security -i` 单命令 stdin 的 `-X` 输入，完整命令超过 4094 字节在启动前拒绝，秘密不进 argv；真实合成写/读/删通过，并确认 control/Unicode 载荷可能被 security 输出为 hex，已解码校验。此检查点尚未启用业务写入或迁移；签名 App、拒绝/锁定场景仍待验收；runtime readers 的后续提交证据见 D 段。独立 UUID 接口未改。
 
 ### C · 凭证引用与平台适配
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
-| C1 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
+| C0 代码及合成合同已提交 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
+| C1 代码/合成探针，App 后验 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
 | C2 代码已落地，原生未验收 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
 
 **C2 代码证据（2026-09-16）**：新增 Credential Manager 原生 FFI，UTF-16 target 与 Python 使用相同 service:reference；处理 read/create/delete、2560-byte 限制、NotFound/Denied/Locked，写后读回校验。Windows target 的 adapter 独立 metadata typecheck 通过（绕开本机缺失 Windows SQLite SDK 的全图编译阻碍）；未在 Windows 执行、不启用 Windows 迁移。
