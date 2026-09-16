@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
 
+pub mod split;
+
 pub const SERVICE: &str = "claude-hub";
 pub const VERSION: u32 = 1;
 #[cfg(target_os = "macos")]

@@ -13,3 +13,9 @@ CREATE TABLE IF NOT EXISTS provider_sources (
     id TEXT NOT NULL, app_type TEXT NOT NULL, source TEXT NOT NULL,
     imported_at INTEGER NOT NULL, PRIMARY KEY (id, app_type)
 );
+CREATE TABLE IF NOT EXISTS credential_operations (
+    op_id TEXT NOT NULL, credential_ref TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('create', 'cleanup')),
+    last_error_code TEXT,
+    PRIMARY KEY (op_id, credential_ref)
+);

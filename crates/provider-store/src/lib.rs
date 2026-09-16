@@ -1,5 +1,6 @@
 //! Hub-owned persistence shared by terminal and desktop clients.
 pub mod credentials;
+pub mod commit;
 pub mod model;
 pub mod paths;
 pub mod sources;
@@ -13,3 +14,6 @@ pub use store::{current_providers, import, list_providers, open, open_readonly, 
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod commit_tests;

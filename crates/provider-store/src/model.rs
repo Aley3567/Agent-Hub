@@ -21,7 +21,7 @@ pub struct ImportDocument {
     pub version: u32,
     pub providers: Vec<ImportProvider>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ImportProvider {
     pub id: String,
     pub app_type: String,

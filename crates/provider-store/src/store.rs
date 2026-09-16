@@ -58,7 +58,7 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 // Legacy Hub databases have provider_sources but no application_id. Never adopt an
 // external database merely because it happens to contain a providers table.
-fn validate_hub_database(conn: &Connection) -> Result<()> {
+pub(crate) fn validate_hub_database(conn: &Connection) -> Result<()> {
     let application: u32 = conn.pragma_query_value(None, "application_id", |row| row.get(0))?;
     if application != 0 && application != 1095259458 {
         bail!("database belongs to another application; import it into a Hub database instead");
@@ -153,6 +153,13 @@ pub fn import(
             skipped += 1;
             continue;
         }
+        if exists && !preview {
+            let referenced: bool = tx.query_row(
+                "SELECT credential_ref IS NOT NULL FROM providers WHERE id=?1 AND app_type=?2",
+                params![p.id, p.app_type], |r| r.get(0),
+            )?;
+            if referenced { bail!("credential_store_required"); }
+        }
         changed += 1;
         if preview {
             continue;
@@ -200,6 +207,11 @@ pub fn current_providers(conn: &Connection) -> Result<Vec<Provider>> {
 /// Reference blocking and credential cleanup are added by S25 E0 before desktop writes.
 pub fn remove(conn: &mut Connection, id: &str, app_type: &str) -> Result<usize> {
     let tx = conn.transaction()?;
+    let referenced: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM providers WHERE id=?1 AND app_type=?2 AND credential_ref IS NOT NULL)",
+        params![id, app_type], |r| r.get(0),
+    )?;
+    if referenced { bail!("credential_store_required"); }
     let count = tx.execute(
         "DELETE FROM providers WHERE id=?1 AND app_type=?2",
         params![id, app_type],
