@@ -37,15 +37,18 @@
 
 **最新交接（2026-09-16，接续验证后）**：
 - 工作树仍为 `/Users/admin/Desktop/claude-hub-wt/provider-foundation`，分支 `s25/provider-foundation`，无 upstream。旧 macOS 草稿已按行为接续，没有覆盖或丢弃。
-- 已提交检查点：`ae00775` Linux guarded legacy、`f78f8c5` macOS 管理/StrictMode/身份、`41650e7` Windows 管理、`400a5a8` macOS 双语、`fa520c0` Windows 双语、`8ca205c` macOS PR/应用内调度。后续本地提交以 git log 为准，不改写这些提交。
+- 已提交检查点：`ae00775` Linux guarded legacy、`f78f8c5` macOS 管理/StrictMode/身份、`41650e7` Windows 管理、`400a5a8` macOS 双语、`fa520c0` Windows 双语、`8ca205c` macOS PR/应用内调度、`58d66c3` 进程强杀恢复证据、`e48d822` Windows PR/应用内调度。后续本地提交以 git log 为准，不改写这些提交。
 - macOS 新行为：PR 使用现有 gh 登录只读查询与打开；主导航“工作”组；定时任务在应用运行时自动派发，每 occurrence 最多尝试一次，不补跑退出/长睡眠间隙；UI 的最近成功不代表模型会话完成。任务/PR 核心页面也支持双语；原先确认的全面翻译范围仍是设置、导航、渠道。
 - 最终代码检查：Python 1007 passed（`/tmp/s25-python-final.log`），根 workspace 57 provider-store passed / 1 Keychain ignored，CLI 4 passed（`/tmp/s25-workspace-final.log`）；ignored 合成 Keychain 单独显式运行 1 passed（`/tmp/s25-keychain-probe.log`）。macOS Tauri 85 passed、双端 typecheck/build、双端真实 React renderer 回归通过。安装 8 passed（`/tmp/s25-install-final.log`）。
 - H0 新证据：真实 macOS 测试 app bundle（独立 `com.agenthub.s25fixture`）中完成语言切换、PR 真查询、合成提醒分钟边界触发/暂停、合成渠道新增及保留凭据的编辑。Rust 写入后 Python 实际 Keychain reader 读回合成值；SQL 中只留引用；CLI 删除后新旧引用均 credential_missing，pendingCleanup=0。
 - 隔离实验解释：完全替换 HOME 的 app 写入曾返回 credential_timeout；`security default-keychain -d user` 确认该 HOME 没有默认 Keychain。保留正常用户 Keychain 域、将 provider DB/任务/配置/MRU/账号池等可写路径全部指向合成目录后上述流程通过。没有复制、迁移或展示真实凭证。该超时没有被伪装成成功。
 - 实际 CLI：Claude Code 2.1.261 与 Codex 0.154.0-alpha.6.2 在隔离 HOME + 本机 HTTP 合成上游中，基础配置与 ambient env 为 A，所选渠道为 B；收到 Claude `/v1/messages`、Codex `/v1/responses` 的请求均只有 B。上游刻意返回 400 停止，故这是实际 CLI 认证路由证据，不是模型回复或完整多轮语义验收。汇总 `/tmp/s25-real-cli-result.json`。
+- H0 四来源原生 CLI 补证：JSON/CC Switch SQLite 各 2 candidates，Claude settings/Codex config+auth 各 1；实际 preview/apply（含 replace）通过、四源文件 SHA-256 前后相同，全部生成的合成 Keychain 引用清理确认 credential_missing。结果 `/tmp/s25-source-matrix-result.json`。这不代替四种来源的桌面交互全矩阵。
+- 原生引用实际 CLI 补证：Codex 从 Keychain reference 读出 B 并到达合成 `/v1/responses`，未使用 ambient A。Claude 同类探针三次在 35 秒内未到达上游，强杀测试进程后清理全部合成引用；最后结果 `/tmp/s25-real-cli-native-result.json`。正常 HOME 与 CLI 子进程隔离配置存在实验变量，未取得根因证据，不改生产代码猜修、不把前述 legacy-format Claude A/B 成功扩大成引用整链成功。按 task-staging 的同类阻碍三次停止规则暂停此探针，**下一轮先在同一失败环境保留启动阶段 trace，定位停点再重试**。
 - 崩溃耐久：新增真实子进程 kill 回归，停在合成 secret durable create 之后，杀进程再 recover；未提交记录不可见、orphan 回收、writer lock 释放、再次提交通过。SecretStore 用文件夹合成实现，不能代替 OS ACL 崩溃场景。
-- 未验收项：Windows 原生 Credential Manager/终端/打包/窗口，Linux 原生写入；macOS 四来源和双应用全矩阵的真实终端会话闭环；系统 Keychain 锁定/拒绝的完整人工矩阵；严格零明文（启动 settings/shadow auth/私有 SQLite 临时副本仍存在）。Windows cross-check 受缺少 Windows SDK `stdlib.h` 阻断，backend 继续 gated。
+- 未验收项：Windows 原生 Credential Manager/终端/打包/窗口，Linux 原生写入；macOS 四来源桌面交互、Claude 引用整链与双应用完整会话闭环；系统 Keychain 锁定/拒绝的完整人工矩阵；严格零明文（启动 settings/shadow auth/私有 SQLite 临时副本仍存在）。Windows cross-check 受缺少 Windows SDK `stdlib.h` 阻断，backend 继续 gated。
 - H2：隔离安装和 macOS fixture bundle 已验证；未安装到个人运行目录，未做正式签名、公证、Windows安装包或发布。最终交付门保留，不把测试 bundle 当发布包。
+- 收尾：工作树已无未提交草稿；独立 fixture app 已退出，合成提醒保持暂停；测试 provider 库与 pending credential operations 均为 0。没有启用用户真实任务。
 - 全程没有 push、merge、rebase/amend、真实凭证迁移或用户运行目录更新；旧 `/tmp/s25-ui-rust.py`、`/tmp/s25-ui-ts.py` 没有重跑。测试 helper 不是生产自动化，重试前先核对其作用目录与当前 git 状态。
 
 **实施层次与检查点**：
