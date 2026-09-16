@@ -181,8 +181,8 @@ export default function UsageView() {
         caption:
           usage.costSource === null
             ? '无可用定价，不估算费用'
-            : usage.costSource === 'cc-switch-db' || usage.costSource === 'hub-db'
-              ? '按导入的模型价格估算'
+            : usage.costSource === 'pricing-db' || usage.costSource === 'cc-switch-db' || usage.costSource === 'hub-db'
+              ? '按指定的模型价格估算'
               : '按 model-pricing.json 的单价估算',
         accent: usage.estimatedCostUsd !== null,
       },

@@ -60,7 +60,7 @@ Hub 自有 SQLite 继续使用运行时已验证的 `providers` 记录格式，�
 
 写入口仅使用 `AGENT_HUB_PROVIDER_DB` 或 `~/.agent-hub/providers.db`，不继承运行时只读覆盖。共享层检查 Hub 数据库身份，拒绝外部库和与导入来源相同的文件（包括符号链接、硬链接别名）；旧 Hub 库保留数据并补记 Hub application_id。
 
-为了保留已有路由、账号池和历史用量，0.2 不搬迁 `~/.cc-switch` 中原有的 Hub JSON 配置与日志。这些是 Hub 自身文件，目录名称不代表必须安装 CC Switch。定价可以继续通过 `~/.cc-switch/model-pricing.json` 提供。
+为了保留已有路由、账号池和历史用量，0.2 不搬迁 `~/.cc-switch` 中原有的 Hub JSON 配置与日志。这些是 Hub 自身文件，目录名称不代表必须安装 CC Switch。定价继续优先使用 `~/.cc-switch/model-pricing.json`；文件无价格时，只读取 `AGENT_HUB_PRICING_DB` 显式指定的 `model_pricing` 表。未指定则不读定价 DB、不估算缺价费用，不再从 provider 路径推导定价来源。
 
 ## 桌面渠道管理与系统凭证库：实施设计草案
 
@@ -109,7 +109,7 @@ Hub 自有 SQLite 继续使用运行时已验证的 `providers` 记录格式，�
 
 **身份与路径：** provider 身份固定为 `(app_type, id)`，保留原 ID 不重命名。界面 list key、编辑/删除参数、导入冲突判断及启动选择均带应用类型。Claude 专用槽位和账号池仍只接受 Claude 身份，不把 Codex 记录硬塞进去；Codex 不支持的操作显式隐藏或禁用并说明。
 
-写目标只取 Hub 自有路径（`AGENT_HUB_PROVIDER_DB` 或默认 `~/.agent-hub/providers.db`）。CC Switch 来源路径、旧运行时只读覆盖路径独立解析。写入口不能继承 `CLAUDE1_DB_PATH` 后误写 CC Switch；对来源与目标同文件、符号链接别名和已知外部库身份都必须拒绝。Windows 默认改读 Hub 库，并明确空库导入引导，不能静默改回外部库。定价来源另行解析；不得把切换 provider 路径变成偷偷扩大 CC Switch 运行依赖的理由。
+写目标只取 Hub 自有路径（`AGENT_HUB_PROVIDER_DB` 或默认 `~/.agent-hub/providers.db`）。CC Switch 来源路径、旧运行时只读覆盖路径独立解析。写入口不能继承 `CLAUDE1_DB_PATH` 后误写 CC Switch；对来源与目标同文件、符号链接别名和已知外部库身份都必须拒绝。两端桌面默认读取 Hub 库，并明确空库导入引导，不能静默改回外部库。定价来源另行解析；不得把切换 provider 路径变成偷偷扩大 CC Switch 运行依赖的理由。
 
 ### 凭证合同与提交顺序
 

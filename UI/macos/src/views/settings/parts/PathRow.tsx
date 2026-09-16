@@ -2,7 +2,7 @@
  * 一条路径 + 两个动作（打开、在 Finder 中显示）。
  *
  * 这两个动作走 store 的 openPath / revealInFolder（内部直通同名 IPC；Rust 侧只放行
- * ~/.cc-switch/ 下的路径，CONTRACT.md 3 节的白名单）。失败会把中文原因记进
+ * 历史状态目录或精确配置的渠道数据库，CONTRACT.md 3 节的白名单）。失败会把中文原因记进
  * error.openPath / error.revealInFolder 并抛回本行，这里原样显示在这一行下面，不吞、不改写。
  *
  * 每行自己管 busy 与错误：一行被拒不该让另外两行也变成错误态，所以状态留在行内，

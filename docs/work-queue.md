@@ -12,7 +12,7 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：实施中。2026-09-16 已完成 A0 基线核对，开始第一层 B（共享存储与路径边界）；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）主体已完成，安装器路径保护正在收口；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
@@ -43,9 +43,9 @@
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| B0 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
-| B1 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
-| B2 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
+| B0 ✅ 代码/依赖图 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
+| B1 ✅ 2026-09-16 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 ✅ 代码/依赖图 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
+| B2 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 ✅ 2026-09-16 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
 
 **B 分层进度**：
 - B0a ✅ 2026-09-16：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
@@ -53,14 +53,15 @@
 - B0c ✅ 依赖接入，2026-09-16：Windows 完整 locked metadata 验证 path 依赖与单一 SQLite；原生编译/测试随 Windows 环境后验，不标平台验收通过。
 - B1 ✅ 2026-09-16：模型、读写、来源解析迁入共享层，CLI 删除事务一起收口；根 schema 仍唯一。移除未使用的 CC schema v17 闸门，Hub 不再继承外部版本号。11 项共享层测试通过，包括缺必需列先失败再修复、跨应用同 ID、SQL 中途回滚、源文件字节/mtime 不变。
 - B2a ✅ 2026-09-16：共享路径分离读覆盖与 Hub 写目标；CLI/TUI 导入先检查同文件，识别符号链接/硬链接；写入口拒绝外部库并兼容已有 Hub 库，schema 增加 Hub application_id。18 项共享层与 3 项真实 CLI 子进程测试通过，0600 外部库拒写回归在旧实现上确认失败；断链 CC 来源不阻断独立 Hub。Python 992 项、安装集成 6 项通过。
-- B2b/B2c 待执行：两平台读取路径、空库引导、独立定价来源。
+- B2b ✅ 2026-09-16：macOS 读取共享路径；缺库/空库引导不要求 CC Switch；定价文件优先，DB 定价仅通过独立 `AGENT_HUB_PRICING_DB` 显式选入。文件打开/显示仅增加精确当前 provider DB 许可，不放行其父目录与相邻文件。Rust 75 项、typecheck、renderer build 通过。浏览器连接不可用，窗口验收未完成。
+- B2c 待提交：Windows 同合同，typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
 - Windows 编译边界：本机交叉 check 在 bundled SQLite C 编译处缺 Windows SDK `stdlib.h`，不是 links 冲突；原生编译和测试后置，未用 macOS 测试冒充。
 
 ### C · 凭证引用与平台适配
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
+| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 ✅ 2026-09-16 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
 | C1 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
 | C2 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
 

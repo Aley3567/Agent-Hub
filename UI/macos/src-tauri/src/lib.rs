@@ -100,19 +100,15 @@ async fn usage_summary(
             rows.extend(codex_usage::read(from_ts, to_ts)?);
         }
 
-        // 定价优先级：model-pricing.json 优先；否则回退 CC Switch DB；都没有就不估算。
+        // Pricing file first, then an explicitly configured pricing DB; otherwise unknown.
         let file_table = journal::load_price_table()?;
         let (table, cost_source) = if !file_table.is_empty() {
             (file_table, Some("pricing-file".to_string()))
         } else {
-            let db_path = paths::db_path()?;
-            let db_table = if db_path.exists() {
-                db::load_model_pricing(&db::open_readonly(&db_path)?)
-            } else {
-                journal::PriceTable::new()
-            };
+            let pricing_path = paths::pricing_db_path();
+            let db_table = db::optional_model_pricing(pricing_path.as_deref());
             if !db_table.is_empty() {
-                (db_table, Some("hub-db".to_string()))
+                (db_table, Some("pricing-db".to_string()))
             } else {
                 (journal::PriceTable::new(), None)
             }
@@ -256,13 +252,13 @@ fn app_env(app: tauri::AppHandle) -> Result<env::AppEnv, String> {
 
 #[tauri::command]
 fn open_path(path: String) -> Result<(), String> {
-    let checked = paths::ensure_inside_cc_switch(&path)?;
+    let checked = paths::ensure_openable(&path)?;
     run_open(&["--", &checked.to_string_lossy()], &path)
 }
 
 #[tauri::command]
 fn reveal_in_folder(path: String) -> Result<(), String> {
-    let checked = paths::ensure_inside_cc_switch(&path)?;
+    let checked = paths::ensure_openable(&path)?;
     run_open(&["-R", "--", &checked.to_string_lossy()], &path)
 }
 

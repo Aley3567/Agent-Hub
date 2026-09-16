@@ -5,11 +5,12 @@
 
 ## 1. 数据源
 
-全部位于 `~/.cc-switch/`（可被环境变量覆盖，Rust 侧按下表顺序解析）。
+Provider 默认位于 `~/.agent-hub/`；已有 Hub JSON、日志和定价文件仍位于 `~/.cc-switch/`，这些文件不依赖 CC Switch 安装。渠道读取、Hub 写入、外部导入和可选定价库各自解析路径。
 
 | 路径 | 权限 | 内容 | 覆盖变量 |
 |---|---|---|---|
-| `cc-switch.db` | **只读**（`mode=ro`） | SQLite，`providers` 表、`model_pricing` 表 | `CLAUDE1_DB_PATH` |
+| `~/.agent-hub/providers.db` | 桌面当前**只读**；CLI/TUI 经共享层写入 | Hub `providers` 与 `provider_sources` 表 | 读：`CLAUDE1_DB_PATH` → `AGENT_HUB_PROVIDER_DB` → 默认；写：仅 `AGENT_HUB_PROVIDER_DB` → 默认 |
+| 显式指定的定价 SQLite | **只读** | 可选 `model_pricing` 表，与渠道 DB 独立 | `AGENT_HUB_PRICING_DB`，未指定不读 DB |
 | `claude1-config.json` | 读写 | Agent Hub 本地覆盖：hidden / 别名 / 模型 / effort / routing | `CLAUDE1_CONFIG_PATH` |
 | `claude1-mru.json` | 只读 | `{ "<provider name 或 id>": <unix 秒，float> }` 最近使用 | — |
 | `claude-hub.json` | 读写 | 默认 hub 配置（槽位、端口、channels、routes） | — |
@@ -17,24 +18,26 @@
 | `hubs/<name>.json` | 读写 | 命名 hub 各自配置，结构同 `claude-hub.json` | — |
 | `agent-hub-tasks.json` | 读写 | 桌面端自有的计划任务清单（`ScheduledTask[]`，见 §2）。**唯一新增的可写文件**；写入纪律与 hub json 相同：原子替换 + 保留未知键 | `AGENT_HUB_TASKS_PATH` |
 | `claude1-account-pools.json` | **只读**（首版） | 账号池 | — |
-| `model-pricing.json` | 只读 | `{version, models: []}`，**当前为空**；为空时回退读 `cc-switch.db` 的 `model_pricing` 表，仍无价才不显示成本 | — |
+| `model-pricing.json` | 只读 | `{version, models: []}`；非空优先，为空仅尝试显式定价库，仍无价不估算费用 | — |
 | `logs/claude-hub-usage.jsonl` + `.bak-*` | 只读 | 用量 journal | — |
 | `logs/claude-hub-errors.jsonl` | 只读 | 错误 journal | — |
 | `logs/hubs/<name>-usage.jsonl` | 只读 | 命名 hub 的用量 journal | — |
 
-### 1.1 `providers` 表实测 schema
+### 1.1 Hub provider schema 与展示投影
+
+唯一 schema 为根 `provider-schema.sql`。Hub 维护 application_id `1095259458`（AHUB）和自己的 `provider_sources`，不跟随 CC Switch 的 `user_version`。共享层拒绝把外部库当写目标；外部来源仅显式只读导入。当前持久配置仍含凭证，系统凭证迁移尚未启用。
 
 ```sql
 CREATE TABLE providers (
   id TEXT NOT NULL, app_type TEXT NOT NULL, name TEXT NOT NULL,
-  settings_config TEXT NOT NULL, website_url TEXT, category TEXT,
-  created_at INTEGER, sort_index INTEGER, notes TEXT, icon TEXT, icon_color TEXT,
-  meta TEXT NOT NULL DEFAULT '{}', is_current BOOLEAN NOT NULL DEFAULT 0,
-  in_failover_queue BOOLEAN NOT NULL DEFAULT 0, cost_multiplier TEXT NOT NULL DEFAULT '1.0',
-  limit_daily_usd TEXT, limit_monthly_usd TEXT, provider_type TEXT,
+  settings_config TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',
+  category TEXT, provider_type TEXT, is_current BOOLEAN NOT NULL DEFAULT 0,
+  in_failover_queue BOOLEAN NOT NULL DEFAULT 0, sort_index INTEGER,
   PRIMARY KEY (id, app_type)
 );
 ```
+
+桌面投影保留外部兼容列 `notes`、`icon_color` 等；这些列不是 Hub 必需 schema，不能为了迁入简表 DTO 丢弃已有显示字段。
 
 查询固定为：
 
@@ -44,8 +47,8 @@ SELECT id, name, settings_config, meta, is_current, in_failover_queue,
 FROM providers WHERE app_type='claude' ORDER BY sort_index
 ```
 
-**必须先 `PRAGMA table_info(providers)` 探测列是否存在，缺列则该字段返回 `null`**——CC Switch
-升级 schema 时不能整个界面白屏。`app_type` 只取 `'claude'`（其余 `codex`/`gemini` 与本工具无关）。
+**必须先 `PRAGMA table_info(providers)` 探测可选展示列，缺列则该字段返回 `null`**；
+兼容库可选列缺失时不能整个界面白屏。当前桌面投影只取 `app_type='claude'`；Hub 存储已按 `(app_type,id)` 区分 Claude/Codex，双应用桌面投影尚未启用。
 
 `settings_config` 是 JSON 字符串，实测形状（**斜体键含凭证**）：
 
@@ -78,8 +81,8 @@ CREATE TABLE model_pricing (
 ```
 
 价是 TEXT 存的数字（每百万 token 美元），读取时转 f64；`model_id` 小写归一后做 key。
-**表可能不存在**（老版本 CC Switch），读失败一律当空表，不阻断用量视图。
-定价优先级：`model-pricing.json` 的 `models` 非空 → 用文件；否则 `model_pricing` 非空 → 用表；
+**表可能不存在**；显式定价库不存在或读失败时当空表，不阻断用量视图。
+定价优先级：`model-pricing.json` 的 `models` 非空 → 用文件；否则仅当 `AGENT_HUB_PRICING_DB` 显式指定且 `model_pricing` 非空 → 用表；
 都没有 → 不估算成本。任一模型无价 → 整体 `estimatedCostUsd = null`，绝不猜。
 
 ### 1.2 凭证脱敏（fail-closed）
@@ -222,8 +225,8 @@ export interface UsageSummary {
   degradeCounts: { code: string; count: number }[];
   /** 定价缺失时为 null，绝不猜 */
   estimatedCostUsd: number | null;
-  /** 成本定价来源：'pricing-file' = model-pricing.json；'cc-switch-db' = model_pricing 表；null = 无价可估 */
-  costSource: 'pricing-file' | 'cc-switch-db' | null;
+  /** pricing-file：本地文件；pricing-db：显式指定的定价库；旧名称只兼容旧响应 */
+  costSource: 'pricing-file' | 'pricing-db' | 'cc-switch-db' | 'hub-db' | null;
 }
 
 export interface UsageBucket {
@@ -385,7 +388,7 @@ export interface NewScheduledTask {
 | `doctor_fix_subagent_pins` | — | `DoctorCheck[]` | 备份后清理，重跑体检 |
 | `launch` | `LaunchTarget` | `LaunchResult` | 在终端中启动会话，见 §3.1 |
 | `app_env` | — | `{ platform, appVersion, tauriVersion, dbPath, configPath, logsDir, hasClaudeBin, pythonVersion }` | 设置页与 doctor 用 |
-| `open_path` | `path` | `()` | 用系统默认程序打开（只允许 `~/.cc-switch/` 下路径） |
+| `open_path` | `path` | `()` | 用系统默认程序打开（历史状态目录内，或精确匹配当前 provider DB；不放行其父目录/相邻文件） |
 | `reveal_in_folder` | `path` | `()` | 同上白名单 |
 | `list_chat_sessions` | — | `ChatSession[]` | 本轮恒走演示实现：返回内置演示会话，不连任何上游；真后端接入时签名不变 |
 | `send_chat_message` | `sessionId, content` | `ChatMessage` | 本轮恒走演示实现：Rust 侧返回内置演示回复（内容按 Anthropic 消息形状构造，前端模拟流式逐字呈现），不连任何上游；真后端接入时签名不变 |
@@ -600,7 +603,7 @@ export type IconName =
 
 ## macOS 0.2 用量契约
 
-- Provider 数据库默认 `~/.agent-hub/providers.db`。CC Switch 仅在管理 TUI/CLI 执行导入时读取。桌面端对该库只读；凭据仍不进入 IPC。
+- Provider 数据库默认 `~/.agent-hub/providers.db`。CC Switch provider 仅在管理 TUI/CLI 显式导入或用户显式配置只读覆盖时读取。桌面端对该库只读；凭据仍不进入 IPC。
 - 图表范围：最近 24 小时、含今天的 7/30 个本地自然日、自定义起止时刻；小时或日分桶。自定义窗口在自动刷新时保持不变。
 - `UsageRow.harness` 为 `claude` / `codex` / `unknown`。Hub 从明确的 Claude CLI User-Agent 记录归属；缺少 harness 的旧 Claude Code 网关流水按其已确认来源归为 claude，`harnessEvidence=legacy-claude-hub`，显式 unknown 不覆盖。Codex 来自本地会话 token_count。`providerId` 优先显式 ID，再读旧流水 account 的 id: 稳定引用；无可靠映射时为 unknown。
 - `series` 每个桶增加 `cw`、`harnesses`、`providers` 与 `components_cost`。后者顺序固定为普通输入、输出、缓存读、缓存写，单位 USD；任意未知字段或缺价使该桶完整成本为 null。维度切换不改变计量单位。

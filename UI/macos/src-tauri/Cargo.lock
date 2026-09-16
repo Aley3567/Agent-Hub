@@ -2454,6 +2454,7 @@ dependencies = [
  "anyhow",
  "dirs 6.0.0",
  "rusqlite",
+ "same-file",
  "serde",
  "serde_json",
 ]

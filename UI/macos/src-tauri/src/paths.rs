@@ -1,7 +1,7 @@
 //! 路径解析、白名单校验与本地 JSON 的原子读写。
 //!
-//! 数据源全部位于 `~/.cc-switch/`，可被环境变量覆盖（CONTRACT.md 1 节的覆盖变量列）。
-//! `open_path` / `reveal_in_folder` 只允许该目录下的路径，所以校验必须先规范化再比前缀，
+//! Hub provider 位于 `~/.agent-hub/`；历史 JSON/日志仍位于 `~/.cc-switch/`，可被环境变量覆盖（CONTRACT.md 1 节的覆盖变量列）。
+//! 文件操作仅允许历史状态目录和精确配置的 provider DB；路径必须规范化后检查，
 //! 防止 `..` 或符号链接逃逸。
 
 use std::ffi::OsString;
@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 
 use crate::error;
 
-/// `~/.cc-switch`，全部本地状态的根。
+/// Historical Hub JSON/log directory; independent of CC Switch installation.
 const CC_SWITCH_DIR: &str = ".cc-switch";
 
 pub fn home_dir() -> Result<PathBuf, String> {
@@ -32,13 +32,14 @@ pub fn cc_switch_dir() -> Result<PathBuf, String> {
     Ok(home_dir()?.join(CC_SWITCH_DIR))
 }
 
-/// CC Switch 的 SQLite。只读打开，见 `db.rs`。
+/// Provider reads may explicitly opt into a legacy source. Writes use the Hub path only.
 pub fn db_path() -> Result<PathBuf, String> {
-    match env_path("CLAUDE1_DB_PATH") {
-        Some(path) => Ok(path),
-        None => Ok(env_path("AGENT_HUB_PROVIDER_DB")
-            .unwrap_or(home_dir()?.join(".agent-hub/providers.db"))),
-    }
+    provider_store::paths::runtime_db_path().map_err(|err| err.to_string())
+}
+
+/// Optional pricing source. Never inferred from a provider or CC Switch database path.
+pub fn pricing_db_path() -> Option<PathBuf> {
+    env_path("AGENT_HUB_PRICING_DB")
 }
 
 /// claude1 本地覆盖配置。桌面端唯一允许写的渠道级文件。
@@ -194,10 +195,32 @@ pub fn ensure_inside(base: &Path, raw: &str) -> Result<PathBuf, String> {
     Ok(real)
 }
 
-/// `ensure_inside` 的 `~/.cc-switch` 版本。
-pub fn ensure_inside_cc_switch(raw: &str) -> Result<PathBuf, String> {
-    let base = cc_switch_dir()?;
-    ensure_inside(&base, raw)
+/// File actions allow historical Hub state plus the exact configured provider DB.
+/// This does not change ensure_inside or grant access to the rest of .agent-hub/HOME.
+pub fn ensure_openable(raw: &str) -> Result<PathBuf, String> {
+    ensure_openable_in(&cc_switch_dir()?, &db_path()?, raw)
+}
+
+fn ensure_openable_in(base: &Path, provider_db: &Path, raw: &str) -> Result<PathBuf, String> {
+    match ensure_inside(base, raw) {
+        Ok(path) => Ok(path),
+        Err(boundary_error) => {
+            let requested = expand_tilde(raw.trim())?;
+            if !requested.is_absolute() || !requested.is_file() || !provider_db.is_file() {
+                return Err(boundary_error);
+            }
+            let allowed = provider_db
+                .canonicalize()
+                .map_err(|err| error::io_error("读取 ", provider_db, &err))?;
+            let actual = requested
+                .canonicalize()
+                .map_err(|err| error::io_error("读取 ", &requested, &err))?;
+            if actual != allowed {
+                return Err(boundary_error);
+            }
+            Ok(actual)
+        }
+    }
 }
 
 /// 读一个 JSON 对象。文件不存在返回 `None`；存在但坏了就报错，不假装成空配置。
@@ -278,6 +301,20 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(base.join("logs")).unwrap();
         base
+    }
+
+    #[test]
+    fn file_actions_allow_only_the_configured_provider_database_outside_state_dir() {
+        let base = temp_base("provider-file-scope");
+        let state_dir = base.join("state");
+        fs::create_dir(&state_dir).unwrap();
+        let provider = base.join("providers.db");
+        let sibling = base.join("other.txt");
+        fs::write(&provider, b"synthetic DB path fixture").unwrap();
+        fs::write(&sibling, b"unrelated").unwrap();
+        assert!(ensure_openable_in(&state_dir, &provider, provider.to_str().unwrap()).is_ok());
+        assert!(ensure_openable_in(&state_dir, &provider, sibling.to_str().unwrap()).is_err());
+        assert!(ensure_openable_in(&state_dir, &provider, base.to_str().unwrap()).is_err());
     }
 
     #[test]

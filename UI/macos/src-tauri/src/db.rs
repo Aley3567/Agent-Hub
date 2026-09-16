@@ -3,7 +3,7 @@
 //! 两条不容协商的边界（README.md 安全边界）：
 //! 1. 连接一律 `SQLITE_OPEN_READ_ONLY` 再叠一道 `PRAGMA query_only`，本模块不存在任何写入路径；
 //! 2. 先 `PRAGMA table_info(providers)` 探测列，缺列降级为 `None` 而不是报错——
-//!    CC Switch 升级 schema 时界面不能白屏（沿用 claude-provider-once.py 的 db_claude_rows 范式）。
+//!    可选展示列缺失时界面不能白屏（沿用 claude-provider-once.py 的 db_claude_rows 范式）。
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -15,7 +15,7 @@ use crate::error;
 use crate::paths;
 
 /// `providers` 表里一行 claude 渠道的原始值。缺列的字段为 `None`。
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ProviderRow {
     pub id: String,
     pub name: String,
@@ -71,7 +71,7 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
     let available = provider_columns(&conn)?;
     if available.is_empty() {
         return Err(format!(
-            "{} 里没有 providers 表，这不像 CC Switch 的数据库",
+            "{} 里没有 providers 表，请初始化 Hub 渠道库或检查只读路径覆盖",
             error::tilde(&path)
         ));
     }
@@ -212,6 +212,13 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
     .is_ok()
 }
 
+/// Optional external pricing cannot block usage when absent or unreadable.
+pub fn optional_model_pricing(path: Option<&Path>) -> crate::journal::PriceTable {
+    path.and_then(|path| open_readonly(path).ok())
+        .map(|conn| load_model_pricing(&conn))
+        .unwrap_or_default()
+}
+
 /// 把 pricing 表里的 TEXT 价格解析成 f64；解析失败返回 None。
 fn parse_price_text(text: &str) -> Option<f64> {
     text.trim().parse::<f64>().ok()
@@ -325,4 +332,47 @@ fn read_opt_bool(row: &Row<'_>, idx: Option<usize>) -> Result<bool, String> {
         }
         _ => false,
     })
+}
+
+#[cfg(test)]
+mod pricing_tests {
+    use super::*;
+
+    #[test]
+    fn missing_optional_pricing_does_not_require_a_provider_database() {
+        assert!(optional_model_pricing(None).is_empty());
+        let absent = std::env::temp_dir().join(format!(
+            "agent-hub-no-prices-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(optional_model_pricing(Some(&absent)).is_empty());
+        assert!(!absent.exists());
+    }
+
+    #[test]
+    fn explicit_pricing_database_needs_no_provider_table_and_stays_read_only() {
+        let path = std::env::temp_dir().join(format!(
+            "agent-hub-prices-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch("CREATE TABLE model_pricing (model_id TEXT, input_cost_per_million TEXT,
+            output_cost_per_million TEXT, cache_read_cost_per_million TEXT, cache_creation_cost_per_million TEXT);
+            INSERT INTO model_pricing VALUES ('test-model','1','2','0.1','1.2');").unwrap();
+        drop(conn);
+        let before = std::fs::read(&path).unwrap();
+        let table = optional_model_pricing(Some(&path));
+        assert_eq!(table["test-model"].input, 1.0);
+        assert_eq!(table["test-model"].output, 2.0);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_file(path).unwrap();
+    }
 }

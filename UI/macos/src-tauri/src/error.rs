@@ -41,7 +41,7 @@ pub fn not_object(path: &Path) -> String {
 /// 数据库缺失。这条文案是 CONTRACT.md 指定的原文，不要改写。
 pub fn missing_db(path: &Path) -> String {
     format!(
-        "找不到 CC Switch 数据库：{}，请先安装并运行一次 CC Switch",
+        "找不到 Hub 渠道库：{}。请运行 agent-hub provider init，再通过 agent-hub 添加或导入渠道",
         tilde(path)
     )
 }
