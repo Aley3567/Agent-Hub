@@ -50,7 +50,7 @@
 **B 分层进度**：
 - B0a ✅ 2026-09-16：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
 - B0b ✅ 2026-09-16：macOS 接入共享 crate；完整 locked metadata 只有一份 SQLite，Tauri Rust 测试 72 项通过。
-- B0c 待执行：Windows 接入并验证完整依赖图。
+- B0c ✅ 依赖接入，2026-09-16：Windows 完整 locked metadata 验证 path 依赖与单一 SQLite；原生编译/测试随 Windows 环境后验，不标平台验收通过。
 - B1、B2a/B2b/B2c 待执行，不能将依赖接入称为桌面管理完成。
 
 ### C · 凭证引用与平台适配
