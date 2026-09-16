@@ -66,6 +66,8 @@
 
 **审查修复 1（2026-09-16）**：合成 DB 在 build_settings 之后同时轮换 endpoint/ref，原生账号池测试在旧实现上因未中止而失败；启动器现在在 NotFound 后发现 ref 更换时返回 `provider_changed`，要求重新启动以整体重建配置，禁止局部注入新版本凭证。修改 owner 为 `_provider_settings`；Hub 快照整体重载合同不变。6 项 reader 集成与 launcher 全套通过；未使用真实凭证。L3 既有草稿另含 `src/snapshot.rs`，仍未提交，不并入此修复。
 
+**审查修复 2（2026-09-16）**：外部只读覆盖 + 独立 Hub 写目标的回归在旧实现上失败，另覆盖外部库直接/软链接/硬链接写目标在备份前拒绝。doctor 现在仅解析 `AGENT_HUB_PROVIDER_DB` / 默认 Hub 路径，校验 Hub 身份和权限后再备份及写入；SQLite backup 保留 WAL 已提交内容，备份以 0600 独占创建。8 项 reader 与 196 项 launcher 测试通过。此入口仅修改原始非秘密元数据，不解析凭证。
+
 **第二层剩余验收**：macOS stdin 合成写读删已通过，签名 App、真实锁定/拒绝/超时仍未验收；Windows 仅独立 target metadata 类型检查，非原生运行；真实 Claude CLI 只证实拒绝非普通 settings 文件，未完成选定账号 B 对全局 A 的真实上游正向验收，Codex 同项仍待实验。现有 Claude 临时 settings/Codex shadow auth 的 0600 明文机制保留，禁止称全程零明文。新引用写协议、清理恢复与迁移未启用。
 
 **L2 当前检查点（2026-09-16）**：C0 已实现 provider/v1/UUID 引用、绑定 app/id/revision 的 v1 envelope、独立错误码及旧库增列；根级只读 resolver 与安装/npm 分发已接入。macOS adapter 用 `security -i` 单命令 stdin 的 `-X` 输入，完整命令超过 4094 字节在启动前拒绝，秘密不进 argv；真实合成写/读/删通过，并确认 control/Unicode 载荷可能被 security 输出为 hex，已解码校验。此检查点尚未启用业务写入或迁移；签名 App、拒绝/锁定场景仍待验收；runtime readers 的后续提交证据见 D 段。独立 UUID 接口未改。

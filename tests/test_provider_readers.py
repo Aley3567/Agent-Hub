@@ -44,6 +44,7 @@ class ProviderReaderTests(unittest.TestCase):
             path = Path(env["CLAUDE1_DB_PATH"])
             path.parent.mkdir(parents=True, exist_ok=True)
             conn = database(path)
+            env["AGENT_HUB_PROVIDER_DB"] = str(path)
             # Same ID in another application must not be rewritten by doctor.
             conn.execute("INSERT INTO providers(id,app_type,name,settings_config) VALUES('same-id','codex','Other','{}')")
             conn.commit()
@@ -63,6 +64,53 @@ class ProviderReaderTests(unittest.TestCase):
             self.assertEqual(rows[0][2], REF_A)
             self.assertEqual(rows[1][1], "{}")
             conn.close()
+
+    def test_doctor_writes_only_hub_target_with_external_read_override(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            external, hub = home / "external.db", home / "hub.db"
+            external_conn = database(external)
+            hub_conn = database(hub)
+            external_conn.execute("PRAGMA application_id=0")
+            external_conn.execute("DROP TABLE provider_sources")
+            external_conn.commit()
+            before = external.read_bytes()
+            env = isolated_env(home, CLAUDE1_DB_PATH=str(external), AGENT_HUB_PROVIDER_DB=str(hub))
+            with loaded_launcher(env) as launcher:
+                changed, invalid, backup = launcher.fix_subagent_model_overrides()
+            self.assertEqual(changed, ["Fixture"])
+            self.assertEqual(invalid, [])
+            self.assertTrue(backup.name.startswith("hub.db.bak-doctor-fix-"))
+            self.assertEqual(external.read_bytes(), before)
+            self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", hub_conn.execute("SELECT settings_config FROM providers").fetchone()[0])
+            self.assertEqual(list(home.glob("external.db.bak-*")), [])
+            external_conn.close()
+            hub_conn.close()
+
+    def test_doctor_rejects_external_write_target_before_backup(self):
+        for alias in ("direct", "symlink", "hardlink"):
+            with self.subTest(alias=alias), tempfile.TemporaryDirectory() as temp:
+                home = Path(temp)
+                external = home / "external.db"
+                conn = database(external)
+                conn.execute("PRAGMA application_id=0")
+                conn.execute("DROP TABLE provider_sources")
+                conn.commit()
+                target = external
+                if alias != "direct":
+                    target = home / "hub.db"
+                    if alias == "symlink":
+                        target.symlink_to(external)
+                    else:
+                        target.hardlink_to(external)
+                before = external.read_bytes()
+                env = isolated_env(home, CLAUDE1_DB_PATH=str(external), AGENT_HUB_PROVIDER_DB=str(target))
+                with loaded_launcher(env) as launcher:
+                    with self.assertRaisesRegex(RuntimeError, "Hub|symbolic"):
+                        launcher.fix_subagent_model_overrides()
+                self.assertEqual(external.read_bytes(), before)
+                self.assertEqual(list(home.glob("*.bak-*")), [])
+                conn.close()
 
     def test_native_pool_aborts_if_reclaimed_reference_changes_endpoint(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -7080,17 +7080,46 @@ def cli_errors(args: list[str]) -> int:
     return 0
 
 
-def fix_subagent_model_overrides() -> tuple[list[str], list[str], Path]:
-    """Back up the CC Switch DB, then remove persisted subagent model pins."""
-    backup_path = DB_PATH.with_name(
-        f"{DB_PATH.name}.bak-doctor-fix-{time.strftime('%Y%m%d-%H%M%S')}"
-    )
-    shutil.copy2(DB_PATH, backup_path)
+def _doctor_hub_write_target() -> Path:
+    """Validate ownership before any backup or writable SQLite connection."""
+    target = _env_path("AGENT_HUB_PROVIDER_DB", HOME / ".agent-hub" / "providers.db")
+    source = HOME / ".cc-switch" / "cc-switch.db"
+    if target.is_symlink():
+        raise RuntimeError("Hub provider database must not be a symbolic link")
+    if target.resolve() == source.resolve() or (
+        target.exists() and source.exists() and target.samefile(source)
+    ):
+        raise RuntimeError("Hub write target must not be the external CC Switch database")
+    if not target.is_file():
+        raise RuntimeError("Hub provider database does not exist; initialize it with agent-hub")
+    if os.name == "posix" and target.stat().st_mode & 0o077:
+        raise RuntimeError("Hub provider database requires 0600 permissions")
+    conn = sqlite3.connect(target.resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        application = conn.execute("PRAGMA application_id").fetchone()[0]
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if (application not in (0, 1095259458)
+                or not {"providers", "provider_sources"}.issubset(tables)
+                or tables.intersection({"settings", "provider_endpoints", "proxy_config", "mcp_servers"})):
+            raise RuntimeError("Database is not a Hub provider store; import external sources first")
+    finally:
+        conn.close()
+    return target
 
+
+def fix_subagent_model_overrides() -> tuple[list[str], list[str], Path]:
+    """Back up the Hub store, then remove persisted non-secret model pins."""
+    target = _doctor_hub_write_target()
+    backup_path = target.with_name(f"{target.name}.bak-doctor-fix-{time.time_ns()}")
     changed: list[str] = []
     invalid: list[str] = []
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(target.resolve().as_uri() + "?mode=rw", uri=True, timeout=10)
     try:
+        # SQLite backup includes committed WAL pages; copy2 would omit them.
+        fd = os.open(backup_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.close(fd)
+        with sqlite3.connect(backup_path) as backup:
+            conn.backup(backup)
         with conn:
             rows = conn.execute(
                 "SELECT id, app_type, name, settings_config FROM providers ORDER BY app_type, sort_index"

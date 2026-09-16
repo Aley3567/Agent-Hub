@@ -1332,6 +1332,7 @@ class LauncherTuiLogicTests(unittest.TestCase):
             env = isolated_env(home)
             db_path = Path(env["CLAUDE1_DB_PATH"])
             db_path.parent.mkdir(parents=True)
+            env["AGENT_HUB_PROVIDER_DB"] = str(db_path)
             dirty = json.dumps(
                 {
                     "env": {
@@ -1341,6 +1342,7 @@ class LauncherTuiLogicTests(unittest.TestCase):
                 }
             )
             with sqlite3.connect(db_path) as connection:
+                connection.execute("CREATE TABLE provider_sources (id TEXT, app_type TEXT, source TEXT, imported_at INTEGER)")
                 connection.execute(
                     "CREATE TABLE providers ("
                     "id TEXT, name TEXT, settings_config TEXT, "
@@ -1396,10 +1398,12 @@ class LauncherTuiLogicTests(unittest.TestCase):
             env = isolated_env(home)
             db_path = Path(env["CLAUDE1_DB_PATH"])
             db_path.parent.mkdir(parents=True)
+            env["AGENT_HUB_PROVIDER_DB"] = str(db_path)
             dirty = json.dumps(
                 {"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "pinned-model"}}
             )
             with sqlite3.connect(db_path) as connection:
+                connection.execute("CREATE TABLE provider_sources (id TEXT, app_type TEXT, source TEXT, imported_at INTEGER)")
                 connection.execute(
                     "CREATE TABLE providers ("
                     "id TEXT, name TEXT, settings_config TEXT, "
