@@ -7,6 +7,8 @@ pub const SERVICE: &str = "claude-hub";
 pub const VERSION: u32 = 1;
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialError {

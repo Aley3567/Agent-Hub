@@ -70,7 +70,9 @@
 |---|---|---|---|
 | C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
 | C1 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
-| C2 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
+| C2 代码已落地，原生未验收 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
+
+**C2 代码证据（2026-09-16）**：新增 Credential Manager 原生 FFI，UTF-16 target 与 Python 使用相同 service:reference；处理 read/create/delete、2560-byte 限制、NotFound/Denied/Locked，写后读回校验。Windows target 的 adapter 独立 metadata typecheck 通过（绕开本机缺失 Windows SQLite SDK 的全图编译阻碍）；未在 Windows 执行、不启用 Windows 迁移。
 
 **D 读取实现（2026-09-16）**：Claude 选中渠道/账号池/transport/probe、Codex auth/profile、Hub 快照均读取同一引用合同；引用缺失只在 DB 引用变化时重读一次，其他错误不降级。doctor fix 只修改持久元数据并使用复合身份。正常快照不逐请求读 OS，错误快照按需 2 秒退避后再刷新。Python 全量 999 项 + 新增真实 DB/reader 集成 5 项通过。A2 实际 CLI 暂确认 `/dev/fd` 管道被 2.1.261 以 Not a regular file 拒绝；不因此剥离现有高优先级认证，临时文件零明文目标仍未验收，未启用真实迁移。
 
