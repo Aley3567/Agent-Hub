@@ -4,6 +4,7 @@
  * 取不到就显示「未检测到」并说清影响，绝不显示空白，也绝不填一个看起来像真的默认值
  * （app_env 在 Rust 侧就是这个口径：检测不到给 false / null）。
  */
+import { t } from '../../../i18n';
 import { StatusDot } from '../../../components';
 import styles from './EnvRow.module.css';
 
@@ -26,7 +27,7 @@ export default function EnvRow({ label, value, missingImpact, mono = false, dot 
       <dd className={styles.value}>
         {value === null ? (
           <>
-            <StatusDot tone="fail">未检测到</StatusDot>
+            <StatusDot tone="fail">{t("未检测到")}</StatusDot>
             <span className={styles.impact}>{missingImpact}</span>
           </>
         ) : dot ? (

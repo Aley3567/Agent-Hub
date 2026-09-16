@@ -7,6 +7,7 @@
  *   3. 视图按 CONTRACT.md 第 6.1 节的固定路由表 lazy 加载，Suspense 兜底是顶部 1px accent
  *      进度线，不用骨架屏（DESIGN.md 第 2.5 节）。
  */
+import { t, useLocale } from './i18n';
 import { Suspense, lazy, useEffect, useMemo, useRef } from 'react';
 import type { ComponentType } from 'react';
 import { Button } from './components';
@@ -41,6 +42,7 @@ const LAZY_VIEWS = {
 } satisfies Record<ViewId, ComponentType>;
 
 export default function App() {
+  const language = useLocale((state) => state.language);
   const view = useNav((state) => state.view);
   const paletteOpen = useNav((state) => state.paletteOpen);
 
@@ -74,35 +76,35 @@ export default function App() {
     const noticed = doctorChecks.filter((check) => check.level === 'info').length;
     announce(
       failed === 0 && noticed === 0
-        ? `体检完成：${doctorChecks.length} 项全部通过`
-        : `体检完成：共 ${doctorChecks.length} 项，失败 ${failed} 项，提醒 ${noticed} 项`,
+        ? t("体检完成：{0} 项全部通过", [doctorChecks.length])
+        : t("体检完成：共 {0} 项，失败 {1} 项，提醒 {2} 项", [doctorChecks.length, failed, noticed]),
     );
-  }, [announce, doctorChecks]);
+  }, [announce, doctorChecks, language]);
 
   const countText = useMemo<string | null>(() => {
     switch (view) {
       case 'chat':
-        return `${chatSessionCount} 个会话`;
+        return t("{0} 个会话", [chatSessionCount]);
       case 'channels':
-        return `${channelCount} 个渠道`;
+        return t("{0} 个渠道", [channelCount]);
       case 'slots':
-        return `${hubCount} 个 hub`;
+        return t("{0} 个 hub", [hubCount]);
       case 'usage':
-        return turns === null ? null : `${turns} 个回合`;
+        return turns === null ? null : t("{0} 条用量记录", [turns]);
       case 'diagnostics':
-        return `${errorCount} 条错误`;
+        return t("{0} 条错误", [errorCount]);
       case 'accounts':
-        return `${poolCount} 个账号池`;
+        return t("{0} 个账号池", [poolCount]);
       case 'doctor':
-        return `${doctorChecks.length} 项检查`;
+        return t("{0} 项检查", [doctorChecks.length]);
       case 'plugins':
-        return `${pluginCount} 个插件`;
+        return t("{0} 个插件", [pluginCount]);
       case 'tasks':
-        return `${taskCount} 个任务`;
+        return t("{0} 个任务", [taskCount]);
       case 'settings':
         return null;
     }
-  }, [channelCount, chatSessionCount, doctorChecks.length, errorCount, hubCount, pluginCount, poolCount, taskCount, turns, view]);
+  }, [language, channelCount, chatSessionCount, doctorChecks.length, errorCount, hubCount, pluginCount, poolCount, taskCount, turns, view]);
 
   const meta = VIEW_META[view];
   const CurrentView = LAZY_VIEWS[view];
@@ -124,10 +126,8 @@ export default function App() {
                 icon="refresh"
                 loading={busy}
                 onClick={() => void refreshView(view)}
-                title="刷新本视图数据 Ctrl+R"
-              >
-                刷新
-              </Button>
+                title={t("刷新本视图数据 Ctrl+R")}
+              >{t("刷新")}</Button>
             }
           />
           <div className={styles.scroll}>

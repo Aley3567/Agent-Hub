@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * Windows 标题栏。窗口是 decorations false，系统不再画标题栏，所以这里必须自绘
  * （DESIGN.md 第 5 节 Windows 列）：高 32px，左侧 12px 放应用名，右侧是最小化 /
@@ -60,7 +61,7 @@ function CaptionButton({ action, icon, label, danger, disabled, onFailure }: Cap
           ? win.toggleMaximize()
           : win.close();
     void task.catch((error: unknown) => {
-      onFailure(`${ACTION_LABEL[action]}失败：${describe(error)}`);
+      onFailure(t("{0}失败：{1}", [t(ACTION_LABEL[action]), describe(error)]));
     });
   };
 
@@ -70,7 +71,7 @@ function CaptionButton({ action, icon, label, danger, disabled, onFailure }: Cap
       className={cx(styles.caption, danger && styles.captionClose)}
       aria-label={label}
       disabled={disabled}
-      title={disabled ? OFFLINE_HINT : undefined}
+      title={disabled ? t(OFFLINE_HINT) : undefined}
       onClick={onClick}
     >
       <Icon name={icon} />
@@ -95,7 +96,7 @@ export default function TitleBar() {
         })
         .catch((error: unknown) => {
           // 读不到最大化状态只影响图标该画哪个，不该把整条标题栏拖down，但也不静默
-          if (alive) announce(`读取窗口最大化状态失败：${describe(error)}`);
+          if (alive) announce(t("读取窗口最大化状态失败：{0}", [describe(error)]));
         });
     };
     sync();
@@ -110,7 +111,7 @@ export default function TitleBar() {
     <header className={styles.bar}>
       <div className={styles.drag} data-tauri-drag-region>
         <span className={styles.title} data-tauri-drag-region>
-          Agent Hub · {VIEW_META[view].title}
+          Agent Hub · {t(VIEW_META[view].title)}
         </span>
       </div>
 
@@ -118,7 +119,7 @@ export default function TitleBar() {
         <CaptionButton
           action="minimize"
           icon="win-minimize"
-          label="最小化"
+          label={t("最小化")}
           danger={false}
           disabled={isOffline}
           onFailure={announce}
@@ -126,7 +127,7 @@ export default function TitleBar() {
         <CaptionButton
           action="toggleMaximize"
           icon={maximized ? 'win-restore' : 'win-maximize'}
-          label={maximized ? '向下还原' : '最大化'}
+          label={maximized ? t("向下还原") : t("最大化")}
           danger={false}
           disabled={isOffline}
           onFailure={announce}
@@ -134,7 +135,7 @@ export default function TitleBar() {
         <CaptionButton
           action="close"
           icon="win-close"
-          label="关闭"
+          label={t("关闭")}
           danger
           disabled={isOffline}
           onFailure={announce}
