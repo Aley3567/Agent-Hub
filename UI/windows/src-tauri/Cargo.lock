@@ -338,6 +338,7 @@ name = "claude1-desktop"
 version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",
+ "fs2",
  "provider-store",
  "rusqlite",
  "serde",

@@ -1,3 +1,4 @@
+import { t, bilingual as b } from '../../../i18n';
 import { channelKey } from '../../../types/contract';
 /**
  * 新建 / 编辑计划任务的对话框（Dialog 最大宽 520，DESIGN.md 4.1）。
@@ -11,7 +12,7 @@ import { channelKey } from '../../../types/contract';
  * 校验分工：前端只拦「空名称 / 字段数不对 / 没选渠道」这类一眼可判的输入，cron 是否合法、
  * nextRunAt 是多少一律由后端裁定；后端的中文错误原文走 toast.error，不改写。
  */
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Button, Dialog, Field, Input, SegmentedControl, Select, Switch } from '../../../components';
 import { errorText, useApp } from '../../../store';
 import { useToast } from '../../../store/toast';
@@ -62,6 +63,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   const [schedule, setSchedule] = useState('');
   const [enabled, setEnabled] = useState(true);
   const [errors, setErrors] = useState<FormErrors>({});
+  const inFlight = useRef(false);
   const [submitting, setSubmitting] = useState(false);
 
   const nameId = useId();
@@ -90,17 +92,17 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   const channelOptions = channels.map((channel) => ({ value: channelKey(channel), label: `${channel.name} · ${channel.appType}` }));
   const hubOptions = hubs.map((hub) => ({
     value: hub.name,
-    label: hub.isDefault ? `${hub.name}（默认）` : hub.name,
+    label: hub.isDefault ? `${hub.name} (${b("默认", "default")})` : hub.name,
   }));
 
   /** 前端只拦一眼可判的输入；cron 语义与下次运行时间仍由后端算（DESIGN.md 4.7 分工） */
   function validate(): FormErrors {
     const next: FormErrors = {};
-    if (name.trim() === '') next.name = '任务名称不能为空。';
+    if (name.trim() === '') next.name = t("任务名称不能为空。");
     if (schedule.trim().split(/\s+/).length !== 5) {
-      next.schedule = `cron 表达式需要五个字段（分 时 日 月 周），例如 ${CRON_PLACEHOLDER}。`;
+      next.schedule = b(`cron 需要五个字段，例如 ${CRON_PLACEHOLDER}。`, `Cron needs five fields, for example ${CRON_PLACEHOLDER}.`);
     }
-    if (kind === 'launch-channel' && channelId === '') next.channel = '选择要到点启动的渠道。';
+    if (kind === 'launch-channel' && channelId === '') next.channel = t("选择要到点启动的渠道。");
     return next;
   }
 
@@ -113,9 +115,11 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   }
 
   async function handleSubmit() {
+    if (inFlight.current) return;
     const next = validate();
     setErrors(next);
     if (Object.keys(next).length > 0) return;
+    inFlight.current = true;
     setSubmitting(true);
     try {
       if (task === null) {
@@ -126,16 +130,17 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
           schedule: schedule.trim(),
           enabled,
         });
-        toastSuccess(`已创建计划任务「${name.trim()}」。`);
+        toastSuccess(b(`已创建「${name.trim()}」。`, `Created “${name.trim()}”.`));
       } else {
         await updateTask(task.id, { name: name.trim(), schedule: schedule.trim(), enabled });
-        toastSuccess(`已保存「${name.trim()}」的修改。`);
+        toastSuccess(b(`已保存「${name.trim()}」。`, `Saved “${name.trim()}”.`));
       }
       onClose();
     } catch (cause) {
       // 后端的中文错误原文直接进 toast（AGENTS.md：错误原样暴露）
       toastError(errorText(cause));
     } finally {
+      inFlight.current = false;
       setSubmitting(false);
     }
   }
@@ -143,17 +148,17 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   return (
     <Dialog
       open={open}
-      onClose={onClose}
-      title={editing ? '编辑计划任务' : '新建计划任务'}
+      onClose={() => { if (!inFlight.current) onClose(); }}
+      title={editing ? t("编辑计划任务") : t("新建计划任务")}
       description={
         editing
-          ? '修改名称、cron 表达式或启用状态；下次运行时间由后端按新 cron 重算。'
-          : '到点启动一个渠道 / 槽位会话，或给自己一条体检提醒。'
+          ? t("修改名称、cron 表达式或启用状态；下次运行时间由后端按新 cron 重算。")
+          : t("到点启动一个渠道 / 槽位会话，或给自己一条体检提醒。")
       }
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose} disabled={submitting}>
-            取消
+            {t("取消")}
           </Button>
           <Button
             variant="primary"
@@ -162,42 +167,42 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
             loading={submitting}
             onClick={() => void handleSubmit()}
           >
-            {editing ? '保存修改' : '创建任务'}
+            {editing ? t("保存修改") : t("创建任务")}
           </Button>
         </>
       }
     >
       <div className={styles.form}>
-        <Field label="名称" required error={errors.name ?? null} htmlFor={nameId}>
+        <Field label={t("名称")} required error={errors.name ?? null} htmlFor={nameId}>
           <Input
             id={nameId}
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="例如：工作日早上开官方渠道"
+            placeholder={t("例如：工作日早上开官方渠道")}
             disabled={submitting}
           />
         </Field>
 
         <Field
-          label="类型"
-          hint={editing ? '类型与目标创建后不可修改，需要变化请删除后新建。' : undefined}
+          label={t("类型")}
+          hint={editing ? t("类型与目标创建后不可修改，需要变化请删除后新建。") : undefined}
         >
           <SegmentedControl
-            options={KIND_OPTIONS}
+            options={KIND_OPTIONS.map(option => ({ ...option, label: t(option.label) }))}
             value={kind}
             onChange={setKind}
             disabled={editing || submitting}
             fullWidth
-            aria-label="任务类型"
+            aria-label={t("任务类型")}
           />
         </Field>
 
         {kind === 'launch-channel' ? (
-          <Field label="渠道" required error={errors.channel ?? null} htmlFor={channelSelectId}>
+          <Field label={t("渠道")} required error={errors.channel ?? null} htmlFor={channelSelectId}>
             <Select
               id={channelSelectId}
               options={channelOptions}
-              placeholder="选择渠道"
+              placeholder={t("选择渠道")}
               value={channelId}
               onChange={(event) => setChannelId(event.target.value)}
               disabled={editing || submitting}
@@ -207,17 +212,17 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
 
         {kind === 'launch-slot' ? (
           <>
-            <Field label="Hub" hint="不选则使用默认 hub。" htmlFor={hubSelectId}>
+            <Field label="Hub" hint={t("不选则使用默认 hub。")} htmlFor={hubSelectId}>
               <Select
                 id={hubSelectId}
                 options={hubOptions}
-                placeholder="默认 hub"
+                placeholder={t("默认 hub")}
                 value={hubName}
                 onChange={(event) => setHubName(event.target.value)}
                 disabled={editing || submitting}
               />
             </Field>
-            <Field label="槽位" required htmlFor={slotSelectId}>
+            <Field label={t("槽位")} required htmlFor={slotSelectId}>
               <Select
                 id={slotSelectId}
                 mono
@@ -231,10 +236,10 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
         ) : null}
 
         <Field
-          label="cron 表达式"
+          label={t("cron 表达式")}
           required
           error={errors.schedule ?? null}
-          hint="五个字段：分 时 日 月 周。是否合法与下次运行时间由后端计算，前端不推算。"
+          hint={t("五个字段：分 时 日 月 周。是否合法与下次运行时间由后端计算，前端不推算。")}
           htmlFor={scheduleId}
         >
           <Input
@@ -247,13 +252,13 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
           />
         </Field>
 
-        <Field label="启用">
+        <Field label={t("启用")}>
           <Switch
             checked={enabled}
             onChange={setEnabled}
             disabled={submitting}
-            label={enabled ? '到点触发' : '先保存为停用状态'}
-            aria-label="启用该任务"
+            label={enabled ? t("到点触发") : t("先保存为停用状态")}
+            aria-label={t("启用该任务")}
           />
         </Field>
       </div>

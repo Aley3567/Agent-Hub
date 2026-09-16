@@ -1,128 +1,45 @@
-/**
- * 单张计划任务卡片（DESIGN.md 4.7 的固定结构）：
- *   头部：名称 + kind Badge，右上「下次运行」倒计时；
- *   正文：scheduleText 人话一行 + cron 原串（mono，不隐藏）；
- *   底部：上次运行时间 + 启用 Switch + 编辑 / 删除 IconButton。
- *
- * 到点未跑显示「已错过」配琥珀 StatusDot——任务是错过，不是失败，所以不用红。
- * 启停切换直通 store 的 updateTask，失败原因原文走 toast。
- */
-import { useState } from 'react';
-import { Badge, Card, IconButton, StatusDot, Switch } from '../../../components';
-import { formatCountdown, formatRelative, formatTime } from '../../../lib';
+import { useRef, useState } from 'react';
+import { Icon, IconButton, Switch } from '../../../components';
+import { bilingual as b, useLocale } from '../../../i18n';
 import { errorText, useApp } from '../../../store';
 import { useToast } from '../../../store/toast';
 import type { Channel, HubConfig, ScheduledTask } from '../../../types/contract';
-import { KIND_LABEL, KIND_TONE } from '../taskLabels';
 import styles from './TaskCard.module.css';
-
 interface TaskCardProps {
-  task: ScheduledTask;
-  channels: Channel[];
-  hubs: HubConfig[];
-  /** 一屏共用的基准时刻（unix 秒），由视图层定时刷新 */
-  now: number;
-  onEdit: (task: ScheduledTask) => void;
-  onDelete: (task: ScheduledTask) => void;
+  task: ScheduledTask; channels: Channel[]; hubs: HubConfig[]; now: number;
+  onEdit(task: ScheduledTask): void; onDelete(task: ScheduledTask): void;
 }
-
-/** 目标的一行人话；doctor-reminder 没有目标，返回 null 不渲染这一行 */
-function targetText(task: ScheduledTask, channels: Channel[], hubs: HubConfig[]): string | null {
-  const target = task.target;
-  if (task.kind === 'doctor-reminder' || target === null) return null;
-  if (target.kind === 'channel') {
-    const channel = channels.find((item) => item.id === target.channelId && item.appType === (target.appType ?? 'claude'));
-    if (channel) return `渠道 · ${channel.name}`;
-    return `渠道 · ${target.channelId ?? '未设置'}（不在当前渠道列表中）`;
-  }
-  const hubName = target.hubName ?? hubs.find((hub) => hub.isDefault)?.name ?? '默认 hub';
-  return `槽位 · ${hubName} · ${target.slot ?? '未设置'}`;
-}
-
-/** 右上角倒计时区：停用 / 无法解析 / 已错过 / 正常倒计时四种呈现 */
-function NextRun({ task, now }: { task: ScheduledTask; now: number }) {
-  if (!task.enabled) {
-    return <StatusDot status="off">已停用</StatusDot>;
-  }
-  if (task.nextRunAt === null) {
-    // enabled 却拿不到 nextRunAt：后端没能解析这条 cron，如实说出原因
-    return <StatusDot status="warn">无法解析</StatusDot>;
-  }
-  if (task.nextRunAt <= now) {
-    return <StatusDot status="warn">已错过</StatusDot>;
-  }
-  return (
-    <span className={styles.nextValue} title={`下次运行：${formatTime(task.nextRunAt)}`}>
-      {formatCountdown(task.nextRunAt, now)}
-    </span>
-  );
-}
-
 export default function TaskCard({ task, channels, hubs, now, onEdit, onDelete }: TaskCardProps) {
-  const updateTask = useApp((state) => state.updateTask);
-  const toastError = useToast((state) => state.error);
-  const [toggleBusy, setToggleBusy] = useState(false);
-
-  async function handleToggle(enabled: boolean) {
-    setToggleBusy(true);
-    try {
-      await updateTask(task.id, { enabled });
-    } catch (cause) {
-      // 开关失败要让人知道：原因原文进 toast，开关状态由 refresh 回到真实值
-      toastError(errorText(cause));
-    } finally {
-      setToggleBusy(false);
-    }
+  const language = useLocale(state => state.language);
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  async function toggle(enabled: boolean) {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true);
+    try { await useApp.getState().updateTask(task.id, { enabled }); }
+    catch (cause) { useToast.getState().error(errorText(cause)); }
+    finally { inFlight.current = false; setBusy(false); }
   }
-
-  const target = targetText(task, channels, hubs);
-
-  return (
-    <Card
-      aria-label={`计划任务：${task.name}`}
-      header={
-        <>
-          <div className={styles.titleRow}>
-            <span className={styles.name}>{task.name}</span>
-            <Badge tone={KIND_TONE[task.kind]} mono={false}>
-              {KIND_LABEL[task.kind]}
-            </Badge>
-          </div>
-          <div className={styles.next}>
-            <span className={styles.nextLabel}>下次运行</span>
-            <NextRun task={task} now={now} />
-          </div>
-        </>
-      }
-      footer={
-        <>
-          <span className={styles.meta}>
-            {task.lastRunAt === null ? '还没运行过' : `上次运行 ${formatRelative(task.lastRunAt, now)}`}
-          </span>
-          <span className={styles.actions}>
-            <Switch
-              checked={task.enabled}
-              disabled={toggleBusy}
-              onChange={(enabled) => void handleToggle(enabled)}
-              aria-label={`${task.enabled ? '停用' : '启用'}「${task.name}」`}
-            />
-            <IconButton icon="edit" aria-label={`编辑「${task.name}」`} onClick={() => onEdit(task)} />
-            <IconButton
-              icon="trash"
-              variant="danger"
-              aria-label={`删除「${task.name}」`}
-              onClick={() => onDelete(task)}
-            />
-          </span>
-        </>
-      }
-    >
-      <div className={styles.stack}>
-        <p className={styles.schedule}>{task.scheduleText}</p>
-        {/* cron 原串不隐藏：人话在前、原串在后，同降级码的呈现原则（DESIGN.md 4.4） */}
-        <p className={styles.cron}>{task.schedule}</p>
-        {target === null ? null : <p className={styles.target}>{target}</p>}
-      </div>
-    </Card>
-  );
+  const target = task.target;
+  const channel = channels.find(item => item.id === target?.channelId && item.appType === (target?.appType ?? 'claude'));
+  const targetText = target?.kind === 'channel' ? `${target.appType ?? 'claude'} · ${channel?.name ?? target.channelId}`
+    : target?.kind === 'slot' ? `${target.hubName ?? hubs.find(h => h.isDefault)?.name ?? 'default'} · ${target.slot}`
+    : b('本机体检提醒', 'Local diagnostic reminder');
+  const next = !task.enabled ? b('已暂停', 'Paused') : task.nextRunAt === null ? b('时间表达式无效', 'Invalid schedule')
+    : task.nextRunAt <= now ? b('等待调度', 'Awaiting scheduler') : `${b('下次', 'Next')} ${new Date(task.nextRunAt * 1000).toLocaleString(language)}`;
+  const status = { unconfirmed: b('结果未确认，不自动重试', 'Unconfirmed; no automatic retry'), dispatched: b('会话已派发', 'Session dispatched'), reminded: b('提醒已触发', 'Reminder triggered'), failed: b('执行失败', 'Dispatch failed') };
+  return <article className={styles.row} aria-label={task.name}>
+    <span className={task.lastRunStatus === 'failed' ? styles.failed : styles.symbol}><Icon name={task.lastRunStatus === 'failed' ? 'warning' : task.lastRunStatus === 'dispatched' || task.lastRunStatus === 'reminded' ? 'check' : 'clock'} size={20} /></span>
+    <div className={styles.main}>
+      <button className={styles.title} type="button" onClick={() => onEdit(task)}>{task.name}</button>
+      <p>{targetText} · {next}</p>
+      <p title={task.scheduleText}><code>{task.schedule}</code>{task.lastRunStatus ? ` · ${status[task.lastRunStatus]}` : ''}{task.lastRunAt ? ` · ${new Date(task.lastRunAt * 1000).toLocaleString(language)}` : ''}</p>
+      {task.lastRunMessage ? <p className={task.lastRunStatus === 'failed' ? styles.failed : undefined}>{task.lastRunMessage}</p> : null}
+    </div>
+    <div className={styles.actions}>
+      <Switch checked={task.enabled} disabled={busy} onChange={value => void toggle(value)} aria-label={`${b('启用任务', 'Enable task')} ${task.name}`} />
+      <IconButton icon="edit" aria-label={`${b('编辑', 'Edit')} ${task.name}`} onClick={() => onEdit(task)} />
+      <IconButton icon="trash" variant="danger" aria-label={`${b('删除', 'Delete')} ${task.name}`} onClick={() => onDelete(task)} />
+    </div>
+  </article>;
 }

@@ -31,3 +31,5 @@
   gap: var(--sp-4);
   min-width: 0;
 }
+
+.note { margin: 0; color: var(--text-secondary); font-size: var(--fs-12); line-height: 1.7; }

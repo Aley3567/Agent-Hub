@@ -1,4 +1,4 @@
-//! 计划任务（ScheduledTask）的本地 CRUD。
+//! 计划任务 CRUD 与应用运行期间的持久认领调度。
 //!
 //! 持久化到 `agent-hub-tasks.json`（CONTRACT.md §1：顶层是任务对象数组，
 //! 原子替换写入，每个任务条目里的未知键原样保留——所以落盘用原始 JSON 地图操作，
@@ -35,8 +35,10 @@ pub struct ScheduledTask {
     /// schedule 的中文人话
     pub schedule_text: String,
     pub enabled: bool,
-    /// unix 秒，未跑过为 None（执行层本轮不做，只透传已有值）
+    /// Last dispatch attempt, not model-session completion.
     pub last_run_at: Option<i64>,
+    pub last_run_status: Option<String>,
+    pub last_run_message: Option<String>,
     /// unix 秒，按 cron 现算；disabled 或表达式无法解析时为 None
     pub next_run_at: Option<i64>,
     pub created_at: i64,
@@ -103,10 +105,13 @@ fn load_entries() -> Result<Vec<Map<String, Value>>, String> {
 fn write_entries(entries: &[Map<String, Value>]) -> Result<(), String> {
     let path = paths::tasks_path()?;
     let value = Value::Array(entries.iter().map(|entry| Value::Object(entry.clone())).collect());
-    paths::write_json_atomic(&path, &value)
+    paths::write_json_atomic(&path, &value)?;
+    #[cfg(unix)]
+    std::fs::File::open(path.parent().ok_or("任务路径缺少父目录")?).and_then(|file| file.sync_all()).map_err(|e| format!("任务目录落盘失败：{e}"))?;
+    Ok(())
 }
 
-fn now_ts() -> i64 {
+pub fn now_ts() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|span| span.as_secs() as i64)
@@ -272,6 +277,8 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
         schedule_text,
         enabled,
         last_run_at,
+        last_run_status: entry.get("lastRunStatus").and_then(Value::as_str).map(str::to_string),
+        last_run_message: entry.get("lastRunMessage").and_then(Value::as_str).map(crate::redact::redact_text),
         next_run_at,
         created_at,
     })
@@ -306,6 +313,7 @@ pub fn create_task(task: NewScheduledTask) -> Result<ScheduledTask, String> {
     entry.insert("lastRunAt".into(), Value::Null);
     entry.insert("createdAt".into(), Value::from(now_ts()));
 
+    let _lock = task_lock()?;
     let mut entries = load_entries()?;
     entries.push(entry);
     write_entries(&entries)?;
@@ -313,6 +321,7 @@ pub fn create_task(task: NewScheduledTask) -> Result<ScheduledTask, String> {
 }
 
 pub fn update_task(id: &str, patch: TaskPatch) -> Result<ScheduledTask, String> {
+    let _lock = task_lock()?;
     let mut entries = load_entries()?;
     let index = entries
         .iter()
@@ -320,6 +329,9 @@ pub fn update_task(id: &str, patch: TaskPatch) -> Result<ScheduledTask, String> 
         .ok_or_else(|| format!("找不到计划任务：{id}"))?;
     let entry = &mut entries[index];
 
+    if patch.schedule.is_some() || patch.enabled == Some(true) {
+        entry.insert("armedAt".into(), Value::from(now_ts()));
+    }
     if let Some(name) = patch.name {
         let name = name.trim().to_string();
         if name.is_empty() {
@@ -342,6 +354,7 @@ pub fn update_task(id: &str, patch: TaskPatch) -> Result<ScheduledTask, String> 
 }
 
 pub fn delete_task(id: &str) -> Result<(), String> {
+    let _lock = task_lock()?;
     let mut entries = load_entries()?;
     let before = entries.len();
     entries.retain(|entry| entry.get("id").and_then(Value::as_str) != Some(id));
@@ -349,6 +362,92 @@ pub fn delete_task(id: &str) -> Result<(), String> {
         return Err(format!("找不到计划任务：{id}"));
     }
     write_entries(&entries)
+}
+
+/// The lock is shared by CRUD and occurrence claims, including other app processes.
+fn task_lock() -> Result<std::fs::File, String> {
+    use fs2::FileExt;
+    let path = paths::tasks_path()?.with_extension("json.lock");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| error::io_error("创建任务目录 ", parent, &e))?;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).read(true).write(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(&path).map_err(|e| error::io_error("打开任务锁 ", &path, &e))?;
+    file.try_lock_exclusive().map_err(|_| "任务文件正在更新，请稍后重试".to_string())?;
+    Ok(file)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRun {
+    pub task_id: String,
+    pub name: String,
+    pub kind: String,
+    pub occurrence_at: i64,
+    pub status: String,
+    pub message: String,
+}
+
+/// At most one dispatch attempt per occurrence. No startup, sleep-gap or rollback catch-up.
+/// A durable `unconfirmed` claim is never retried: a crash may occur after terminal handoff.
+/// A pause after claim cannot recall a dispatch already accepted by this function.
+pub fn run_due(
+    previous: i64,
+    now: i64,
+    mut dispatch: impl FnMut(&ScheduledTask) -> Result<String, String>,
+) -> Result<Vec<TaskRun>, String> {
+    if now <= previous || now - previous > 60 || !paths::tasks_path()?.exists() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<String> = load_entries()?.iter().filter_map(|e| e.get("id")?.as_str().map(str::to_string)).collect();
+    let mut runs = Vec::new();
+    for id in ids {
+        let claim = {
+            let _lock = task_lock()?;
+            let mut entries = load_entries()?;
+            let Some(index) = entries.iter().position(|e| e.get("id").and_then(Value::as_str) == Some(&id)) else { continue };
+            let entry = &mut entries[index];
+            if entry.get("enabled").and_then(Value::as_bool) != Some(true) { continue; }
+            let Ok(task) = build_view(entry) else { continue };
+            // Display degradation must never turn an unknown kind into executable work.
+            if entry.get("kind").and_then(Value::as_str) != Some(task.kind.as_str()) { continue; }
+            if validate(&task.name, &task.kind, task.target.as_ref(), &task.schedule).is_err() { continue; }
+            let schedule = cron::parse(&task.schedule)?;
+            let after = previous.max(entry.get("armedAt").and_then(Value::as_i64).unwrap_or(task.created_at));
+            let Some(due) = cron::next_run(&schedule, after) else { continue };
+            if due > now || entry.get("lastClaimAt").and_then(Value::as_i64).is_some_and(|claimed| claimed >= due) { continue; }
+            entry.insert("lastClaimAt".into(), Value::from(due));
+            entry.insert("lastRunAt".into(), Value::from(now));
+            entry.insert("lastRunStatus".into(), Value::from("unconfirmed"));
+            entry.insert("lastRunMessage".into(), Value::from("已认领；若应用中断，结果无法确认，不自动重试"));
+            write_entries(&entries)?; // If durability fails, no side effect is allowed.
+            (task, due)
+        };
+        let (task, due) = claim;
+        let (status, message) = match dispatch(&task) {
+            Ok(message) => (if task.kind == "doctor-reminder" { "reminded" } else { "dispatched" }, message),
+            Err(message) => ("failed", crate::redact::redact_text(&message)),
+        };
+        // Merge into fresh data: concurrent pause/edit/delete must never be undone.
+        {
+            let _lock = task_lock()?;
+            let mut entries = load_entries()?;
+            if let Some(entry) = entries.iter_mut().find(|e| e.get("id").and_then(Value::as_str) == Some(&id)) {
+                if entry.get("lastClaimAt").and_then(Value::as_i64) == Some(due) {
+                    entry.insert("lastRunStatus".into(), Value::from(status));
+                    entry.insert("lastRunMessage".into(), Value::from(message.clone()));
+                    write_entries(&entries)?;
+                }
+            }
+        }
+        runs.push(TaskRun { task_id: id, name: task.name, kind: task.kind, occurrence_at: due, status: status.into(), message });
+    }
+    Ok(runs)
 }
 
 #[cfg(test)]
@@ -390,6 +489,97 @@ mod tests {
             schedule: schedule.to_string(),
             enabled: true,
         }
+    }
+
+    fn due_fixture() -> (ScheduledTask, i64) {
+        let task = create_task(new_task("synthetic", "doctor-reminder", "* * * * *")).unwrap();
+        (task, (now_ts() / 60 + 2) * 60)
+    }
+
+    #[test]
+    fn scheduler_claims_once_and_preserves_concurrent_pause_and_unknown_fields() {
+        let _env = TasksEnv::new("scheduler-once");
+        let (task, due) = due_fixture();
+        let mut entries = load_entries().unwrap();
+        entries[0].insert("futureKey".into(), Value::from(42));
+        write_entries(&entries).unwrap();
+        let runs = run_due(due - 1, due, |_| {
+            update_task(&task.id, TaskPatch { enabled: Some(false), schedule: None, name: Some("renamed".into()) }).unwrap();
+            Ok("reminder stored".into())
+        }).unwrap();
+        assert_eq!(runs.len(), 1);
+        let raw = load_entries().unwrap();
+        assert_eq!(raw[0]["futureKey"], 42);
+        assert_eq!(raw[0]["enabled"], false);
+        assert_eq!(raw[0]["name"], "renamed");
+        assert_eq!(raw[0]["lastRunStatus"], "reminded");
+        assert!(run_due(due - 1, due, |_| panic!("duplicate")).unwrap().is_empty());
+        assert!(run_due(due + 1, due, |_| panic!("clock rollback")).unwrap().is_empty());
+        assert!(run_due(due, due + 120, |_| panic!("sleep catch-up")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn scheduler_failed_and_interrupted_attempts_are_not_retried() {
+        let _env = TasksEnv::new("scheduler-failure");
+        let (_, due) = due_fixture();
+        let runs = run_due(due - 1, due, |_| Err("synthetic dispatch failure".into())).unwrap();
+        assert_eq!(runs[0].status, "failed");
+        assert!(run_due(due - 1, due, |_| panic!("retry")).unwrap().is_empty());
+        let interrupted = std::panic::catch_unwind(|| run_due(due + 59, due + 60, |_| panic!("crash after claim")));
+        assert!(interrupted.is_err());
+        assert_eq!(load_entries().unwrap()[0]["lastRunStatus"], "unconfirmed");
+        assert!(run_due(due + 59, due + 60, |_| panic!("crash retry")).unwrap().is_empty());
+        assert!(run_due(due + 60, due + 60, |_| panic!("startup catch-up")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn scheduler_refuses_invalid_targets_paused_tasks_and_locked_writes() {
+        let _env = TasksEnv::new("scheduler-invalid");
+        let (task, due) = due_fixture();
+        let lock = task_lock().unwrap();
+        assert!(run_due(due - 1, due, |_| panic!("unpersisted claim")).is_err());
+        assert!(delete_task(&task.id).is_err());
+        drop(lock);
+        let baseline = load_entries().unwrap();
+        for (key, value) in [("kind", Value::from("future-kind")), ("schedule", Value::from("bad cron")), ("enabled", Value::from(false))] {
+            let mut entries = baseline.clone();
+            entries[0].insert(key.into(), value);
+            write_entries(&entries).unwrap();
+            assert!(run_due(due - 1, due, |_| panic!("invalid dispatch")).unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn completing_a_dispatch_cannot_restore_a_deleted_task_or_old_schedule() {
+        let _env = TasksEnv::new("scheduler-delete");
+        let (task, due) = due_fixture();
+        run_due(due - 1, due, |_| {
+            update_task(&task.id, TaskPatch { enabled: None, schedule: Some("0 9 * * *".into()), name: None }).unwrap();
+            Ok("synthetic".into())
+        }).unwrap();
+        assert_eq!(load_entries().unwrap()[0]["schedule"], "0 9 * * *");
+        let mut entries = load_entries().unwrap();
+        entries[0].insert("schedule".into(), Value::from("* * * * *"));
+        write_entries(&entries).unwrap();
+        run_due(due + 59, due + 60, |_| { delete_task(&task.id).unwrap(); Ok("synthetic".into()) }).unwrap();
+        assert!(list_tasks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn concurrent_scheduler_instances_dispatch_only_once() {
+        let _env = TasksEnv::new("scheduler-concurrent");
+        let (_, due) = due_fixture();
+        let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let handles: Vec<_> = (0..2).map(|_| {
+            let count = count.clone(); let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let _ = run_due(due - 1, due, |_| { count.fetch_add(1, Ordering::SeqCst); Ok("synthetic".into()) });
+            })
+        }).collect();
+        for handle in handles { handle.join().unwrap(); }
+        assert_eq!(count.load(Ordering::SeqCst), 1);
     }
 
     #[test]

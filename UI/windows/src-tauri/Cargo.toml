@@ -26,6 +26,8 @@ provider-store = { path = "../../../crates/provider-store" }
 dirs = "5"
 toml = "0.8"
 
+fs2 = "0.4"
+
 [profile.release]
 codegen-units = 1
 lto = "thin"
