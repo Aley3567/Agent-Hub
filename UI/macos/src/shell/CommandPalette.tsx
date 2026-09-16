@@ -73,6 +73,7 @@ const REFRESH_KEY_LABEL: Record<RefreshKey, string> = {
   errors: '错误流水',
   doctor: '体检',
   chat: '对话',
+  chatProjects: '历史项目',
   plugins: '插件',
   tasks: '计划任务',
 };

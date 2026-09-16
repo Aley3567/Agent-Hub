@@ -79,7 +79,7 @@ export default function SettingsView() {
           <p className={styles.brand}>Agent Hub</p>
           <p>{b('在本机管理 Claude Code 与 Codex 渠道。会话通过各自的命令行启动器运行。', 'Manage Claude Code and Codex providers locally. Sessions run through their respective command-line launchers.')}</p>
           <p>{b('凭证不会回传到界面。系统凭证迁移需要明确确认；启动仍可能使用受限临时认证文件。', 'Credentials are never returned to the interface. Moving legacy credentials to the system store requires confirmation; launching may still use restricted temporary authentication files.')}</p>
-          <p>{b('账号池只读；缺少价格时不估算费用。对话页目前使用演示数据。', 'Account pools are read-only. Costs are not estimated without prices. The chat page currently uses demo data.')}</p>
+          <p>{b('账号池只读；缺少价格时不估算费用。对话页的回复经本机 hub 发出，历史会话是 ~/.claude/projects 的只读回放。', 'Account pools are read-only. Costs are not estimated without prices. Chat replies go through the local hub; history sessions are read-only replays from ~/.claude/projects.')}</p>
         </div> : null}
       </section>)}
     </div>

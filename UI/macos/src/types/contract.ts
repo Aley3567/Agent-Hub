@@ -216,8 +216,8 @@ export interface DegradeEntry {
   severity: DegradeSeverity;
 }
 
-/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content）；
-    本轮为演示数据，后端 seam 在 IPC 层，未来直连 claude-hub 时签名与形状不变 */
+/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content），
+    后端 seam 在 IPC 层，签名与形状不随实现变化 */
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   /** 文本内容；进 IPC 前按 §1.2 过一遍凭证剥离 */
@@ -226,7 +226,7 @@ export interface ChatMessage {
   ts: number;
 }
 
-/** 对话会话。本轮只做 UI 骨架 + 演示数据，不接真实后端 */
+/** 对话会话。两类来源：`history` 是 `~/.claude/projects` 里的只读回放，`local` 可写、可真发送 */
 export interface ChatSession {
   id: string;
   title: string;
@@ -236,6 +236,41 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;    // unix 秒
   updatedAt: number;    // unix 秒
+  /** history = 只读回放；local = 可写、可真发送 */
+  source: 'history' | 'local';
+  /** 仅 local 有意义；null = 默认 hub */
+  hubName: string | null;
+  /** 仅 history 有意义 */
+  projectKey: string | null;
+}
+
+/** `~/.claude/projects` 下的一个可回放项目（一个目录 = 一份历史） */
+export interface ChatProject {
+  /** 目录名。不可逆，不是路径的反解 */
+  key: string;
+  /** 真实项目路径（后端从 jsonl 的 cwd 字段读出） */
+  path: string;
+  sessionCount: number;
+  updatedAt: number;    // unix 秒
+}
+
+/** `chat-stream` 事件：一段正文增量。requestId 标识这次发送，用于丢弃作废流的迟到增量 */
+export interface ChatStreamChunk { sessionId: string; requestId: string; delta: string; }
+
+/** `chat-stream-end` 事件：终态。`truncated` = 流干净结束但没有上游终止帧，不是成功 */
+export interface ChatStreamEnd {
+  sessionId: string;
+  requestId: string;
+  reason: 'stop' | 'truncated';
+  stopReason: string | null;
+}
+
+/** `chat-stream-error` 事件：失败原文（已脱敏）。sessionId/requestId 让前端把错误归因到
+    具体某次发送，不再靠「缓冲还在 = 这次还在途」猜 */
+export interface ChatStreamError {
+  sessionId: string;
+  requestId: string;
+  message: string;
 }
 
 /** Claude Code 配置扩展点（hooks / outputStyle / statusLine / permissions / mcp）。
@@ -256,6 +291,18 @@ export interface PluginItem {
   detail: string | null;
 }
 
+/** cron 串的结构化解释。Rust 侧算好再给前端，前端只在展示与选择器里复用它，
+    不自己解析 cron（DESIGN.md 4.7 分工）。认不出的写法原样落在 `unknown.raw`，
+    让界面把后端实际收到的串显示出来，而不是给一句含糊的「无效」。 */
+export type ScheduleSpec =
+  | { kind: 'hourly'; minute: number }
+  | { kind: 'daily'; minute: number; hour: number }
+  /** days：0 = 周日 … 6 = 周六，升序去重 */
+  | { kind: 'weekly'; minute: number; hour: number; days: number[] }
+  | { kind: 'monthly'; minute: number; hour: number; day: number }
+  | { kind: 'everyMinutes'; period: number }
+  | { kind: 'unknown'; raw: string };
+
 /** 计划任务：定时启动会话 / 定时体检提醒。桌面端只管本地任务清单（CRUD + 展示），
     持久化到 `agent-hub-tasks.json`；执行层本轮不做 */
 export interface ScheduledTask {
@@ -267,8 +314,10 @@ export interface ScheduledTask {
   target: LaunchTarget | null;
   /** cron 五字段字符串（分 时 日 月 周），解析与计算都在 Rust 侧 */
   schedule: string;
-  /** schedule 的中文人话，如「每工作日 09:00」，由 Rust 侧生成 */
-  scheduleText: string;
+  /** schedule 的结构化解释，人话文案由前端按当前语言渲染 */
+  scheduleSpec: ScheduleSpec;
+  /** 后端附的说明（例如原串读不出结构时的提示），前端原样透传，不翻译 */
+  notes: string[];
   enabled: boolean;
   /** unix 秒，未跑过为 null */
   lastRunAt: number | null;
@@ -279,7 +328,7 @@ export interface ScheduledTask {
   createdAt: number;    // unix 秒
 }
 
-/** create_task 的入参：id / 时间戳 / scheduleText / nextRunAt 都由 Rust 侧补全 */
+/** create_task 的入参：id / 时间戳 / scheduleSpec / notes / nextRunAt 都由 Rust 侧补全 */
 export interface NewScheduledTask {
   name: string;
   kind: ScheduledTask['kind'];

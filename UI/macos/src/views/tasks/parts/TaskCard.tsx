@@ -4,6 +4,7 @@ import { bilingual as b, useLocale } from '../../../i18n';
 import { errorText, useApp } from '../../../store';
 import { useToast } from '../../../store/toast';
 import type { Channel, HubConfig, ScheduledTask } from '../../../types/contract';
+import { formatSchedule } from './scheduleText';
 import styles from './TaskCard.module.css';
 interface TaskCardProps {
   task: ScheduledTask; channels: Channel[]; hubs: HubConfig[]; now: number;
@@ -28,12 +29,15 @@ export default function TaskCard({ task, channels, hubs, now, onEdit, onDelete }
   const next = !task.enabled ? b('已暂停', 'Paused') : task.nextRunAt === null ? b('时间表达式无效', 'Invalid schedule')
     : task.nextRunAt <= now ? b('等待调度', 'Awaiting scheduler') : `${b('下次', 'Next')} ${new Date(task.nextRunAt * 1000).toLocaleString(language)}`;
   const status = { unconfirmed: b('结果未确认，不自动重试', 'Unconfirmed; no automatic retry'), dispatched: b('会话已派发', 'Session dispatched'), reminded: b('提醒已触发', 'Reminder triggered'), failed: b('执行失败', 'Dispatch failed') };
+  // 人话由前端按当前语言渲染；后端附的 notes 一并放进悬浮说明，不翻译
+  const human = formatSchedule(task.scheduleSpec, task.notes, language === 'en' ? 'en' : 'zh');
+  const scheduleHint = [human.text, ...human.notes].join(' · ');
   return <article className={styles.row} aria-label={task.name}>
     <span className={task.lastRunStatus === 'failed' ? styles.failed : styles.symbol}><Icon name={task.lastRunStatus === 'failed' ? 'warning' : task.lastRunStatus === 'dispatched' || task.lastRunStatus === 'reminded' ? 'check' : 'clock'} size={20} /></span>
     <div className={styles.main}>
       <button className={styles.title} type="button" onClick={() => onEdit(task)}>{task.name}</button>
       <p>{targetText} · {next}</p>
-      <p title={task.scheduleText}><code>{task.schedule}</code>{task.lastRunStatus ? ` · ${status[task.lastRunStatus]}` : ''}{task.lastRunAt ? ` · ${new Date(task.lastRunAt * 1000).toLocaleString(language)}` : ''}</p>
+      <p title={scheduleHint}><code>{task.schedule}</code>{task.lastRunStatus ? ` · ${status[task.lastRunStatus]}` : ''}{task.lastRunAt ? ` · ${new Date(task.lastRunAt * 1000).toLocaleString(language)}` : ''}</p>
       {task.lastRunMessage ? <p className={task.lastRunStatus === 'failed' ? styles.failed : undefined}>{task.lastRunMessage}</p> : null}
     </div>
     <div className={styles.actions}>

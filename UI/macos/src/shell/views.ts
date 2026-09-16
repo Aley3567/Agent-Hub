@@ -171,7 +171,7 @@ export const SIDEBAR_GROUPS: ViewGroup[] = ['work', 'session', 'observe', 'exten
  */
 export const VIEW_REFRESH_KEY: Record<ViewId, RefreshKey[]> = {
   pullRequests: [],
-  chat: ['chat'],
+  chat: ['chat', 'chatProjects'],
   channels: ['channels'],
   slots: ['hubs', 'channels', 'usage'],
   usage: ['usage'],

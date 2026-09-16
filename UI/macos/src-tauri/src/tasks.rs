@@ -4,7 +4,7 @@
 //! 原子替换写入，每个任务条目里的未知键原样保留——所以落盘用原始 JSON 地图操作，
 //! 不走结构体往返，未知键不会被序列化丢掉）。
 //!
-//! `scheduleText` / `nextRunAt` 不落盘：每次读出时按 cron 现算（CONTRACT.md §2：
+//! `scheduleSpec` / `notes` / `nextRunAt` 不落盘：每次读出时按 cron 现算（CONTRACT.md §2：
 //! 由 Rust 侧计算返回，前端不自算；disabled 时 nextRunAt 为 null）。
 
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::channels::SLOT_ORDER;
-use crate::cron;
+use crate::cron::{self, ScheduleSpec};
 use crate::error;
 use crate::launch::LaunchTarget;
 use crate::paths;
@@ -32,8 +32,10 @@ pub struct ScheduledTask {
     pub target: Option<LaunchTarget>,
     /// cron 五字段字符串（分 时 日 月 周）
     pub schedule: String,
-    /// schedule 的中文人话
-    pub schedule_text: String,
+    /// schedule 的结构化描述，人话由前端渲染（双语）
+    pub schedule_spec: ScheduleSpec,
+    /// 降级/异常备注，由前端一并展示
+    pub notes: Vec<String>,
     pub enabled: bool,
     /// Last dispatch attempt, not model-session completion.
     pub last_run_at: Option<i64>,
@@ -44,7 +46,7 @@ pub struct ScheduledTask {
     pub created_at: i64,
 }
 
-/// `create_task` 的入参：id / 时间戳 / scheduleText / nextRunAt 都由 Rust 侧补全。
+/// `create_task` 的入参：id / 时间戳 / scheduleSpec / nextRunAt 都由 Rust 侧补全。
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewScheduledTask {
@@ -206,7 +208,7 @@ fn validate(
     Ok(())
 }
 
-/// 把落盘的原始条目变成 IPC 视图：补 scheduleText 与 nextRunAt。
+/// 把落盘的原始条目变成 IPC 视图：补 scheduleSpec / notes 与 nextRunAt。
 fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
     let id = entry
         .get("id")
@@ -225,7 +227,7 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
         .to_string();
     // 手改文件可能写出 KINDS 之外的 kind：原样透传会在前端变成不可观测的静默降级
     //（空徽章、编辑对话框无选中段）。按「有损但可观测」原则收进最近似的合法值
-    //（无 target 就是纯提醒类），并在 scheduleText 里说明原值，让用户看到并改回来。
+    //（无 target 就是纯提醒类），并在 notes 里说明原值，让用户看到并改回来。
     let mut notes: Vec<String> = Vec::new();
     let kind = if KINDS.contains(&kind.as_str()) {
         kind
@@ -256,16 +258,16 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
     let created_at = entry.get("createdAt").and_then(Value::as_i64).unwrap_or(0);
 
     // 老文件里手写出无法解析的表达式时，不掀翻整个清单：
-    // scheduleText 说明问题、nextRunAt 置 null，让用户看到并改回来。
-    let (mut schedule_text, mut next_run_at) = match cron::parse(&schedule) {
-        Ok(parsed) => (cron::schedule_text(&parsed, &schedule), cron::next_run(&parsed, now_ts())),
-        Err(err) => (format!("cron 表达式无法解析：{err}"), None),
+    // notes 说明问题、scheduleSpec 原样回显、nextRunAt 置 null，让用户看到并改回来。
+    let (schedule_spec, mut next_run_at) = match cron::parse(&schedule) {
+        Ok(parsed) => (cron::describe(&parsed, &schedule), cron::next_run(&parsed, now_ts())),
+        Err(err) => {
+            notes.push(format!("cron 表达式无法解析：{err}"));
+            (ScheduleSpec::Unknown { raw: schedule.clone() }, None)
+        }
     };
     if !enabled {
         next_run_at = None;
-    }
-    if !notes.is_empty() {
-        schedule_text = format!("{schedule_text}（{}）", notes.join("；"));
     }
 
     Ok(ScheduledTask {
@@ -274,7 +276,8 @@ fn build_view(entry: &Map<String, Value>) -> Result<ScheduledTask, String> {
         kind,
         target,
         schedule,
-        schedule_text,
+        schedule_spec,
+        notes,
         enabled,
         last_run_at,
         last_run_status: entry.get("lastRunStatus").and_then(Value::as_str).map(str::to_string),
@@ -607,7 +610,11 @@ mod tests {
 
         let created = create_task(new_task("早会前开渠道", "doctor-reminder", "0 9 * * 1-5")).unwrap();
         assert!(created.id.starts_with("task-"));
-        assert_eq!(created.schedule_text, "每工作日 09:00");
+        assert_eq!(
+            created.schedule_spec,
+            ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![1, 2, 3, 4, 5] }
+        );
+        assert!(created.notes.is_empty(), "{:?}", created.notes);
         assert!(created.next_run_at.is_some(), "启用中必须有 nextRunAt");
         assert!(created.created_at > 0);
 
@@ -627,7 +634,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated.name, "改名了");
-        assert_eq!(updated.schedule_text, "每 30 分钟");
+        assert_eq!(updated.schedule_spec, ScheduleSpec::EveryMinutes { period: 30 });
         assert_eq!(updated.next_run_at, None, "disabled 时 nextRunAt 必须是 null");
 
         // 重新启用后 nextRunAt 回来了，未知键还在
@@ -729,7 +736,12 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, created.id);
         assert_eq!(list[0].next_run_at, None);
-        assert!(list[0].schedule_text.contains("无法解析"), "{}", list[0].schedule_text);
+        assert_eq!(list[0].schedule_spec, ScheduleSpec::Unknown { raw: "不是 cron".into() });
+        assert!(
+            list[0].notes.iter().any(|note| note.contains("无法解析")),
+            "{:?}",
+            list[0].notes
+        );
     }
 
     #[test]
@@ -746,6 +758,10 @@ mod tests {
         // 不掀翻清单，但必须留下可观测的降级记号，前端徽章/编辑对话框不落空
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].kind, "doctor-reminder");
-        assert!(list[0].schedule_text.contains("future-kind"), "{}", list[0].schedule_text);
+        assert!(
+            list[0].notes.iter().any(|note| note.contains("future-kind")),
+            "{:?}",
+            list[0].notes
+        );
     }
 }

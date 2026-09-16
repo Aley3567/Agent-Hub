@@ -23,6 +23,7 @@ import TitleBar from './shell/TitleBar';
 import ToastLayer from './shell/ToastLayer';
 import ViewHeader from './shell/ViewHeader';
 import { useAnnouncer } from './shell/announce';
+import { useChatEvents } from './shell/chatEvents';
 import { useGlobalKeyboard } from './shell/keyboard';
 import { VIEWS, VIEW_META, VIEW_REFRESH_KEY, refreshView } from './shell/views';
 import styles from './App.module.css';
@@ -65,6 +66,7 @@ export default function App() {
 
   useGlobalKeyboard();
   useScheduledTaskEvents();
+  useChatEvents();
 
   useEffect(() => {
     // StrictMode 在开发期会重挂一次，这个闸门保证首屏只拉一遍数据

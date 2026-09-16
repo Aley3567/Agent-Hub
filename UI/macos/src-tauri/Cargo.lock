@@ -343,6 +343,7 @@ dependencies = [
  "dirs 5.0.1",
  "fs2",
  "provider-store",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",

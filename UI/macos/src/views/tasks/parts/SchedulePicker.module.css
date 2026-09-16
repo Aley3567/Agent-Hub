@@ -1,0 +1,31 @@
+/* 档位分段控件在上，档位对应的控件在下；两行之间用 --sp-3 与 Field 的行距区分开 */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* 「每小时」档只有分钟一个下拉，限宽免得它横跨整行显得像主输入 */
+.minuteOnly {
+  max-width: 96px;
+}
+
+.customRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.customHint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-12);
+}

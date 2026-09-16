@@ -6,6 +6,8 @@
 //! 「日」与「周」同时受限时按 Vixie cron 惯例取「或」。
 //! 不支持英文名（JAN/MON）、`@daily` 这类宏、`L`/`W`/`#` 扩展。
 
+use serde::Serialize;
+
 // macOS libSystem 的 struct tm 布局（与 journal.rs 里的是同一份）。
 #[allow(dead_code)]
 #[repr(C)]
@@ -262,67 +264,91 @@ fn day_matches(schedule: &Schedule, day: &CTm) -> bool {
     }
 }
 
-/// schedule 的中文人话（CONTRACT.md §2 ScheduledTask.scheduleText）。
-///
-/// 只给常见模式起人话，认不出的模式原样回显表达式——不硬翻，翻错比不翻更糟。
-pub fn schedule_text(schedule: &Schedule, raw: &str) -> String {
-    if let Some(text) = fixed_time_text(schedule) {
-        return text;
-    }
-    if schedule.hours == (1 << 24) - 1
-        && schedule.month_days == u32::MAX - 1
-        && schedule.months == (1 << 13) - 2
-        && schedule.weekdays == 0x7f
-    {
-        if let Some(n) = step_period(schedule.minutes, 59) {
-            return format!("每 {n} 分钟");
-        }
-    }
-    format!("按 cron「{}」", raw.trim())
+/// schedule 的结构化描述，供前端渲染双语人话。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ScheduleSpec {
+    /// 每小时的第 N 分
+    Hourly { minute: u8 },
+    /// 每天 HH:MM
+    Daily { minute: u8, hour: u8 },
+    /// 每周的若干天（0=周日 … 6=周六，升序去重）
+    Weekly { minute: u8, hour: u8, days: Vec<u8> },
+    /// 每月 D 日 HH:MM
+    Monthly { minute: u8, hour: u8, day: u8 },
+    /// 每 N 分钟
+    EveryMinutes { period: u8 },
+    /// 认不出的模式，原样回显表达式——不硬翻，翻错比不翻更糟
+    Unknown { raw: String },
 }
 
-/// 「固定时刻」模式：分钟与小时各只有一个值。
-fn fixed_time_text(schedule: &Schedule) -> Option<String> {
+/// 日 / 月 / 周三个字段的全量位图（即 `*` 解析出来的形状）。
+const FULL_MONTH_DAYS: u32 = u32::MAX - 1; // 位 1..=31 全置
+const FULL_MONTHS: u16 = (1 << 13) - 2; // 位 1..=12 全置
+const FULL_WEEKDAYS: u8 = 0x7f;
+const FULL_HOURS: u32 = (1 << 24) - 1;
+
+/// 日 / 月 / 周是否都是全量（`*`）。只有日历三段都不受限时，
+/// 「每小时」「每 N 分钟」这类按时刻或按间隔的说法才成立。
+fn calendar_unrestricted(schedule: &Schedule) -> bool {
+    schedule.month_days == FULL_MONTH_DAYS
+        && schedule.months == FULL_MONTHS
+        && schedule.weekdays == FULL_WEEKDAYS
+}
+
+/// schedule 的结构化人话（CONTRACT.md §2 ScheduledTask.scheduleSpec）。
+///
+/// 只认常见模式，认不出的模式原样回显表达式——不硬翻，翻错比不翻更糟。
+/// 中英双语由前端渲染，这一层不做字符串拼接。
+///
+/// 「日」与「周」同时受限（如 `0 9 1 * 1,3,5`）一律落 `Unknown`：Vixie 的「或」语义
+/// 翻成人话必然误导，兜底是最诚实的选择。
+pub fn describe(schedule: &Schedule, raw: &str) -> ScheduleSpec {
+    if let Some(spec) = fixed_spec(schedule) {
+        return spec;
+    }
+    // 「时」全量且日历三段不受限：才有「每小时第 N 分」「每 N 分钟」的说法
+    if schedule.hours == FULL_HOURS && calendar_unrestricted(schedule) {
+        if let Some(minute) = single_bit(schedule.minutes) {
+            return ScheduleSpec::Hourly { minute: minute as u8 };
+        }
+        if let Some(period) = step_period(schedule.minutes, 59) {
+            return ScheduleSpec::EveryMinutes { period: period as u8 };
+        }
+    }
+    ScheduleSpec::Unknown { raw: raw.trim().to_string() }
+}
+
+/// 「固定时刻」模式：分钟与小时各只有一个值，且「月」字段全量。
+fn fixed_spec(schedule: &Schedule) -> Option<ScheduleSpec> {
     let minute = single_bit(schedule.minutes)?;
     let hour = single_bit(schedule.hours as u64)?;
-    let time = format!("{hour:02}:{minute:02}");
-    let full_days = u32::MAX - 1; // 位 1..=31 全置
-    let full_months = (1u16 << 13) - 2; // 位 1..=12 全置
-    let full_weeks = 0x7f;
-    if schedule.months != full_months {
+    let (minute, hour) = (minute as u8, hour as u8);
+    if schedule.months != FULL_MONTHS {
         return None;
     }
-    if schedule.month_days == full_days && schedule.weekdays == full_weeks {
-        return Some(format!("每天 {time}"));
+    if calendar_unrestricted(schedule) {
+        return Some(ScheduleSpec::Daily { minute, hour });
     }
-    if schedule.month_days == full_days {
-        // 只看周
-        if schedule.weekdays == 0b0111110 {
-            return Some(format!("每工作日 {time}"));
-        }
-        if let Some(day) = single_bit(schedule.weekdays as u64) {
-            return Some(format!("每{} {time}", weekday_name(day as u32)));
-        }
-        return None;
+    if schedule.month_days == FULL_MONTH_DAYS {
+        // 只看周：工作日、单日、任意多日都是「每周的某几天」
+        return Some(ScheduleSpec::Weekly {
+            minute,
+            hour,
+            days: weekday_days(schedule.weekdays),
+        });
     }
-    if schedule.weekdays == full_weeks {
+    if schedule.weekdays == FULL_WEEKDAYS {
         if let Some(day) = single_bit(schedule.month_days as u64) {
-            return Some(format!("每月 {day} 日 {time}"));
+            return Some(ScheduleSpec::Monthly { minute, hour, day: day as u8 });
         }
     }
     None
 }
 
-fn weekday_name(day: u32) -> &'static str {
-    match day {
-        0 => "周日",
-        1 => "周一",
-        2 => "周二",
-        3 => "周三",
-        4 => "周四",
-        5 => "周五",
-        _ => "周六",
-    }
+/// 周字段位图里所有置位的位置，升序（不依赖用户输入顺序，去重由位图本身保证）。
+fn weekday_days(weekdays: u8) -> Vec<u8> {
+    (0..7).filter(|day| weekdays >> day & 1 == 1).collect()
 }
 
 /// 位图里只有一个置位时返回它的位置。
@@ -465,29 +491,82 @@ mod tests {
     }
 
     #[test]
-    fn schedule_text_covers_common_patterns() {
-        assert_eq!(schedule_text(&parse("30 9 * * *").unwrap(), "30 9 * * *"), "每天 09:30");
+    fn describe_covers_common_patterns() {
+        let spec = |expr: &str| describe(&parse(expr).unwrap(), expr);
+        // 每小时的第 N 分
+        assert_eq!(spec("30 * * * *"), ScheduleSpec::Hourly { minute: 30 });
+        assert_eq!(spec("0 * * * *"), ScheduleSpec::Hourly { minute: 0 });
+        // 每天 HH:MM
+        assert_eq!(spec("30 9 * * *"), ScheduleSpec::Daily { minute: 30, hour: 9 });
+        assert_eq!(spec("0 9 * * *"), ScheduleSpec::Daily { minute: 0, hour: 9 });
+        // 每周的若干天：工作日、多日、单日
         assert_eq!(
-            schedule_text(&parse("0 9 * * 1-5").unwrap(), "0 9 * * 1-5"),
-            "每工作日 09:00"
+            spec("0 9 * * 1-5"),
+            ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![1, 2, 3, 4, 5] }
         );
         assert_eq!(
-            schedule_text(&parse("0 8 * * 0").unwrap(), "0 8 * * 0"),
-            "每周日 08:00"
+            spec("0 9 * * 1,3,5"),
+            ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![1, 3, 5] }
         );
+        assert_eq!(spec("0 9 * * 0"), ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![0] });
+        // 周字段的 7 折叠成 0
+        assert_eq!(spec("0 9 * * 7"), ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![0] });
+        // 每月 D 日
+        assert_eq!(spec("0 9 15 * *"), ScheduleSpec::Monthly { minute: 0, hour: 9, day: 15 });
+        assert_eq!(spec("0 0 1 * *"), ScheduleSpec::Monthly { minute: 0, hour: 0, day: 1 });
+        // 每 N 分钟
+        assert_eq!(spec("*/30 * * * *"), ScheduleSpec::EveryMinutes { period: 30 });
+        assert_eq!(spec("*/15 * * * *"), ScheduleSpec::EveryMinutes { period: 15 });
+        // 认不出的模式回显原文：Vixie 的「日或周」语义翻成人话必然误导
         assert_eq!(
-            schedule_text(&parse("0 0 1 * *").unwrap(), "0 0 1 * *"),
-            "每月 1 日 00:00"
+            spec("0 9 1 * 1,3,5"),
+            ScheduleSpec::Unknown { raw: "0 9 1 * 1,3,5".into() }
         );
+        assert_eq!(spec("0 9 1 3 *"), ScheduleSpec::Unknown { raw: "0 9 1 3 *".into() });
+        assert_eq!(spec("* * * * *"), ScheduleSpec::Unknown { raw: "* * * * *".into() });
+    }
+
+    #[test]
+    fn describe_weekday_lists_are_ascending_and_input_order_free() {
+        let spec = |expr: &str| describe(&parse(expr).unwrap(), expr);
+        // 升序而不是输入顺序，两个写法必须给出同一个结果
+        assert_eq!(spec("0 9 * * 6,0"), spec("0 9 * * 0,6"));
+        assert_eq!(spec("0 9 * * 6,0"), ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![0, 6] });
         assert_eq!(
-            schedule_text(&parse("*/15 * * * *").unwrap(), "*/15 * * * *"),
-            "每 15 分钟"
+            spec("0 9 * * 5,1,3,1"),
+            ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![1, 3, 5] }
         );
-        // 认不出的模式回显原文
+    }
+
+    #[test]
+    fn describe_serializes_to_the_frontend_contract_shape() {
+        // 前端按 kind 标签分派渲染：标签与字段名（camelCase）就是线上契约。
+        let weekly = describe(&parse("0 9 * * 1,3,5").unwrap(), "0 9 * * 1,3,5");
         assert_eq!(
-            schedule_text(&parse("0 9 1 3 *").unwrap(), "0 9 1 3 *"),
-            "按 cron「0 9 1 3 *」"
+            serde_json::to_value(&weekly).unwrap(),
+            serde_json::json!({"kind": "weekly", "minute": 0, "hour": 9, "days": [1, 3, 5]})
         );
+        let unknown = describe(&parse("* * * * *").unwrap(), "* * * * *");
+        assert_eq!(
+            serde_json::to_value(&unknown).unwrap(),
+            serde_json::json!({"kind": "unknown", "raw": "* * * * *"})
+        );
+    }
+
+    #[test]
+    fn describe_contract_shape_for_canonical_expressions() {
+        // 前后端唯一契约点：三个规范形各 parse 一次，断言 describe 命中预期变体。
+        for (expr, expected) in [
+            ("0 * * * *", ScheduleSpec::Hourly { minute: 0 }),
+            ("0 9 * * *", ScheduleSpec::Daily { minute: 0, hour: 9 }),
+            (
+                "0 9 * * 1,3,5",
+                ScheduleSpec::Weekly { minute: 0, hour: 9, days: vec![1, 3, 5] },
+            ),
+        ] {
+            let parsed = parse(expr).unwrap();
+            assert_eq!(describe(&parsed, expr), expected, "{expr}");
+        }
     }
 
     #[test]

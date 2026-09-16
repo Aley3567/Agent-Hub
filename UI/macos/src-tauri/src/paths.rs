@@ -58,9 +58,12 @@ pub fn mru_path() -> Result<PathBuf, String> {
     }
 }
 
-/// 默认 hub 配置。
+/// 默认 hub 配置。`CLAUDE_HUB_CONFIG` 与 claude-hub.py / claude-provider-once.py 同源。
 pub fn default_hub_config_path() -> Result<PathBuf, String> {
-    Ok(cc_switch_dir()?.join("claude-hub.json"))
+    match env_path("CLAUDE_HUB_CONFIG") {
+        Some(path) => Ok(path),
+        None => Ok(cc_switch_dir()?.join("claude-hub.json")),
+    }
 }
 
 /// 命名 hub 注册表。
@@ -86,6 +89,14 @@ pub fn tasks_path() -> Result<PathBuf, String> {
     match env_path("AGENT_HUB_TASKS_PATH") {
         Some(path) => Ok(path),
         None => Ok(cc_switch_dir()?.join("agent-hub-tasks.json")),
+    }
+}
+
+/// 桌面端自有的对话（本地会话 + 当前选中项目），与 `agent-hub-tasks.json` 同形。
+pub fn chat_path() -> Result<PathBuf, String> {
+    match env_path("AGENT_HUB_CHAT_PATH") {
+        Some(path) => Ok(path),
+        None => Ok(cc_switch_dir()?.join("agent-hub-chat.json")),
     }
 }
 
