@@ -74,14 +74,17 @@ pub fn add() -> Result<()> {
 }
 
 pub fn import_prompt(cc: bool) -> Result<()> {
-    let entries = if cc {
-        store::read_cc(
-            &dirs::home_dir()
-                .ok_or_else(|| anyhow::anyhow!("HOME unavailable"))?
-                .join(".cc-switch/cc-switch.db"),
-        )?
+    let target = db::default_db_path()?;
+    let source = if cc {
+        store::paths::cc_source_path()?
     } else {
-        store::read_file(std::path::Path::new(&prompt("JSON 文件绝对路径", false)?))?
+        std::path::PathBuf::from(prompt("JSON 文件绝对路径", false)?)
+    };
+    store::paths::ensure_distinct(&target, &source)?;
+    let entries = if cc {
+        store::read_cc(&source)?
+    } else {
+        store::read_file(&source)?
     };
     for (i, p) in entries.iter().enumerate() {
         println!("{}  {}  {}", i + 1, p.app_type, p.name);
@@ -106,7 +109,7 @@ pub fn import_prompt(cc: bool) -> Result<()> {
             .filter_map(|(i, p)| indexes.contains(&(i + 1)).then_some(p))
             .collect()
     };
-    let mut conn = store::open(&db::default_db_path()?)?;
+    let mut conn = store::open(&target)?;
     let preview = store::import(&mut conn, &selected, "preview", false, true)?;
     println!(
         "新增 {} 个，已有 {} 个默认保留。源中删除的条目不会删除本地记录。",

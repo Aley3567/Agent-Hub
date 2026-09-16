@@ -36,7 +36,7 @@ enum ProviderCommands {
         cc_switch: bool,
         #[arg(long)]
         file: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(long, requires = "cc_switch")]
         source_db: Option<PathBuf>,
         #[arg(long)]
         replace: bool,
@@ -104,19 +104,21 @@ fn run_provider(command: ProviderCommands) -> Result<()> {
             replace,
             preview,
         } => {
-            let providers = if cc_switch {
-                let path = source_db.unwrap_or(
-                    dirs::home_dir()
-                        .ok_or_else(|| anyhow::anyhow!("HOME unavailable"))?
-                        .join(".cc-switch/cc-switch.db"),
-                );
-                provider_store::read_cc(&path)?
+            let target = db::default_db_path()?;
+            let source = if cc_switch {
+                source_db.unwrap_or(provider_store::paths::cc_source_path()?)
             } else if let Some(path) = file {
-                provider_store::read_file(&path)?
+                path
             } else {
                 anyhow::bail!("请选择 --cc-switch 或 --file PATH");
             };
-            let mut conn = provider_store::open(&db::default_db_path()?)?;
+            provider_store::paths::ensure_distinct(&target, &source)?;
+            let providers = if cc_switch {
+                provider_store::read_cc(&source)?
+            } else {
+                provider_store::read_file(&source)?
+            };
+            let mut conn = provider_store::open(&target)?;
             let (changed, skipped) = provider_store::import(
                 &mut conn,
                 &providers,

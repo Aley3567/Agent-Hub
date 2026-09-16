@@ -1,3 +1,5 @@
+-- Hub application identity (AHUB), independent of external schema versions.
+PRAGMA application_id = 1095259458;
 CREATE TABLE IF NOT EXISTS providers (
     id TEXT NOT NULL, app_type TEXT NOT NULL, name TEXT NOT NULL,
     settings_config TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',

@@ -52,7 +52,8 @@
 - B0b ✅ 2026-09-16：macOS 接入共享 crate；完整 locked metadata 只有一份 SQLite，Tauri Rust 测试 72 项通过。
 - B0c ✅ 依赖接入，2026-09-16：Windows 完整 locked metadata 验证 path 依赖与单一 SQLite；原生编译/测试随 Windows 环境后验，不标平台验收通过。
 - B1 ✅ 2026-09-16：模型、读写、来源解析迁入共享层，CLI 删除事务一起收口；根 schema 仍唯一。移除未使用的 CC schema v17 闸门，Hub 不再继承外部版本号。11 项共享层测试通过，包括缺必需列先失败再修复、跨应用同 ID、SQL 中途回滚、源文件字节/mtime 不变。
-- B2a/B2b/B2c 待执行，不能将依赖接入称为桌面管理完成。
+- B2a ✅ 2026-09-16：共享路径分离读覆盖与 Hub 写目标；CLI/TUI 导入先检查同文件，识别符号链接/硬链接；写入口拒绝外部库并兼容已有 Hub 库，schema 增加 Hub application_id。18 项共享层与 3 项真实 CLI 子进程测试通过，0600 外部库拒写回归在旧实现上确认失败；断链 CC 来源不阻断独立 Hub。Python 992 项、安装集成 6 项通过。
+- B2b/B2c 待执行：两平台读取路径、空库引导、独立定价来源。
 - Windows 编译边界：本机交叉 check 在 bundled SQLite C 编译处缺 Windows SDK `stdlib.h`，不是 links 冲突；原生编译和测试后置，未用 macOS 测试冒充。
 
 ### C · 凭证引用与平台适配

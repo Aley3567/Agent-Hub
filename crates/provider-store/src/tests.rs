@@ -239,3 +239,119 @@ fn read_only_open_has_no_cc_schema_version_coupling() {
     assert!(list_providers(&conn, None).unwrap().is_empty());
     assert!(conn.execute("DELETE FROM providers", []).is_err());
 }
+
+#[test]
+fn opening_external_database_for_write_is_rejected_without_changes() {
+    let scratch = Scratch::new();
+    let conn = Connection::open(scratch.db()).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE providers (id TEXT, app_type TEXT, name TEXT, settings_config TEXT);
+        CREATE TABLE settings (key TEXT, value TEXT);
+        PRAGMA user_version=10;",
+    )
+    .unwrap();
+    drop(conn);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(scratch.db(), std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    let before = std::fs::read(scratch.db()).unwrap();
+    assert!(
+        open(&scratch.db()).is_err(),
+        "external database accepted as Hub write target"
+    );
+    assert_eq!(std::fs::read(scratch.db()).unwrap(), before);
+}
+
+#[test]
+fn runtime_overrides_never_become_write_targets() {
+    use crate::paths::ProviderPaths;
+    let home = std::path::Path::new("/test-home");
+    let hub = home.join("custom/hub.db");
+    let legacy = home.join("external/source.db");
+    let defaults = ProviderPaths::resolve(home, None, None);
+    assert_eq!(defaults.read_db, home.join(".agent-hub/providers.db"));
+    assert_eq!(defaults.write_db, defaults.read_db);
+    let overridden = ProviderPaths::resolve(home, Some(&hub), Some(&legacy));
+    assert_eq!(overridden.write_db, hub);
+    assert_eq!(overridden.read_db, legacy);
+    assert_eq!(overridden.cc_source, home.join(".cc-switch/cc-switch.db"));
+    let empty = std::path::Path::new("");
+    assert_eq!(
+        ProviderPaths::resolve(home, Some(empty), Some(empty)),
+        defaults
+    );
+    assert_eq!(
+        ProviderPaths::resolve(home, None, Some(&legacy)).write_db,
+        defaults.write_db
+    );
+}
+
+#[test]
+fn reject_same_file_and_hardlink_sources() {
+    let scratch = Scratch::new();
+    drop(open(&scratch.db()).unwrap());
+    let alias = scratch.0.join("alias.db");
+    std::fs::hard_link(scratch.db(), &alias).unwrap();
+    assert!(paths::ensure_distinct(&scratch.db(), &scratch.db()).is_err());
+    assert!(paths::ensure_distinct(&alias, &scratch.db()).is_err());
+    assert!(paths::validate_write_path(&alias, &scratch.db()).is_err());
+    assert!(paths::ensure_distinct(&scratch.0.join("new.db"), &scratch.db()).is_ok());
+}
+
+#[cfg(unix)]
+#[test]
+fn reject_source_aliases_through_symbolic_links_and_missing_paths() {
+    let scratch = Scratch::new();
+    let real = scratch.0.join("real");
+    std::fs::create_dir(&real).unwrap();
+    let alias = scratch.0.join("alias");
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    assert!(paths::ensure_distinct(&alias.join("new.db"), &real.join("new.db")).is_err());
+    let db = real.join("providers.db");
+    drop(open(&db).unwrap());
+    let link = scratch.0.join("linked.db");
+    std::os::unix::fs::symlink(&db, &link).unwrap();
+    assert!(open(&link).is_err());
+    assert!(paths::ensure_distinct(&alias.join("providers.db"), &db).is_err());
+    assert!(paths::validate_write_path(&db, &link).is_err());
+}
+
+#[test]
+fn legacy_hub_database_is_adopted_without_losing_records() {
+    let scratch = Scratch::new();
+    let mut conn = open(&scratch.db()).unwrap();
+    import(&mut conn, &[provider()], "manual", false, false).unwrap();
+    conn.pragma_update(None, "application_id", 0).unwrap();
+    drop(conn);
+    let conn = open(&scratch.db()).unwrap();
+    assert_eq!(list_providers(&conn, None).unwrap()[0].id, "p1");
+    let identity: u32 = conn
+        .pragma_query_value(None, "application_id", |row| row.get(0))
+        .unwrap();
+    assert_eq!(identity, 1095259458);
+}
+
+#[test]
+fn unrelated_application_marker_is_never_overwritten() {
+    let scratch = Scratch::new();
+    let conn = open(&scratch.db()).unwrap();
+    conn.pragma_update(None, "application_id", 123).unwrap();
+    drop(conn);
+    let before = std::fs::read(scratch.db()).unwrap();
+    assert!(open(&scratch.db()).is_err());
+    assert_eq!(std::fs::read(scratch.db()).unwrap(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn absent_cc_installation_does_not_block_independent_hub_target() {
+    let scratch = Scratch::new();
+    let source = scratch.0.join("cc-switch.db");
+    let missing = scratch.0.join("uninstalled/source.db");
+    std::os::unix::fs::symlink(&missing, &source).unwrap();
+    assert!(paths::validate_write_path(&scratch.db(), &source).is_ok());
+    // A dangling source pointing at the intended new target is still the same file.
+    assert!(paths::validate_write_path(&missing, &source).is_err());
+}

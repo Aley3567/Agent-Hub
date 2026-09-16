@@ -7,6 +7,10 @@ use std::{fs, path::Path};
 pub const SCHEMA: &str = include_str!("../../../provider-schema.sql");
 
 pub fn open(path: &Path) -> Result<Connection> {
+    crate::paths::validate_write_path(path, &crate::paths::cc_source_path()?)?;
+    if path.try_exists()? && fs::metadata(path)?.len() > 0 {
+        validate_hub_database(&open_readonly(path)?)?;
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -28,10 +32,75 @@ pub fn open(path: &Path) -> Result<Connection> {
             bail!("provider database requires 0600 permissions");
         }
     }
-    let conn = Connection::open(path)?;
+    let mut conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    conn.execute_batch(SCHEMA)?;
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    validate_hub_database(&tx)?;
+    tx.execute_batch(SCHEMA)?;
+    tx.commit()?;
     Ok(conn)
+}
+
+// Legacy Hub databases have provider_sources but no application_id. Never adopt an
+// external database merely because it happens to contain a providers table.
+fn validate_hub_database(conn: &Connection) -> Result<()> {
+    let application: u32 = conn.pragma_query_value(None, "application_id", |row| row.get(0))?;
+    if application != 0 && application != 1095259458 {
+        bail!("database belongs to another application; import it into a Hub database instead");
+    }
+    let tables = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if tables.is_empty() {
+        return Ok(());
+    }
+    if !tables.iter().any(|name| name == "providers")
+        || !tables.iter().any(|name| name == "provider_sources")
+        || tables.iter().any(|name| {
+            [
+                "settings",
+                "provider_endpoints",
+                "proxy_config",
+                "mcp_servers",
+            ]
+            .contains(&name.as_str())
+        })
+    {
+        bail!("database is not a Hub provider store; use explicit import for external sources");
+    }
+    for (table, required) in [
+        (
+            "providers",
+            &[
+                "id",
+                "app_type",
+                "name",
+                "settings_config",
+                "meta",
+                "category",
+                "provider_type",
+                "is_current",
+                "in_failover_queue",
+                "sort_index",
+            ][..],
+        ),
+        (
+            "provider_sources",
+            &["id", "app_type", "source", "imported_at"][..],
+        ),
+    ] {
+        let columns = conn
+            .prepare(&format!("PRAGMA table_info({table})"))?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for column in required {
+            if !columns.iter().any(|name| name == column) {
+                bail!("Hub {table} table is missing required column: {column}");
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Open an existing provider database without creating or migrating it.
