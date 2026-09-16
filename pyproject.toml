@@ -22,3 +22,22 @@ include-package-data = false
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["claude_hub", "claude_hub.*"]
+
+[tool.ruff]
+# 协议层与启动器按行业惯例一个模块一行;行宽只用于 lint 判定,不自动重排。
+line-length = 120
+target-version = "py311"
+extend-exclude = [
+    "UI",
+    "dist",
+    "build",
+    "target",
+    ".cleanup-staging",
+    "work",
+]
+
+[tool.ruff.lint]
+# 只查真实缺陷,不查风格口味:未定义名、重复定义、语法级错误。
+# F401/F841 之类的整洁度问题交给 tests/test_function_length_ratchet.py 与
+# scripts/secret_guard.py 各自的门,不在这里叠加噪声。
+select = ["E9", "F821", "F811", "F823"]

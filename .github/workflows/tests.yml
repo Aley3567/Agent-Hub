@@ -98,6 +98,13 @@ jobs:
           claude1_protocol.py
           scripts/secret_guard.py
 
+      - name: Install ruff
+        run: python -m pip install "ruff==0.16.7"
+
+      - name: Lint for undefined names and duplicate definitions
+        # 规则集在 pyproject.toml 的 [tool.ruff.lint] 里,只查真实缺陷不查风格。
+        run: ruff check --output-format github .
+
       - name: Scan repository for generic secrets and sensitive paths
         run: >-
           python scripts/secret_guard.py
