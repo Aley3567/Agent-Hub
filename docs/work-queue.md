@@ -10,6 +10,93 @@
 > - 行号是 2026-08-19 快照，会漂移；以符号名为准。
 > - 【现状】/【部分】/【待建】三档分明，不把待建写成现状。
 
+## S25 · 桌面渠道写入与系统凭证迁移
+
+**状态**：规划完成，实施未开始。2026-09-16 用户指定完整技术文档，要求用 Luna 窄范围探索后形成清晰的分层计划；本轮只登记设计与任务。该任务优先于 S24 历史英文整理。
+
+**设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)。原始输入为 `woolly-tinkering-conway.md`；代码核对基线 `main@6fc85c9`。旧计划中的渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
+
+**分支**：计划在当前 `main` 留档；产品实施仍按原文使用 `ui/workspace-shell`。该工作树为 `d8105cf`，相对共同基线只有 handoff 忽略提交，尚缺 `372caeb` 与 `6fc85c9`。开始实施时先报告两树状态和具体基线；不自动 merge/rebase，也不改写另一条工作的 handoff。所有本地检查点均按行为提交，macOS/Windows 分开提交；未授权发布。
+
+**目标**：桌面三源发现及预览、保留 JSON 文件导入、两类渠道自定义 CRUD、统一安全存储、显式旧数据迁移，以及 CLI/桌面/运行时正确取用同一身份。先打通读路径，再启用 Keychain-only 写路径。三源/双平台目标不删减；Windows 未实机验证时单列状态。
+
+**今天建议的推进顺序**：先完成 A0–A2 前置验证与 B0–B2 存储骨架；通过后推进 C0–D3，直到合成渠道在 macOS 完成「安全写入 → 两端可见 → 正确启动」。F0–F3 来源解析可在存储合同稳定后并行。随后才接 E0/E1、G0–H2 的真实界面闭环。每张卡达到停止条件就交付，不用“今天全部完成”取代 OS/CLI 运行态证据。
+
+### A · 前置验证与范围锁定
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| A0 | 基线与平台矩阵；owner：本卡与 `docs/provider-management.md` | 无 | 列清工作树、真实 CLI 版本、macOS/Windows 验收环境、Linux 保留策略；区分持久存储与全部临时文件的零明文目标。 |
+| A1 | macOS 安全写入探针；owner：隔离 `/tmp` probe，结论回填设计 | A0 | 合成秘密在无 TTY/终端/签名 App 场景完成写读删；argv、日志、回显均无秘密；锁定/拒绝/超时明确。失败只阻断 OS adapter，不阻断纯存储/来源解析。 |
+| A2 | CLI 认证优先级探针；owner：隔离 probe、`tests/test_launcher.py` / `tests/test_codex_provider_once.py` 的合成案例 | A0 | 全局凭证 A、选中凭证 B，实际合成上游收到 B；原配置不变。确定消除临时明文的可行入口；失败时禁止直接剥字段，也不得宣称全程零明文。 |
+
+### B · 共享存储，先保持行为不变
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| B0 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
+| B1 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
+| B2 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
+
+### C · 凭证引用与平台适配
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
+| C1 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
+| C2 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
+
+### D · 所有读取者先兼容新格式
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| D0 | 根级 Python 凭证 resolver 与分发；owner：`claude1_credentials.py`、`install.sh`、`package.json`、安装/打包测试 | C0,C1 | 无 ref 旧记录兼容，有 ref 错误不降级；合成 Rust/Python envelope 互通；安装后脚本可导入；Linux 不误调用 macOS 命令。 |
+| D1 | Claude 全读取点统一；owner：`claude-provider-once.py` 与 launcher tests | D0,A2 | build_settings、账号池、doctor、subagent 审计通过 resolver；doctor fix 写回原始元数据而非已注入秘密的对象；direct/anyrouter 旁路边界明确；选中账号不被全局配置覆盖。 |
+| D2 | Hub 缓存/桥复用支持 credential revision；owner：`claude1_providers.py`、`claude-hub.py`、provider/Hub tests | D0 | A→B 更新推进 DB revision，常驻 Hub 和复用 bridge 下一请求用 B；账号池指纹同步，旧引用回收时有限刷新重试；不在每请求读 Keychain。 |
+| D3 | Codex 读取与启动兼容；owner：`codex-provider-once.py` 与 Codex tests | D0,A2 | API key 与已有受支持登录态不串号；shadow home 不改真实 auth；临时文件的保留/替代按 A2 结果标注，未达零明文不能称完成该目标。 |
+
+### E · 安全写入与显式迁移
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| E0 | 共用提交协议；owner：共享 `store/credentials`、CLI/TUI 写入口 | B2,C1,D1–D3 | 新引用写读校验→SQL revision 复核/原子提交→旧引用清理；覆盖批量失败、SQL失败、清理失败、并发变更与中断重试；skip 不触碰秘密。删除阻断关联引用。 |
+| E1 | 显式迁移命令及只读状态；owner：CLI `migrate-credentials`、共享迁移逻辑、Python结构化警告 | E0 | 幂等、拒绝/中断不丢旧秘密、覆盖代理凭证；API不输出秘密；区分active DB逻辑清理与历史备份；不自动销毁备份。 |
+
+### F · 来源解析，只负责读和映射
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| F0 | 安全候选与导入计划模型；owner：共享 `sources/plan` | B1,C0 | preview不创建/改写目标DB或Keychain；安全DTO与原始秘密结构分离；source/target revision 和过期检测明确。 |
+| F1 | CC Switch 与原JSON入口接入；owner：共享 `sources/cc_switch` / `sources/json` | F0 | 必需列明确报错，双应用同ID共存，读取不改变来源，已有文件导入继续可用。 |
+| F2 | Claude 用户配置 scanner；owner：共享 `sources/claude` | F0 | token/API key优先级、主模型/四槽、缺失/损坏/未知认证测试；不执行hooks/helper、不复制整套权限。 |
+| F3 | Codex 用户配置 scanner；owner：共享 `sources/codex` | F0 | 动态provider/profile、API key/auth来源、env引用、未知OAuth形态明确支持或blocked；不得硬编码custom或猜当前profile。 |
+
+### G · 桌面合同与界面闭环
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| G0 | 双应用身份与安全IPC合同；owner：`UI/CONTRACT.md`、两份types/api/store、共享DTO | C0,F0 | 身份/编辑/删除/启动全带appType；key只可在写请求中，不回传、不进共享状态；omitted=保留，显式替换/清除；离线写拒绝。 |
+| G1 | macOS IPC 及启动分派；owner：macOS `src-tauri/src/{lib,channels,launch}.rs` | E0,F1–F3,G0 | 三源preview→确认→commit，revision冲突重预览；新增/编辑/删除/迁移正确映射；Claude/Codex对应启动器；响应和错误均无秘密。 |
+| G2 | macOS 渠道视图；owner：macOS `views/channels/` 与必要store action | G1 | 新增/导入/编辑/删除可完成；取消零写入、跳过计数可见、失败不关闭/不重复toast、成功刷新、输入清空、同ID不同app不串行。 |
+| G3 | Windows 同合同落地；owner：Windows对应Rust/前端文件 | B2,C2,G0；复用G1/G2行为合同 | 独立提交，typecheck/build通过；真实Windows完成后端/凭证/窗口/启动验收才可标平台完成。 |
+
+### H · 交付验收与运行态安装
+
+| 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
+|---|---|---|---|
+| H0 | macOS整链验收；owner：现有测试、隔离安装/合成上游脚本 | E1,G2 | 四来源路径（含JSON）与手填、覆盖/跳过、迁移/轮换/删除，桌面CLI一致；完整测试与实际CLI证据齐全。 |
+| H1 | Windows整链验收；owner：Windows原生测试与安装记录 | G3 | 真实OS运行、Credential Manager错误路径、打包与窗口操作通过；跨平台编译不能替代。 |
+| H2 | 文档/安装包收口；owner：provider文档、队列、README及原打包脚本 | 对应平台H0/H1 | 现状与计划分开，只有验收过的平台启用迁移；先隔离安装再安排用户运行目录更新，遵守S13副本对账，不自动覆盖个人运行时。 |
+
+### 并行纪律与停止点
+
+- 主对话拥有设计合同、共享模型/schema、提交检查点和最终复核。Luna 一次只领一张卡或一个更小的证据问题，回报结论、文件行号、最小验证和不确定项。
+- 首批可并行：A1、A2、B0（A0完成后）；下一批：稳定C0之后，C1、C2、F1/F2/F3按空闲槽排队。F0由主线先锁定，不让scanner各造一种DTO。
+- D1/D3可并行；D2若触及launcher bridge由主线协调，禁止与D1同时改同一段。G1完成后G2和Windows适配可按文件归属并行，mac/Windows提交独立。
+- 每张卡只改指定owner文件，发现跨卡需求回报主线，不顺手重构。每张实现卡先有最小失败证据，再修复并跑其接口测试；最终全量门禁见设计文档。
+- 前置实验失败只阻断依赖它的卡；不要把“未验证”转成明文降级，也不要为了保持进度宣称OS操作原子或Windows已完成。
+- 开始真实产品实施前明确两个放行口径：Windows实机何时可用；临时认证文件是否属于本轮必须清零目标。默认保留严格最终目标，未确认放宽前不把中间成果当最终交付。
+
 ## S24 · Git 历史英文整理方案
 
 **状态**：待规划；2026-09-16 用户选择「另行规划整个仓库的历史改写」。本轮只登记范围，不修改历史或远端引用。
