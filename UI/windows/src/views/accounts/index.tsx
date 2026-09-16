@@ -25,7 +25,7 @@ export default function AccountsView() {
 
   const channelById = useMemo(() => {
     const map = new Map<string, Channel>();
-    for (const channel of channels) map.set(channel.id, channel);
+    for (const channel of channels) { if (channel.appType === 'claude') map.set(channel.id, channel); }
     return map;
   }, [channels]);
 

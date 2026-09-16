@@ -3,6 +3,7 @@
 //! 全部命令返回 `Result<T, String>`，错误字符串就是给人看的中文原因
 //! （AGENTS.md：错误原样暴露，不伪装成功）。
 
+mod provider_management;
 mod channels;
 mod chat;
 mod cron;
@@ -35,21 +36,25 @@ fn list_channels() -> Result<Vec<channels::Channel>, String> {
 }
 
 #[tauri::command]
-fn set_channel_hidden(id: String, hidden: bool) -> Result<(), String> {
+fn set_channel_hidden(id: String, hidden: bool, app_type: String) -> Result<(), String> {
+    provider_management::require_claude(&app_type)?;
     channels::set_channel_hidden(&id, hidden)
 }
 
 #[tauri::command]
-fn set_channel_alias(id: String, alias: Option<String>) -> Result<(), String> {
+fn set_channel_alias(id: String, alias: Option<String>, app_type: String) -> Result<(), String> {
+    provider_management::require_claude(&app_type)?;
     channels::set_channel_alias(&id, alias.as_deref())
 }
 
 #[tauri::command]
 fn set_channel_override(
+    app_type: String,
     id: String,
     model: Option<String>,
     effort: Option<String>,
 ) -> Result<(), String> {
+    provider_management::require_claude(&app_type)?;
     channels::set_channel_override(&id, model.as_deref(), effort.as_deref())
 }
 
@@ -278,6 +283,11 @@ fn run_reveal(target: &Path, shown: &str) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            provider_management::preview_import, provider_management::select_import,
+            provider_management::apply_import, provider_management::cancel_import,
+            provider_management::provider_edit_view, provider_management::save_provider,
+            provider_management::remove_provider, provider_management::credential_status,
+            provider_management::migrate_credentials,
             list_channels,
             set_channel_hidden,
             set_channel_alias,

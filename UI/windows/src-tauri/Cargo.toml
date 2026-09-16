@@ -24,6 +24,7 @@ serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 provider-store = { path = "../../../crates/provider-store" }
 dirs = "5"
+toml = "0.8"
 
 [profile.release]
 codegen-units = 1

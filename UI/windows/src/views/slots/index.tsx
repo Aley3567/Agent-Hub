@@ -57,7 +57,7 @@ export default function SlotsView() {
 
   const channelsById = useMemo(() => {
     const map = new Map<string, Channel>();
-    for (const channel of channels) map.set(channel.id, channel);
+    for (const channel of channels) { if (channel.appType === 'claude') map.set(channel.id, channel); }
     return map;
   }, [channels]);
 
@@ -69,7 +69,7 @@ export default function SlotsView() {
 
   const scopeKnown = scope !== ALL_HUBS && hubs.some((hub) => hub.name === scope);
   const visible = scopeKnown ? hubs.filter((hub) => hub.name === scope) : hubs;
-  const current = channels.find((channel) => channel.isCurrent) ?? null;
+  const current = channels.find((channel) => channel.appType === 'claude' && channel.isCurrent) ?? null;
   const busy = loadingHubs || loadingChannels || loadingUsage;
 
   async function reload(): Promise<void> {

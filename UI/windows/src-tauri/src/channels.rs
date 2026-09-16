@@ -52,6 +52,7 @@ pub(crate) const REQUIRED_CONFIG_VERSION: i64 = 3;
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Channel {
+    pub app_type: String,
     pub id: String,
     pub name: String,
     pub alias: Option<String>,
@@ -123,7 +124,7 @@ impl LocalConfig {
 
 /// 读全部 claude 渠道（含 hidden，前端自己过滤）。
 pub fn list_channels() -> Result<Vec<Channel>, String> {
-    let rows = db::claude_provider_rows()?;
+    let rows = db::provider_rows()?;
     let config = LocalConfig::load()?;
     let mru = load_mru();
     let mut out = Vec::with_capacity(rows.len());
@@ -162,12 +163,12 @@ fn build_channel(
         .cloned()
         .unwrap_or_default();
 
-    let local = config.provider(&row.id);
+    let local = if row.app_type == "claude" { config.provider(&row.id) } else { None };
     let (compatibility, compatibility_reason) = resolve_compatibility(local);
 
-    let endpoint =
+    let mut endpoint =
         string_field(&env, "ANTHROPIC_BASE_URL").and_then(|raw| redact::sanitize_endpoint(&raw));
-    let credential = if redact::has_configured_credential(&env) {
+    let credential = if row.credential_ref.is_some() || redact::has_configured_credential(&env) || (row.app_type == "codex" && settings.as_ref().and_then(|s| s.get("auth")).is_some_and(|auth| auth.get("OPENAI_API_KEY").is_some() || auth.get("tokens").is_some())) {
         "configured"
     } else {
         "missing"
@@ -196,7 +197,17 @@ fn build_channel(
         .or_else(|| mru.get(&row.name))
         .map(|seconds| *seconds as i64);
 
+    let mut declared_model = string_field(&env, "ANTHROPIC_MODEL");
+    if row.app_type == "codex" {
+        if let Some(config) = settings.as_ref().and_then(|s| s.get("config")).and_then(Value::as_str).and_then(|s| toml::from_str::<toml::Table>(s).ok()) {
+            declared_model = config.get("model").and_then(toml::Value::as_str).map(str::to_owned);
+            endpoint = config.get("model_provider").and_then(toml::Value::as_str)
+                .and_then(|key| config.get("model_providers")?.get(key)?.get("base_url")?.as_str())
+                .and_then(redact::sanitize_endpoint);
+        }
+    }
     Channel {
+        app_type: row.app_type.clone(),
         id: row.id.clone(),
         name: row.name.clone(),
         alias: local
@@ -205,7 +216,7 @@ fn build_channel(
             .map(str::trim)
             .filter(|alias| !alias.is_empty())
             .map(str::to_string),
-        api_format: resolve_api_format(&settings, &meta, row.provider_type.as_deref()),
+        api_format: if row.app_type == "codex" { "openai_responses" } else { resolve_api_format(&settings, &meta, row.provider_type.as_deref()) },
         endpoint,
         credential,
         is_current: row.is_current,
@@ -225,7 +236,7 @@ fn build_channel(
             .and_then(|value| value.as_str())
             .filter(|effort| EFFORT_LEVELS.contains(effort))
             .map(str::to_string),
-        declared_model: string_field(&env, "ANTHROPIC_MODEL"),
+        declared_model,
         slot_models,
         context_window,
         compatibility,
@@ -248,7 +259,7 @@ fn build_channel(
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_string),
-        last_used_at,
+        last_used_at: if row.app_type == "claude" { last_used_at } else { None },
         sort_index: row.sort_index.unwrap_or(ordinal as i64),
     }
 }
@@ -584,6 +595,20 @@ mod tests {
             Value::Object(map) => Some(map),
             _ => None,
         }
+    }
+
+    #[test]
+    fn same_id_codex_does_not_inherit_claude_overrides_or_expose_auth() {
+        let config = LocalConfig { root: serde_json::json!({"providers":{"same":{"alias":"Claude alias","hidden":true,"model":"Claude model"}}}).as_object().unwrap().clone(), path: PathBuf::new(), existed: false };
+        let mut row = db::ProviderRow { app_type: "claude".into(), credential_ref: None, id: "same".into(), name: "Fixture".into(), settings_config: Some("{}".into()), meta: None, is_current: false, in_failover_queue: false, category: None, notes: None, icon_color: None, provider_type: None, sort_index: None };
+        assert_eq!(build_channel(&row, 0, &config, &BTreeMap::new()).alias.as_deref(), Some("Claude alias"));
+        row.app_type = "codex".into();
+        row.settings_config = Some(serde_json::json!({"auth":{"OPENAI_API_KEY":"fake-secret-marker"},"config":"model = 'gpt-fixture'\nmodel_provider = 'fixture'\n[model_providers.fixture]\nbase_url = 'https://example.test/v1'"}).to_string());
+        let channel = build_channel(&row, 0, &config, &BTreeMap::new());
+        assert!(channel.alias.is_none() && !channel.hidden && channel.model_override.is_none());
+        assert_eq!(channel.declared_model.as_deref(), Some("gpt-fixture"));
+        assert_eq!(channel.credential, "configured");
+        assert!(!serde_json::to_string(&channel).unwrap().contains("fake-secret-marker"));
     }
 
     #[test]

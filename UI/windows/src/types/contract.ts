@@ -11,7 +11,11 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh';
 export type SlotName = 'fable' | 'opus' | 'sonnet' | 'haiku';
 export type Compatibility = 'compatible' | 'incompatible' | 'unassessed';
 
+export type AppType = 'claude' | 'codex';
+export function channelKey(channel: Pick<Channel, 'appType' | 'id'>): string { return `${channel.appType}:${channel.id}`; }
+
 export interface Channel {
+  appType: AppType;
   id: string;
   name: string;
   /** claude1-config.json 里的独立别名，可直接 `claude1 <alias>` 启动 */
@@ -81,6 +85,9 @@ export interface HubConfig {
 }
 
 export interface UsageRow {
+  harness?: string;
+  providerApp?: string;
+  providerId?: string;
   ts: number; // unix 秒
   channel: string;
   model: string;
@@ -175,6 +182,7 @@ export interface DoctorCheck {
 }
 
 export interface LaunchTarget {
+  appType?: AppType;
   kind: 'channel' | 'slot' | 'hub';
   channelId?: string;
   hubName?: string;
@@ -293,3 +301,14 @@ export interface AppEnv {
   /** `python3 --version` 的原文，检测不到为 null */
   pythonVersion: string | null;
 }
+
+export interface ProviderCandidate { candidateId: string; id: string; appType: AppType; name: string; endpoint: string | null; protocol: string; credential: string; conflict: boolean; blockedReason: string | null }
+export type ProviderSource = { kind: 'cc_switch' | 'claude' | 'json'; path: string } | { kind: 'codex'; config: string; auth: string; profile: string | null };
+export interface ImportPreview { planId: string; source: string; candidates: ProviderCandidate[]; blocked: string[] }
+export interface ImportSelection { added: number; updated: number; skipped: number; selected: string[]; replace: boolean }
+export interface ProviderOutcome { added: number; updated: number; skipped: number; pendingCleanup: number }
+export interface ProviderEditView { provider: ProviderCandidate; revision: number; model: string | null }
+export interface ProviderInput { appType: AppType; id: string; name: string; expectedRevision: number | null; endpoint?: string; model?: string; protocol?: string; secret?: string; clearSecret: boolean }
+export interface CredentialStatus { legacy: number; referenced: number; pendingCleanup: number }
+export interface MigrationOutcome { applied: ProviderOutcome; storageCleanupPending: boolean }
+export interface DeleteOutcome { removed: number; blockers: string[]; pendingCleanup: number }

@@ -160,7 +160,7 @@ export function undeclaredChannels(hub: HubConfig, channels: Channel[]): Channel
   for (const item of hub.channels) {
     if (item.resolvedChannelId !== null) declared.add(item.resolvedChannelId);
   }
-  return channels.filter((channel) => !channel.hidden && !declared.has(channel.id));
+  return channels.filter((channel) => channel.appType === 'claude' && !channel.hidden && !declared.has(channel.id));
 }
 
 /** 一个 hub 渠道背后的 CC Switch 渠道，解析不到返回 null */

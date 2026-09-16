@@ -31,7 +31,7 @@ function targetText(task: ScheduledTask, channels: Channel[], hubs: HubConfig[])
   const target = task.target;
   if (task.kind === 'doctor-reminder' || target === null) return null;
   if (target.kind === 'channel') {
-    const channel = channels.find((item) => item.id === target.channelId);
+    const channel = channels.find((item) => item.id === target.channelId && item.appType === (target.appType ?? 'claude'));
     if (channel) return `渠道 · ${channel.name}`;
     return `渠道 · ${target.channelId ?? '未设置'}（不在当前渠道列表中）`;
   }

@@ -18,10 +18,14 @@ use crate::db;
 use crate::hubs;
 use crate::redact;
 
+fn default_app() -> String { "claude".into() }
+
 // Serialize：计划任务（tasks.rs）把 target 原样落盘进 agent-hub-tasks.json，需要双向 serde
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LaunchTarget {
+    #[serde(default = "default_app")]
+    pub app_type: String,
     pub kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
@@ -122,10 +126,16 @@ fn is_executable(path: &std::path::Path) -> bool {
 }
 
 pub fn launch(target: LaunchTarget) -> Result<LaunchResult, String> {
-    locate_launcher()?;
+    let app = target.app_type.as_str();
+    if app == "codex" {
+        let home = crate::paths::home_dir()?;
+        let available = std::env::var_os("CODEX1_SCRIPT").map(PathBuf::from).unwrap_or_else(|| home.join(".codex/scripts/codex-provider-once.py"));
+        if !available.is_file() && which("codex1").is_none() { return Err("找不到 codex1 启动器".into()); }
+    } else { locate_launcher()?; }
     let args = build_args(&target)?;
     let command = format!(
-        "claude1 {}",
+        "{} {}",
+        if app == "codex" { "codex1" } else { "claude1" },
         args.iter()
             .map(|arg| shell_quote(arg))
             .collect::<Vec<String>>()
@@ -142,6 +152,7 @@ pub fn launch(target: LaunchTarget) -> Result<LaunchResult, String> {
 
 /// 把 LaunchTarget 翻译成 claude1 的参数。
 fn build_args(target: &LaunchTarget) -> Result<Vec<String>, String> {
+    if !["claude", "codex"].contains(&target.app_type.as_str()) || (target.kind != "channel" && target.app_type != "claude") { return Err("该应用不支持此启动目标".into()); }
     match target.kind.as_str() {
         "channel" => {
             let id = target
@@ -150,8 +161,8 @@ fn build_args(target: &LaunchTarget) -> Result<Vec<String>, String> {
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
                 .ok_or_else(|| "启动渠道会话需要 channelId".to_string())?;
-            let rows = db::claude_provider_rows()?;
-            if !rows.iter().any(|row| row.id == id) {
+            let rows = db::provider_rows()?;
+            if !rows.iter().any(|row| row.app_type == target.app_type && row.id == id) {
                 return Err(format!("CC Switch 里找不到渠道 id：{id}"));
             }
             // `id:<完整 id>` 是 claude1 的精确选择器，不会被同名渠道抢走。
@@ -317,6 +328,7 @@ mod tests {
     #[test]
     fn slot_target_needs_a_valid_slot() {
         let target = LaunchTarget {
+            app_type: "claude".into(),
             kind: "slot".into(),
             channel_id: None,
             hub_name: None,
@@ -330,6 +342,7 @@ mod tests {
     #[test]
     fn slot_target_builds_the_cli_equivalent() {
         let target = LaunchTarget {
+            app_type: "claude".into(),
             kind: "slot".into(),
             channel_id: None,
             hub_name: None,
@@ -345,6 +358,7 @@ mod tests {
     #[test]
     fn slot_model_must_be_a_channel_model_selector() {
         let target = LaunchTarget {
+            app_type: "claude".into(),
             kind: "slot".into(),
             channel_id: None,
             hub_name: None,
@@ -358,6 +372,7 @@ mod tests {
     #[test]
     fn unknown_kind_is_rejected() {
         let target = LaunchTarget {
+            app_type: "claude".into(),
             kind: "spaceship".into(),
             channel_id: None,
             hub_name: None,

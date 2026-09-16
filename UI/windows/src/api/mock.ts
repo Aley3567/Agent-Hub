@@ -85,6 +85,7 @@ function pickOne<T>(random: () => number, items: readonly T[]): T {
 
 export const MOCK_CHANNELS: Channel[] = [
   {
+    appType: 'claude',
     id: 'ch-anthropic-official',
     name: 'Anthropic 官方',
     alias: 'ant',
@@ -114,6 +115,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 0,
   },
   {
+    appType: 'claude',
     id: 'ch-relay-cn',
     name: '国内中转',
     alias: 'relay',
@@ -138,6 +140,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 1,
   },
   {
+    appType: 'claude',
     id: 'ch-grok-chat',
     name: 'Grok',
     alias: 'grok',
@@ -162,6 +165,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 2,
   },
   {
+    appType: 'claude',
     id: 'ch-gpt-responses',
     name: 'OpenAI Responses',
     alias: null,
@@ -186,6 +190,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 3,
   },
   {
+    appType: 'claude',
     id: 'ch-local-llama',
     name: '本地 Llama',
     alias: 'local',
@@ -211,6 +216,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 4,
   },
   {
+    appType: 'claude',
     id: 'ch-bedrock',
     name: 'Bedrock',
     alias: null,
@@ -235,6 +241,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 5,
   },
   {
+    appType: 'claude',
     id: 'ch-qwen-chat',
     name: 'Qwen',
     alias: null,
@@ -259,6 +266,7 @@ export const MOCK_CHANNELS: Channel[] = [
     sortIndex: 6,
   },
   {
+    appType: 'claude',
     id: 'ch-retired-relay',
     name: '停用的旧中转',
     alias: null,
@@ -929,7 +937,7 @@ export function mockSendChatMessage(sessionId: string, content: string): Promise
   // 不能只有用户气泡过闸、助手回复原样回显（CONTRACT.md §1.2）。
   const sanitized = redactSecrets(trimmed);
   session.messages.push({ role: 'user', content: sanitized, ts });
-  const channelName = MOCK_CHANNELS.find((channel) => channel.id === session.channelId)?.name ?? '（未绑定渠道）';
+  const channelName = MOCK_CHANNELS.find((channel) => channel.appType === 'claude' && channel.id === session.channelId)?.name ?? '（未绑定渠道）';
   const excerpt = sanitized.length > 40 ? `${sanitized.slice(0, 40)}…` : sanitized;
   const reply: ChatMessage = {
     role: 'assistant',

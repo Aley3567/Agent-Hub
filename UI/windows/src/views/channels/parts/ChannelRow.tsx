@@ -1,3 +1,4 @@
+import { channelKey } from '../../../types/contract';
 /**
  * 渠道表格的一行，外加它展开后的详情行。
  *
@@ -55,16 +56,16 @@ export default function ChannelRow({
   const incompatible = channel.compatibility === 'incompatible';
   // 只使用稳定 provider 身份匹配；同名渠道和旧别名记录不能互相认领。
   const latest = recentUsage
-    .filter((row) => 'providerId' in row && row.providerId === channel.id && 'providerApp' in row && row.providerApp === 'claude')
+    .filter((row) => 'providerId' in row && row.providerId === channel.id && 'providerApp' in row && row.providerApp === channel.appType)
     .reduce<UsageRow | null>((last, row) => last === null || row.ts > last.ts ? row : last, null);
 
   async function runLaunch(): Promise<void> {
     setBusy('launch');
     setRowError(null);
     setLaunchResult(null);
-    onSetExpanded(channel.id, true);
+    onSetExpanded(channelKey(channel), true);
     try {
-      const result = await actions.launch(channel.id);
+      const result = await actions.launch(channel.id, channel.appType);
       setLaunchResult(result);
       // ok 为 false 也要留痕：失败绝不伪装成成功
       if (result.ok) {
@@ -86,10 +87,10 @@ export default function ChannelRow({
     setBusy('hidden');
     setRowError(null);
     try {
-      await actions.setHidden(channel.id, !channel.hidden);
+      await actions.setHidden(channel.id, !channel.hidden, channel.appType);
     } catch (cause) {
       setRowError(errorText(cause));
-      onSetExpanded(channel.id, true);
+      onSetExpanded(channelKey(channel), true);
     } finally {
       setBusy(null);
     }
@@ -106,7 +107,7 @@ export default function ChannelRow({
               aria-expanded={expanded}
               aria-controls={detailId}
               title={expanded ? '收起渠道详情' : '展开渠道详情'}
-              onClick={() => onSetExpanded(channel.id, !expanded)}
+              onClick={() => onSetExpanded(channelKey(channel), !expanded)}
             >
               {/* 方向靠 CSS 旋转而不是换图标名：图标名互换是硬切，拿不到 --dur-fast
                   那一档「图标旋转翻转」的过渡（DESIGN.md 2.5 时长语义表）。
@@ -199,7 +200,7 @@ export default function ChannelRow({
               aria-label={`更多：${channel.name}`}
               aria-expanded={expanded}
               aria-controls={detailId}
-              onClick={() => onSetExpanded(channel.id, !expanded)}
+              onClick={() => onSetExpanded(channelKey(channel), !expanded)}
             >更多</Button>
           </span>
         </Td>
@@ -212,9 +213,11 @@ export default function ChannelRow({
               size="sm"
               icon={channel.hidden ? 'eye' : 'eye-off'}
               loading={busy === 'hidden'}
-              disabled={busy !== null}
+              disabled={busy !== null || channel.appType !== 'claude'}
               onClick={() => void toggleHidden()}
             >{channel.hidden ? '取消隐藏' : '隐藏渠道'}</Button>
+            <Button size="sm" onClick={() => actions.manage(channel, 'edit')}>编辑渠道</Button>
+            <Button size="sm" onClick={() => actions.manage(channel, 'delete')}>删除渠道</Button>
             <ChannelDetail
               channel={channel}
               actions={actions}
