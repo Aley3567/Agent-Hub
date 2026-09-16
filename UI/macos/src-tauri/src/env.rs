@@ -77,26 +77,71 @@ pub fn locate_claude_bin() -> Option<PathBuf> {
     None
 }
 
-/// `python3 --version` 的输出。取不到返回 `None`。
+/// Use the same supported interpreter for GUI diagnostics and repair commands.
+/// Finder's PATH may contain only the older system Python.
+pub fn resolve_python() -> Option<PathBuf> {
+    let (path, version) = discover_python()?;
+    supported_python(&version).then_some(path)
+}
+
 pub fn detect_python_version() -> Option<String> {
-    let program = launch::which("python3").or_else(|| {
-        let fallback = PathBuf::from("/usr/bin/python3");
-        if fallback.is_file() {
-            Some(fallback)
-        } else {
-            None
-        }
-    })?;
-    let output = Command::new(&program).arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
+    discover_python().map(|(_, version)| version)
+}
+
+pub fn supported_python(version: &str) -> bool {
+    let mut numbers = version.split_whitespace().last().unwrap_or("").split('.');
+    let major = numbers.next().and_then(|value| value.parse::<u32>().ok());
+    let minor = numbers.next().and_then(|value| value.parse::<u32>().ok());
+    matches!((major, minor), (Some(3), Some(11..)) | (Some(4..), _))
+}
+
+fn discover_python() -> Option<(PathBuf, String)> {
+    let mut candidates = Vec::new();
+    if let Some(program) = launch::which("python3") { candidates.push(program); }
+    if let Ok(home) = paths::home_dir() { candidates.push(home.join(".local/bin/python3")); }
+    candidates.extend(["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"].map(PathBuf::from));
+    choose_python(candidates.into_iter().filter_map(|program| {
+        python_version(&program).map(|version| (program, version))
+    }))
+}
+
+fn choose_python(probes: impl IntoIterator<Item = (PathBuf, String)>) -> Option<(PathBuf, String)> {
+    let mut fallback = None;
+    for (program, version) in probes {
+        if supported_python(&version) { return Some((program, version)); }
+        if fallback.is_none() { fallback = Some((program, version)); }
     }
-    let mut text = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if text.is_empty() {
-        text = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    fallback
+}
+
+fn python_version(program: &std::path::Path) -> Option<String> {
+    let output = Command::new(program).arg("--version").output().ok()?;
+    if !output.status.success() { return None; }
+    let text = if output.stdout.is_empty() { &output.stderr } else { &output.stdout };
+    let version = String::from_utf8_lossy(text).trim().to_string();
+    (!version.is_empty()).then_some(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gui_system_python_does_not_hide_supported_homebrew_python() {
+        let found = choose_python([
+            (PathBuf::from("/usr/bin/python3"), "Python 3.9.6".into()),
+            (PathBuf::from("/usr/local/bin/python3"), "Python 3.12.8".into()),
+        ]).unwrap();
+        assert_eq!(found.0, PathBuf::from("/usr/local/bin/python3"));
+        assert!(supported_python(&found.1));
     }
-    if text.is_empty() {
-        return None;
+
+    #[test]
+    fn unsupported_python_is_reported_but_not_approved_for_repairs() {
+        let found = choose_python([(PathBuf::from("old"), "Python 3.9.6".into())]).unwrap();
+        assert_eq!(found.1, "Python 3.9.6");
+        assert!(!supported_python(&found.1));
+        assert!(!supported_python("unknown"));
+        assert!(supported_python("Python 3.11.0"));
     }
-    Some(text)
 }

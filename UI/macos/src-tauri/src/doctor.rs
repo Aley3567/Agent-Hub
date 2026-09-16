@@ -708,18 +708,7 @@ fn check_launcher(out: &mut Vec<DoctorCheck>) {
 fn check_python(out: &mut Vec<DoctorCheck>) {
     match env::detect_python_version() {
         Some(version) => {
-            let numbers: Vec<i64> = version
-                .split_whitespace()
-                .last()
-                .unwrap_or("")
-                .split('.')
-                .filter_map(|part| part.parse::<i64>().ok())
-                .collect();
-            let ok = match (numbers.first(), numbers.get(1)) {
-                (Some(3), Some(minor)) => *minor >= 11,
-                (Some(major), _) => *major > 3,
-                _ => false,
-            };
+            let ok = env::supported_python(&version);
             if ok {
                 out.push(check("python", "ok", version, None, None));
             } else {
@@ -747,15 +736,7 @@ fn check_python(out: &mut Vec<DoctorCheck>) {
 /// 不在桌面端直接改数据库：README.md 的安全边界要求这里不存在数据库写入路径。
 pub fn fix_subagent_pins() -> Result<Vec<DoctorCheck>, String> {
     let launcher = launch::locate_launcher()?;
-    let python = launch::which("python3")
-        .or_else(|| {
-            let fallback = std::path::PathBuf::from("/usr/bin/python3");
-            if fallback.is_file() {
-                Some(fallback)
-            } else {
-                None
-            }
-        })
+    let python = env::resolve_python()
         .ok_or_else(|| {
             "没找到 python3，无法调用 claude1 doctor --fix 清理子代理固定值".to_string()
         })?;
