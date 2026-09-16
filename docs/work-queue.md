@@ -12,11 +12,21 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：实施中。2026-09-16 已完成 A0 基线核对，第一层 B（共享存储与路径边界）代码与本机可用检查已完成；第二层核心凭证合同、reader 和平台 adapter 代码已提交，运行态验收尚未全部通过。用户要求在此交接，第三、四层留待新对话。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 第一层与第二层代码已提交，三项审查问题已独立修复；第三层共享提交/恢复、迁移、来源计划与终端接入已形成检查点，第四层 macOS 有未提交草稿，Windows 尚未跟进。本轮用户因对话过长要求交接，停止继续实施；平台/CLI/窗口与最终交付仍未验收完成。该任务优先于 S24 历史英文整理。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
 **分支**：实施从 `main@ed63114` 建立隔离分支 `s25/provider-foundation`，工作树为 `../claude-hub-wt/provider-foundation`。原 `main` 比 `origin/main` 领先 2 个文档提交，未跟踪 `.agents/`、`.mimosa/` 与三个 SVG 均保留；`ui/workspace-shell@d8105cf` 工作树干净，但缺 `372caeb`、`6fc85c9`、`e854fc2`、`ed63114`，故不在旧树直接实施、不 merge/rebase。所有本地检查点按行为提交，macOS/Windows 分开提交；未授权发布。
+
+**最新交接（2026-09-16，本轮用户主动换对话）**：
+- 交接前代码 HEAD 为 `f6833ee`，分支 `s25/provider-foundation` 未设置 upstream，相对本地 `main` 为 ahead 19 / behind 0。下一个 HEAD 仅记录本交接；禁止假定工作树干净或照抄旧 HEAD。
+- 本轮五个产品检查点：`fdc77b7` 凭证版本变化中止启动；`5c83b68` doctor 仅写验证过的 Hub 目标；`b40365c` SQLite 私有只读副本兼容 PERSIST/WAL；`3b4b848` E0 不可变引用提交/恢复内核；`f6833ee` L3 计划、显式迁移、删除/编辑保护及 CLI/TUI 接入。没有 push、merge、rebase/amend、真实凭证迁移或用户安装目录更新。
+- **未提交 owner 仅 `UI/macos/`**：22 个已跟踪文件修改，覆盖 Cargo.toml/lock、Rust db/channels/hubs/pools/launch/tasks/lib、types/api/mock/store、命令面板、渠道/聊天/任务视图及 slotModel；另新增 `src-tauri/src/provider_management.rs`、`src/views/channels/parts/ManagementDialog.tsx` 与同名 module.css。新增/导入/编辑/删除/迁移弹窗与 IPC、双应用投影/启动是草稿，保留，不 reset，不直接打包提交。
+- **接手首先补失败回归/收口**：① `ManagementDialog.tsx` 的 mounted ref 只在 cleanup 置 false，`main.tsx` 使用 StrictMode，重挂 effect 未恢复 true，可能使扫描结果立即取消；② `views/accounts/index.tsx` 与 `views/slots/index.tsx` 仍 `Map(id,channel)`，须先过滤 Claude，避免同 ID Codex 覆盖；③ `tasks.rs::validate` 尚未检验 appType，ChannelWindow 历史归属也需按应用核对；④ `UI/CONTRACT.md` 尚未更新，当前未补同 ID/IPC/弹窗交互测试，也未跑本轮 renderer build。这些均不能由现有类型检查替代。
+- **L3 再检查项**：`native.rs::remove` 无 Linux legacy 分支而依赖仅 macOS 可用 backend，会阻断旧 Linux 删除；Linux apply_plan/save 分支仍需复核与新提交合同的并发/版本边界。`replace=true` 的 import 仍总创建新引用，只有显式编辑无变化与 skip 已证明零 OS 调用，不能扩大为所有 unchanged。真实进程强杀目前只有 panic 模拟恢复，尚无进程崩溃耐久性证据。
+- **已运行证据与时点**：三项修复后 Python 1007 passed（`/tmp/s25-python-after-review.log`，在后续 L3 schema/桌面修改前）；L3 当前产品检查点根 Rust workspace：provider-store 51 passed / 1 ignored，CLI 4 passed（`/tmp/s25-l3-workspace.log`）；macOS 当前草稿 Rust 75 passed（`/tmp/s25-ui-macos-rust.log`），TypeScript typecheck passed（`/tmp/s25-ui-macos-ts.log`）。本轮未重新运行安装集成/完整最终矩阵。所有实际执行测试使用合成库与内存 SecretStore；未执行 ignored Keychain 探针。
+- **运行/视觉证据**：只用 Chrome headless 看过修改前离线渠道页，图 `/tmp/s25-channels-before.png`；新增 UI 未做交互验收或真实 Tauri 窗口验证。renderer 曾运行 127.0.0.1:1421，交接时停止；一次性 `/tmp/s25-ui-rust.py`、`/tmp/s25-ui-ts.py` 非幂等，不要重跑。
+- **后续顺序**：修正/验证 macOS 草稿与 L3 边界 → 更新合同并独立提交 macOS → 按差异迁入 Windows并独立验证/提交 → H0/H1/H2 的实际 CLI 合成上游认证优先级、平台凭证、真实窗口、安装与文档。Windows 原生环境不可用可继续代码，但禁止启用 Windows 迁移或宣称运行通过。严格零明文目标仍未完成（启动认证文件与私有 SQLite 临时副本存在）；不静默降低目标。当前尚不具备完整 S25 合入/发布条件。
 
 **实施层次与检查点**：
 1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价 → B2d 安装器新库初始化边界。每步独立检查；B2 完成前不开放桌面写入。
