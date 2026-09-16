@@ -645,8 +645,11 @@ label 用项目的真实路径（由 Rust 从 transcript 的 `cwd` 字段读出�
 **每卡的固定结构**
 
 - 头部：名称（`--fs-14` `--fw-medium`）+ kind `Badge`。
-- 正文：`scheduleText` 一行（人话排程，`--fs-14`）；其下 cron 原串 mono `--fs-12`
+- 正文：`scheduleSpec` 渲染出的人话排程一行（`--fs-14`，**随界面语言切换**——
+  Rust 只给结构，文案由前端拼）；其下 cron 原串 mono `--fs-12`
   `--text-tertiary`——人话在前、原串不隐藏（同 §4.4 降级码原则）。
+  `notes` 非空时（cron 无法解析、kind 不在支持列表等降级记号）一并附在这一行之后，
+  有损但可观测的记号不允许只活在数据里。
 - 右上：**下次运行倒计时**，mono + tabular-nums、右对齐，格式为「3 天 2 小时后」式的
   人话相对时间，复用 `formatRelative` 家族，不新写格式化函数。
 - 动作位：启用 `Switch` + 删除 `IconButton`（danger 变体，`aria-label` + Tooltip 按 §4.1；

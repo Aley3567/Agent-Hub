@@ -37,7 +37,7 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 | `scripts/`、`install.sh`、`bin/model-bridge.js` | shell 集成、安装、npm 到 Python 的启动转交 | 理解实际交付入口 |
 | `src/claude_hub/` | 新 Python 包的管理接口、CC Switch/Standalone store、凭证存储和启动流程 | 与根运行时分开读 |
 | `crates/agent-hub/` | Rust CLI/TUI 管理面；当前 CLI 提供 provider list/current | 不在 Python 请求热路径 |
-| `UI/macos/`、`UI/windows/` | 两套独立桌面构建；启动路径可调用 Python，chat 模块当前明确返回演示数据 | 不作为真实聊天 demo 证据 |
+| `UI/macos/`、`UI/windows/` | 两套独立桌面构建；启动路径可调用 Python，对话经 Rust 侧 reqwest 调本机 hub 的 `/v1/messages`（前端不直连，CSP 挡着） | 会真实产生 hub 请求与流水，不再是纯展示层 |
 | `gateway/` | 独立 Go 代理/协议转换实验 | 不计入主 Python 协议实现 |
 | `tests/`、`examples/`、`docs/` | 隔离测试与流 fixture、无凭证配置示例、设计/证据/工作队列 | 与主线交叉阅读 |
 | `tools/freebuff-src/`、`tools/go-sdk/` | 外部参考和本地工具 | 非仓库产品模块 |

@@ -72,8 +72,10 @@ WebView2 Runtime。`UI/windows` 的 Rust 侧只能在 Windows 上构建；在 ma
 - 成本呈现只读现有定价数据：`model-pricing.json` 优先，为空时回退 CC Switch DB 的
   `model_pricing` 表，仍无价则明确显示「不估算」——不做预估与拦截，绝不自订单价。
 - 无自动更新、无托盘常驻、无 deep link。
-- 契约已扩展 chat / plugins / tasks 三视图：本轮对话为演示实现（不接真实后端）、计划任务为本地清单
-  （CRUD + 展示，执行层未做），后端 seam 留在 IPC 层，签名不变。
+- 契约已扩展 chat / plugins / tasks 三视图：对话已接真实（历史会话只读回放
+  `~/.claude/projects` 的 transcript；新建会话经本机 hub 真发送，真 SSE 流式；失败不伪装成功，
+  离线不回退假数据）。计划任务是本地清单，且应用运行期间会真实派发（2 秒扫描，
+  退出或休眠不补跑）——派发成功不等于模型执行完成。
 - 插件视图的渠道级扩展点（settings_config 内）只读展示；可写项（enabled 切换）只落
   `claude1-config.json` 本地覆盖，绝不写 DB。
 
