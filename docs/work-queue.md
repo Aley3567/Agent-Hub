@@ -25,7 +25,7 @@
 4. **L4 桌面操作**：G0 双应用身份 → G1 macOS 命令与启动 → G2 渠道交互；G3 独立 Windows 适配。维持现有渠道页面视觉与结构。
 5. **L5 运行交付**：H0/H1 真实平台、实际 CLI 与合成上游 → H2 安装及文档。编译通过不等于凭证/启动/窗口验收通过。
 
-**A0 核对（2026-09-16）**：macOS 15.6 arm64；Rust/Cargo 1.96.0、Node 24.14.0、Python 3.12.8；Claude Code 2.1.261，Codex 0.154.0-alpha.6.2。已安装 `x86_64-pc-windows-msvc` target，但 Windows 实机尚无证据。Linux 暂保留已有写能力，新凭证后端未验收不切换。默认仍以“含启动临时文件的零明文”为最终目标；持久库迁移完成不能替代它。未读取或迁移真实 provider/Keychain，未安装到用户运行目录。
+**A0 核对（2026-09-16）**：macOS 15.6 arm64；Rust/Cargo 1.96.0、Node 24.14.0、Python 3.12.8；Claude Code 2.1.261，Codex 0.154.0-alpha.6.2。已安装 `x86_64-pc-windows-msvc` target，但 Windows 实机尚无证据，用户已同意环境验收后置。Linux 暂保留已有写能力，新凭证后端未验收不切换。默认仍以“含启动临时文件的零明文”为最终目标；持久库迁移完成不能替代它。未读取或迁移真实 provider/Keychain，未安装到用户运行目录。
 
 **目标**：桌面三源发现及预览、保留 JSON 文件导入、两类渠道自定义 CRUD、统一安全存储、显式旧数据迁移，以及 CLI/桌面/运行时正确取用同一身份。先打通读路径，再启用 Keychain-only 写路径。三源/双平台目标不删减；Windows 未实机验证时单列状态。
 
@@ -46,6 +46,11 @@
 | B0 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
 | B1 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
 | B2 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
+
+**B 分层进度**：
+- B0a ✅ 2026-09-16：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
+- B0b/B0c 待执行：两平台分别接入 path 依赖并校验完整依赖图。
+- B1、B2a/B2b/B2c 待执行，不能将依赖接入称为桌面管理完成。
 
 ### C · 凭证引用与平台适配
 
