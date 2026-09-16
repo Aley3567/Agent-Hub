@@ -13,6 +13,7 @@ database in read-only mode; this file never contains provider credentials.
 from __future__ import annotations
 
 import asyncio
+from claude1_credentials import CredentialError
 import codecs
 import copy
 import hmac
@@ -815,7 +816,7 @@ def _refresh_provider_snapshot(path: Path) -> tuple:
     enter the cache.
     """
     started = time.monotonic()
-    providers, verified = _read_provider_snapshot(path)
+    providers, verified = _read_provider_snapshot(path, warning=lambda event: log(json.dumps(event, sort_keys=True)))
     elapsed_ms = int(round((time.monotonic() - started) * 1000))
     _require_private_database(path)
     return verified, providers, elapsed_ms
@@ -1183,6 +1184,8 @@ def resolve_provider(
             f"or was ambiguous in the CC Switch database "
             f"(check {config_path().name})",
         )
+    if provider.get("credential_error"):
+        raise RouteError(503, provider["credential_error"])
     if not provider.get("token"):
         raise RouteError(
             502,
@@ -1304,6 +1307,8 @@ class _AccountCandidateDirectory(Mapping):
         record = self.record(selector)
         if record is None:
             raise KeyError(selector)
+        if record.get("credential_error"):
+            raise CredentialError(record["credential_error"])
         candidate = AccountCandidate(
             credential_fingerprint(str(record.get("token") or "")),
             endpoint=str(record.get("base_url") or ""),
@@ -4069,6 +4074,9 @@ async def controlled_error_middleware(
         # The downstream transport is already aborted. Cancellation prevents
         # aiohttp from attempting a normal write_eof or rendering a second body.
         raise asyncio.CancelledError from exc
+    except CredentialError as exc:
+        log(f"credential resolution failed: {exc.code}")
+        return anthropic_error(503, exc.code, "api_error")
     except ConfigError:
         log(f"{request.method} {request.path}: configuration unavailable")
         return anthropic_error(

@@ -16,6 +16,8 @@ Usage:
 
 from __future__ import annotations
 
+from claude1_credentials import CREDENTIAL_COLUMNS, CredentialError, resolve as resolve_credentials
+
 import json
 import os
 import shutil
@@ -118,9 +120,11 @@ def db_codex_rows() -> list[sqlite3.Row]:
     conn = sqlite3.connect(db_uri, uri=True)
     conn.row_factory = sqlite3.Row
     try:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(providers)")}
+        extra = "".join(", " + key for key in CREDENTIAL_COLUMNS if key in columns)
         return conn.execute(
-            "SELECT id, name, settings_config, sort_index "
-            "FROM providers WHERE app_type='codex'"
+            "SELECT id, name, settings_config, sort_index " + extra +
+            " FROM providers WHERE app_type='codex'"
         ).fetchall()
     finally:
         conn.close()
@@ -133,6 +137,7 @@ def list_providers() -> list[dict]:
             "name": str(row["name"] or ""),
             "settings_config": row["settings_config"],
             "sort_index": row["sort_index"],
+            **{key: row[key] for key in CREDENTIAL_COLUMNS if key in row.keys()},
         }
         for row in db_codex_rows()
     ]
@@ -154,7 +159,7 @@ def order_by_mru(providers: list[dict], mru: dict[str, float]) -> list[dict]:
     return [provider for _, provider in indexed]
 
 
-def provider_settings(provider: dict) -> tuple[dict, str]:
+def provider_settings(provider: dict, *, resolve_secret: bool = True, _retry: bool = True) -> tuple[dict, str]:
     """Split a provider's persisted settings into its auth block and config text."""
     name = provider.get("name", "")
     raw = provider.get("settings_config")
@@ -167,6 +172,16 @@ def provider_settings(provider: dict) -> tuple[dict, str]:
         raise RuntimeError(f"渠道 '{name}' 的 settings_config 不是合法 JSON") from None
     if not isinstance(data, dict):
         raise RuntimeError(f"渠道 '{name}' 的 settings_config 不是 JSON 对象")
+    if resolve_secret:
+        try:
+            data, _ = resolve_credentials(provider, "codex", data)
+        except CredentialError as exc:
+            if exc.code != "credential_missing" or not _retry:
+                raise
+            fresh = next((item for item in list_providers() if item["id"] == provider.get("id")), None)
+            if fresh is None or fresh.get("credential_ref") == provider.get("credential_ref"):
+                raise
+            return provider_settings(fresh, _retry=False)
     auth = data.get("auth")
     config = data.get("config")
     if not isinstance(config, str) or not config.strip():
@@ -319,7 +334,7 @@ def build_profile(config_text: str, auth: dict, provider_id: str | None = None) 
 def provider_summary(provider: dict) -> tuple[str, str]:
     """Best-effort (auth kind, base_url) for listings; never raises."""
     try:
-        auth, config_text = provider_settings(provider)
+        auth, config_text = provider_settings(provider, resolve_secret=False)
         base = tomllib.loads(config_text)
         kind = auth_kind(auth)
         providers = base.get("model_providers")

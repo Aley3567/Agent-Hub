@@ -4647,9 +4647,9 @@ class ClaudeHubTests(unittest.TestCase):
         errors = []
         barrier = threading.Barrier(8)
 
-        def spy(path):
+        def spy(path, **kwargs):
             calls.append(path)
-            return real_read(path)
+            return real_read(path, **kwargs)
 
         def worker():
             try:
@@ -4907,9 +4907,9 @@ class ClaudeHubTests(unittest.TestCase):
         real_read = hub._read_provider_snapshot
         calls = []
 
-        def spy(path):
+        def spy(path, **kwargs):
             calls.append(path)
-            return real_read(path)
+            return real_read(path, **kwargs)
 
         with mock.patch.object(hub, "_read_provider_snapshot", side_effect=spy):
             providers = hub.get_providers()
@@ -4930,9 +4930,9 @@ class ClaudeHubTests(unittest.TestCase):
         real_read = hub._read_provider_snapshot
         calls = []
 
-        def spy(path):
+        def spy(path, **kwargs):
             calls.append(path)
-            return real_read(path)
+            return real_read(path, **kwargs)
 
         with mock.patch.object(hub, "_read_provider_snapshot", side_effect=spy):
             hub.reset_caches()

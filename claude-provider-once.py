@@ -14,6 +14,8 @@ Usage:
 
 from __future__ import annotations
 
+from claude1_credentials import CREDENTIAL_COLUMNS, CredentialError, resolve as resolve_credentials
+
 import errno
 import hashlib
 import json
@@ -763,7 +765,7 @@ def db_claude_rows() -> list[sqlite3.Row]:
         selected = ["id", "name", "settings_config"]
         selected.extend(
             column
-            for column in ("meta", "provider_type", "is_current")
+            for column in ("meta", "provider_type", "is_current", *CREDENTIAL_COLUMNS)
             if column in columns
         )
         return conn.execute(
@@ -950,7 +952,7 @@ def subagent_model_overrides() -> tuple[list[tuple[str, str]], list[str]]:
             "settings_config": raw_settings,
         }
         try:
-            settings = _provider_settings(provider)
+            settings = _provider_settings(provider, resolve_secret=False)
             env = _provider_environment(provider, settings)
         except RuntimeError:
             invalid.append(str(name))
@@ -969,6 +971,7 @@ def _provider_from_row(row: sqlite3.Row) -> dict:
         "meta": row["meta"] if "meta" in keys else "{}",
         "provider_type": row["provider_type"] if "provider_type" in keys else None,
         "is_current": bool(row["is_current"]) if "is_current" in keys else False,
+        **{key: row[key] for key in CREDENTIAL_COLUMNS if key in keys},
     }
 
 
@@ -992,7 +995,7 @@ def provider_transport_config(provider: dict, settings: dict | None = None) -> d
     """Return normalized transport intent for one CC Switch provider."""
     if settings is None:
         try:
-            settings = json.loads(provider.get("settings_config") or "{}")
+            settings = _provider_settings(provider)
         except (json.JSONDecodeError, TypeError) as exc:
             raise RuntimeError(
                 f"provider {provider.get('name', '<unknown>')} 的 settings_config 无效"
@@ -1146,7 +1149,7 @@ def _seal_model_slots(env: dict[str, str]) -> None:
     env[SUBAGENT_MODEL_KEY] = ""
 
 
-def _provider_settings(provider: dict) -> dict:
+def _provider_settings(provider: dict, *, resolve_secret: bool = True) -> dict:
     name = str(provider.get("name") or provider.get("id") or "<unknown>")
     try:
         settings = json.loads(provider.get("settings_config") or "{}")
@@ -1156,6 +1159,18 @@ def _provider_settings(provider: dict) -> dict:
         ) from exc
     if not isinstance(settings, dict):
         raise RuntimeError(f"provider {name} 的 settings_config 必须是 JSON 对象")
+    if resolve_secret:
+        try:
+            settings, _ = resolve_credentials(provider, "claude", settings)
+        except CredentialError as exc:
+            if exc.code != "credential_missing":
+                raise
+            fresh = next((_provider_from_row(row) for row in db_claude_rows()
+                          if str(row["id"]) == str(provider.get("id"))), None)
+            if fresh is None or fresh.get("credential_ref") == provider.get("credential_ref"):
+                raise
+            raw = _provider_settings(fresh, resolve_secret=False)
+            settings, _ = resolve_credentials(fresh, "claude", raw)
     return settings
 
 
@@ -7075,16 +7090,16 @@ def fix_subagent_model_overrides() -> tuple[list[str], list[str], Path]:
     try:
         with conn:
             rows = conn.execute(
-                "SELECT id, name, settings_config FROM providers ORDER BY app_type, sort_index"
+                "SELECT id, app_type, name, settings_config FROM providers ORDER BY app_type, sort_index"
             ).fetchall()
-            for provider_id, name, raw_settings in rows:
+            for provider_id, app_type, name, raw_settings in rows:
                 provider = {
                     "id": provider_id,
                     "name": name,
                     "settings_config": raw_settings,
                 }
                 try:
-                    settings = _provider_settings(provider)
+                    settings = _provider_settings(provider, resolve_secret=False)
                     env = _provider_environment(provider, settings)
                 except RuntimeError:
                     invalid.append(str(name))
@@ -7093,8 +7108,8 @@ def fix_subagent_model_overrides() -> tuple[list[str], list[str], Path]:
                     continue
                 env.pop(SUBAGENT_MODEL_KEY)
                 conn.execute(
-                    "UPDATE providers SET settings_config = ? WHERE id = ?",
-                    (json.dumps(settings, ensure_ascii=False), provider_id),
+                    "UPDATE providers SET settings_config = ? WHERE id = ? AND app_type = ?",
+                    (json.dumps(settings, ensure_ascii=False), provider_id, app_type),
                 )
                 changed.append(str(name))
     finally:
@@ -7151,8 +7166,12 @@ def context_window_findings(
     for row in rows:
         name = str(row["name"])
         try:
-            settings = json.loads(row["settings_config"] or "{}")
-        except (json.JSONDecodeError, TypeError, UnicodeError, RecursionError):
+            settings = _provider_settings(dict(row), resolve_secret=probe)
+        except CredentialError as exc:
+            findings.append(ContextFinding(provider=name, env_key="credential", model="",
+                code=exc.code, message=exc.code, window=0, source="credential"))
+            continue
+        except (RuntimeError, json.JSONDecodeError, TypeError, UnicodeError, RecursionError):
             # A provider whose settings cannot be parsed is already reported by
             # the settings audit; the window audit just has nothing to say.
             continue
@@ -7209,7 +7228,9 @@ def context_window_findings(
 # Findings that make the client believe a larger window than the upstream can
 # serve.  Those end in an upstream rejection, so they are failures; the rest are
 # tidiness or missing-declaration notices.
-_CONTEXT_FAILURE_CODES = frozenset({WARN_FAKE_1M, WARN_SUFFIX_WITHOUT_BETA})
+_CONTEXT_FAILURE_CODES = frozenset({WARN_FAKE_1M, WARN_SUFFIX_WITHOUT_BETA,
+    "credential_missing", "credential_denied", "credential_locked", "credential_timeout",
+    "credential_corrupt", "credential_unavailable"})
 _CONTEXT_CODE_LABELS = {
     WARN_FAKE_1M: "假 1M",
     WARN_SUFFIX_WITHOUT_BETA: "后缀无上游支持",

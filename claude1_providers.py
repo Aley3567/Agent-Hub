@@ -31,12 +31,14 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 from collections import deque
 from pathlib import Path
 
 from claude1_account_pool import normalize_account_endpoint
 from claude1_protocol import provider_api_format
 from claude1_transport import TransportConfigError, normalize_transport_config
+from claude1_credentials import CREDENTIAL_COLUMNS, CredentialError, resolve as resolve_credentials, without_secrets
 
 
 # Attempts at copying a stable main+WAL pair while a writer is active.
@@ -80,6 +82,7 @@ class ProviderSnapshotCache:
     def __init__(self, *, log=None) -> None:
         self._log = log
         self._entry: tuple | None = None
+        self._credential_retry_after = 0.0
         self._lock = threading.Lock()
         self._metrics_lock = threading.Lock()
         self._hits = 0
@@ -97,7 +100,9 @@ class ProviderSnapshotCache:
         allowed into the cache.
         """
         entry = self._entry
-        if entry is not None and entry[0] == revision:
+        if entry is not None and entry[0] == revision and (
+            not self._credential_retry_after or time.monotonic() < self._credential_retry_after
+        ):
             self._count_hit()
             return entry[1]
         self._count_miss()
@@ -123,6 +128,11 @@ class ProviderSnapshotCache:
                 raise ProviderDatabaseError(
                     "provider database could not be read"
                 ) from exc
+            # Cache failures too: an unused locked account must not put every
+            # Keychain lookup on every request. Retry on demand after a short
+            # backoff, or immediately when the DB revision changes.
+            failed = any(record.get("credential_error") for record in providers.values() if isinstance(record, dict))
+            self._credential_retry_after = time.monotonic() + 2.0 if failed else 0.0
             self._entry = (verified, providers)
             metrics = self._count_refresh(elapsed_ms)
         self._write_log(
@@ -140,6 +150,7 @@ class ProviderSnapshotCache:
         """Drop the cached entry and zero the counters."""
         with self._lock:
             self._entry = None
+            self._credential_retry_after = 0.0
         with self._metrics_lock:
             self._hits = 0
             self._misses = 0
@@ -196,7 +207,7 @@ class ProviderSnapshotCache:
 # decides whether it runs at all.
 
 
-def _read_provider_snapshot(path: Path) -> tuple:
+def _read_provider_snapshot(path: Path, *, warning=None) -> tuple:
     """Read a stable private main+WAL copy without opening the source SQLite DB.
 
     Returns ``(providers, verified_revision)`` where the revision is the
@@ -204,6 +215,7 @@ def _read_provider_snapshot(path: Path) -> tuple:
     """
     wal_path, _shm_path = _sqlite_sidecars(path)
     last_error = None
+    credential_reload = False
     for _attempt in range(DB_SNAPSHOT_RETRIES):
         before = _database_snapshot_state(path)
         if before[0] is None:
@@ -221,7 +233,12 @@ def _read_provider_snapshot(path: Path) -> tuple:
                 if before != after:
                     continue
                 try:
-                    return _read_provider_rows(snapshot), before
+                    records = _read_provider_rows(snapshot, warning=warning)
+                    missing = any(record.get("credential_error") == "credential_missing" for record in records.values())
+                    if missing and not credential_reload and _database_snapshot_state(path) != before:
+                        credential_reload = True
+                        continue
+                    return records, before
                 except sqlite3.Error as exc:
                     last_error = exc
         except (FileNotFoundError, OSError) as exc:
@@ -232,7 +249,7 @@ def _read_provider_snapshot(path: Path) -> tuple:
     ) from last_error
 
 
-def _provider_record(values: dict) -> tuple[str, str, dict] | None:
+def _provider_record(values: dict, *, warning=None) -> tuple[str, str, dict] | None:
     """Turn one ``providers`` row into a runtime record, or ``None`` to skip it.
 
     A row is skipped -- never repaired and never guessed at -- when its
@@ -254,6 +271,14 @@ def _provider_record(values: dict) -> tuple[str, str, dict] | None:
         meta = {}
     if not isinstance(meta, dict):
         meta = {}
+    credential_error = None
+    try:
+        settings, meta = resolve_credentials(values, "claude", settings, meta, warning=warning)
+    except CredentialError as exc:
+        # Keep the non-secret identity visible so selection reports the actual
+        # credential failure. No token from the persisted row may escape here.
+        credential_error = exc.code
+        settings, meta = without_secrets(settings), without_secrets(meta)
     env = settings.get("env") or {}
     if not isinstance(env, dict):
         return None
@@ -276,6 +301,8 @@ def _provider_record(values: dict) -> tuple[str, str, dict] | None:
     else:
         token = ""
         credential_type = ""
+    if credential_error:
+        token, credential_type = "", ""
     folded_env = {
         str(key).upper(): value for key, value in env.items()
     }
@@ -301,6 +328,9 @@ def _provider_record(values: dict) -> tuple[str, str, dict] | None:
         "base_url": base,
         "token": token,
         "credential_type": credential_type,
+        "credential_error": credential_error,
+        "credential_ref": values.get("credential_ref"),
+        "credential_revision": values.get("revision", 0),
         "proxy": provider_proxy,
         "transport": provider_transport,
         "transport_error": transport_error,
@@ -331,7 +361,7 @@ def _provider_record(values: dict) -> tuple[str, str, dict] | None:
     return provider_id, name, record
 
 
-def _read_provider_rows(path: Path) -> dict:
+def _read_provider_rows(path: Path, *, warning=None) -> dict:
     """Read provider rows without mutating the database or contacting providers."""
     db_uri = path.resolve(strict=False).as_uri() + "?mode=ro"
     conn = sqlite3.connect(db_uri, uri=True)
@@ -343,7 +373,7 @@ def _read_provider_rows(path: Path) -> dict:
         if "id" in columns:
             selected.insert(0, "id")
         selected.extend(
-            column for column in ("meta", "provider_type") if column in columns
+            column for column in ("meta", "provider_type", *CREDENTIAL_COLUMNS) if column in columns
         )
         cursor = conn.execute(
             f"SELECT {', '.join(selected)} FROM providers "
@@ -351,7 +381,7 @@ def _read_provider_rows(path: Path) -> dict:
         )
         records: list[tuple[str, str, dict]] = []
         for raw_row in cursor.fetchall():
-            entry = _provider_record(dict(zip(selected, raw_row)))
+            entry = _provider_record(dict(zip(selected, raw_row)), warning=warning)
             if entry is not None:
                 records.append(entry)
         name_counts: dict[str, int] = {}

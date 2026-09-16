@@ -118,7 +118,7 @@ def contains_secret(value) -> bool:
     return False
 
 
-def _without_secrets(value):
+def without_secrets(value):
     if isinstance(value, dict):
         clean = {}
         for key, item in value.items():
@@ -132,7 +132,7 @@ def _without_secrets(value):
                     raise CredentialError("credential_corrupt") from None
             if isinstance(item, (str, list)) and contains_secret(item):
                 continue
-            clean[key] = _without_secrets(item)
+            clean[key] = without_secrets(item)
         return clean
     return copy.deepcopy(value)
 
@@ -200,7 +200,7 @@ def resolve(row, app: str, settings: dict, meta: dict | None = None, *, reader=N
     payload = decode_envelope((reader or read_secret)(reference), app, str(row.get("id", "")), row.get("revision"))
     # A reference makes the OS payload authoritative, including absent fields.
     # Old token aliases must not outrank a newly selected API-key credential.
-    result, result_meta = _without_secrets(result), _without_secrets(result_meta)
+    result, result_meta = without_secrets(result), without_secrets(result_meta)
     _overlay(result, payload["settings"])
     _overlay(result_meta, payload["meta"])
     return result, result_meta
