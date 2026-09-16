@@ -2,18 +2,24 @@ use std::{
     fs,
     path::PathBuf,
     process::{Command, Output},
+    sync::atomic::{AtomicU64, Ordering},
 };
+
+/// Parallel tests share a process, so the wall clock alone cannot keep
+/// sandbox names unique when two constructors land on the same nanosecond.
+static SANDBOX_SEQ: AtomicU64 = AtomicU64::new(0);
 
 struct Sandbox(PathBuf);
 impl Sandbox {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!(
-            "agent-hub-cli-{}-{}",
+            "agent-hub-cli-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            SANDBOX_SEQ.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&dir).unwrap();
         Self(dir)
