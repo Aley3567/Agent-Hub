@@ -248,7 +248,7 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
   if (loading || !loaded) {
     return (
       <p className={styles.pending}>
-        <Spinner label="正在读取 CC Switch 的渠道列表" />
+        <Spinner label="正在读取 Hub 渠道列表" />
       </p>
     );
   }
@@ -273,11 +273,11 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
     <EmptyState
       hero
       title="还没有 Claude 渠道"
-      description="数据库的 providers 表里没有 app_type='claude' 的记录。先在 CC Switch 里添加一个 Claude 渠道，再回到这里刷新。"
+      description="还没有可用的 Claude 渠道。请运行 agent-hub 添加或导入渠道，然后回到这里刷新。"
       action={{ label: '刷新', icon: 'refresh', onClick: onRetry }}
       hint={
         dbPath === null ? (
-          <span>数据库路径没有检测到，请确认 CC Switch 已安装</span>
+          <span>未检测到渠道库路径，请检查 Agent Hub 配置</span>
         ) : (
           <span>
             只读打开：<span className={styles.mono}>{dbPath}</span>

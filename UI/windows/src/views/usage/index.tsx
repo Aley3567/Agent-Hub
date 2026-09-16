@@ -182,9 +182,9 @@ export default function UsageView() {
         value: usage.estimatedCostUsd === null ? '—' : formatCostUsd(usage.estimatedCostUsd),
         caption:
           usage.costSource === null
-            ? '未配置价格表，不估算成本；可来自 CC Switch 定价表'
-            : usage.costSource === 'cc-switch-db'
-              ? '按 CC Switch DB 的 model_pricing 估算'
+            ? '无可用定价，不估算费用'
+            : usage.costSource === 'pricing-db' || usage.costSource === 'cc-switch-db'
+              ? '按指定的模型价格估算'
               : '按 model-pricing.json 的单价估算',
         accent: usage.estimatedCostUsd !== null,
       },

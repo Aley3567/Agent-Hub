@@ -127,8 +127,8 @@ export interface UsageSummary {
   degradeCounts: { code: string; count: number }[];
   /** 定价缺失时为 null，绝不猜 */
   estimatedCostUsd: number | null;
-  /** 成本数据来源：`pricing-file` 优先，回退 `cc-switch-db`，都没有为 null */
-  costSource: 'pricing-file' | 'cc-switch-db' | null;
+  /** 成本数据来源：`pricing-file` 优先，其次显式指定的 `pricing-db`，都没有为 null */
+  costSource: 'pricing-file' | 'pricing-db' | 'cc-switch-db' | null;
 }
 
 export interface UsageBucket {

@@ -54,7 +54,7 @@
 - B1 ✅ 2026-09-16：模型、读写、来源解析迁入共享层，CLI 删除事务一起收口；根 schema 仍唯一。移除未使用的 CC schema v17 闸门，Hub 不再继承外部版本号。11 项共享层测试通过，包括缺必需列先失败再修复、跨应用同 ID、SQL 中途回滚、源文件字节/mtime 不变。
 - B2a ✅ 2026-09-16：共享路径分离读覆盖与 Hub 写目标；CLI/TUI 导入先检查同文件，识别符号链接/硬链接；写入口拒绝外部库并兼容已有 Hub 库，schema 增加 Hub application_id。18 项共享层与 3 项真实 CLI 子进程测试通过，0600 外部库拒写回归在旧实现上确认失败；断链 CC 来源不阻断独立 Hub。Python 992 项、安装集成 6 项通过。
 - B2b ✅ 2026-09-16：macOS 读取共享路径；缺库/空库引导不要求 CC Switch；定价文件优先，DB 定价仅通过独立 `AGENT_HUB_PRICING_DB` 显式选入。文件打开/显示仅增加精确当前 provider DB 许可，不放行其父目录与相邻文件。Rust 75 项、typecheck、renderer build 通过。浏览器连接不可用，窗口验收未完成。
-- B2c 待提交：Windows 同合同，typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
+- B2c ✅ 代码，2026-09-16：Windows 默认改读 Hub 库，共享读路径、空库引导、独立定价与精确文件操作许可。typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
 - Windows 编译边界：本机交叉 check 在 bundled SQLite C 编译处缺 Windows SDK `stdlib.h`，不是 links 冲突；原生编译和测试后置，未用 macOS 测试冒充。
 
 ### C · 凭证引用与平台适配
