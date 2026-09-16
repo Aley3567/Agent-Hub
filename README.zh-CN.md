@@ -29,8 +29,7 @@ Claude Code 与 Codex 的本机运行时。
 Agent-Hub 是管理编程 Agent **周边那一层**的本机运行时：渠道、会话、路由、
 协议转换与可观测性。
 
-**CC Switch 是可选项。** 渠道保存在 Hub 自有数据库中。从 CC Switch 导入需要
-显式操作；日常使用不要求它运行或保持安装。
+**渠道保存在 Hub 自有数据库中。** 日常使用不要求任何外部工具运行或保持安装。
 
 渠道管理和会话启动目前使用独立的终端入口。选择入口前可先查看[当前边界](#当前边界)。
 
@@ -52,6 +51,63 @@ Agent-Hub 不替代编程 Agent。
 
 两条路径刻意不同：Claude Code 可以使用 Agent-Hub 网关，Codex 保留其原生运行时，
 只接收一份隔离的会话配置。
+
+## 架构
+
+Agent-Hub 位于编程 Agent 旁边，而不是进入它的 agent loop。
+
+编程 Agent 继续负责推理与执行。Agent-Hub 负责渠道选择、会话隔离、
+路由与协议处理。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
+  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub 位于编程 Agent（Codex、Claude Code、Cursor）与上游 API（OpenAI、Anthropic、OpenAI 兼容端点）之间，负责渠道选择、会话隔离、路由与协议转换。">
+</picture>
+
+### Claude Code 的请求路径
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CC as Claude Code CLI
+    participant GW as 本地网关
+    participant UP as 上游渠道
+
+    CC->>GW: POST /v1/messages(槽位由 /model 决定)
+    Note over GW: 只绑定 127.0.0.1,需要本地鉴权
+    GW->>GW: 解析槽位到渠道、账号池与回退链
+    alt Anthropic 原生上游
+        GW->>UP: 转发 Messages API 请求
+    else OpenAI 兼容上游
+        GW->>UP: 转换为 Chat Completions 或 Responses
+    end
+    UP-->>GW: 状态码、响应头、SSE 事件
+    Note over GW: 未知形状记降级而不拒绝
+    GW-->>CC: 上游状态码与错误体原样返回
+    Note over GW: 记录用量与脱敏错误,<br/>不持久化正文
+```
+
+### Codex 会话生命周期
+
+```mermaid
+flowchart TD
+    Start["codex1 provider"] --> Values["校验渠道 profile"]
+    Values -->|无效| Fail["立即失败,<br/>不静默回退默认渠道"]
+    Values -->|有效| Temp["创建临时 CODEX_HOME"]
+    Temp --> Inherit["继承已有 Codex 状态"]
+    Inherit --> Overlay["覆盖所选渠道与 profile"]
+    Overlay --> Run["启动 Codex 会话"]
+    Run --> Clean["退出时移除临时环境"]
+    Clean --> Untouched["~/.codex/config.toml 与 auth.json 不变"]
+```
+
+根目录 Python 模块拥有请求路径与协议语义。Rust 提供管理面；桌面界面是独立的
+macOS 与 Windows 构建。Go 网关是独立实验。
+
+实际的入口、数据流与重试边界见[请求流程指南](docs/request-flow.md)。
+`src/claude_hub/` 下的 Python 包 console scripts 是 help/version 占位，可用会话
+启动器请使用上面的安装方式。
 
 ## 核心能力
 
@@ -81,7 +137,7 @@ Completions 与 Responses，包括流式输出与工具调用。
 
 ### 渠道只管理一次
 
-直接向 Agent-Hub 添加渠道，或从 JSON、CC Switch 导入兼容记录。
+直接向 Agent-Hub 添加渠道，或从 JSON 导入兼容记录。
 
 ## 快速开始
 
@@ -109,7 +165,7 @@ source ~/.zshrc
 
 确保 Cargo 的二进制目录（通常为 `~/.cargo/bin`）在 `PATH` 中。安装脚本会备份被
 替换的文件，把 Python 运行时装到 `~/.claude` 与 `~/.codex/scripts`，并向
-`~/.zshrc` 写入受管理的 shell 集成。它会创建 Hub 的渠道数据库，无需 CC Switch。
+`~/.zshrc` 写入受管理的 shell 集成。它会创建 Hub 的渠道数据库。
 
 ### 添加渠道
 
@@ -117,8 +173,8 @@ source ~/.zshrc
 agent-hub
 ```
 
-在渠道 TUI 中按 `a` 添加或更新渠道，`i` 从 CC Switch 导入，`f` 导入 JSON，
-`r` 重新加载 Hub 本地配置。API key 输入不回显。
+在渠道 TUI 中按 `a` 添加或更新渠道，`f` 导入 JSON，`r` 重新加载 Hub 本地配置。
+API key 输入不回显。
 
 同样的操作也提供 CLI：
 
@@ -127,11 +183,11 @@ agent-hub provider add
 agent-hub provider list
 ```
 
-已有 CC Switch 配置时，先预览再导入：
+导入前先预览：
 
 ```bash
-agent-hub provider import --cc-switch --preview
-agent-hub provider import --cc-switch
+agent-hub provider import --file /path/to/providers.json --preview
+agent-hub provider import --file /path/to/providers.json
 ```
 
 导入默认保留既有条目。仅在需要更新同 ID 渠道时使用 `--replace`。JSON 格式与
@@ -222,77 +278,19 @@ Claude Code 支持网关路由、协议转换、账号池与回退。Codex 目�
 
 Windows 源码单独维护；当前不发布 Windows 安装器。
 
-## 架构
-
-Agent-Hub 位于编程 Agent 旁边，而不是进入它的 agent loop。
-
-编程 Agent 继续负责推理与执行。Agent-Hub 负责渠道选择、会话隔离、
-路由与协议处理。
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
-  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub 位于编程 Agent（Codex、Claude Code、Cursor）与上游 API（OpenAI、Anthropic、OpenAI 兼容端点）之间，负责渠道选择、会话隔离、路由与协议转换。">
-</picture>
-
-### Claude Code 的请求路径
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant CC as Claude Code CLI
-    participant GW as 本地网关
-    participant UP as 上游渠道
-
-    CC->>GW: POST /v1/messages(槽位由 /model 决定)
-    Note over GW: 只绑定 127.0.0.1,需要本地鉴权
-    GW->>GW: 解析槽位到渠道、账号池与回退链
-    alt Anthropic 原生上游
-        GW->>UP: 转发 Messages API 请求
-    else OpenAI 兼容上游
-        GW->>UP: 转换为 Chat Completions 或 Responses
-    end
-    UP-->>GW: 状态码、响应头、SSE 事件
-    Note over GW: 未知形状记降级而不拒绝
-    GW-->>CC: 上游状态码与错误体原样返回
-    Note over GW: 记录用量与脱敏错误,<br/>不持久化正文
-```
-
-### Codex 会话生命周期
-
-```mermaid
-flowchart TD
-    Start["codex1 provider"] --> Values["校验渠道 profile"]
-    Values -->|无效| Fail["立即失败,<br/>不静默回退默认渠道"]
-    Values -->|有效| Temp["创建临时 CODEX_HOME"]
-    Temp --> Inherit["继承已有 Codex 状态"]
-    Inherit --> Overlay["覆盖所选渠道与 profile"]
-    Overlay --> Run["启动 Codex 会话"]
-    Run --> Clean["退出时移除临时环境"]
-    Clean --> Untouched["~/.codex/config.toml 与 auth.json 不变"]
-```
-
-根目录 Python 模块拥有请求路径与协议语义。Rust 提供管理面；桌面界面是独立的
-macOS 与 Windows 构建。Go 网关是独立实验。
-
-实际的入口、数据流与重试边界见[请求流程指南](docs/request-flow.md)。
-`src/claude_hub/` 下的 Python 包 console scripts 是 help/version 占位，可用会话
-启动器请使用上面的安装方式。
-
 ## 配置与安全
 
 - **渠道存储：** `~/.agent-hub/providers.db`，权限 `0600`。凭证保存在本机，且不
   出现在渠道列表输出与桌面 IPC 响应中。
-- **显式导入：** 仅在请求导入时读取 CC Switch。导入的记录归 Hub 所有，不会自动
-  从来源刷新。
+- **显式导入：** 导入的记录归 Hub 所有，不会自动从来源刷新。
 - **会话隔离：** Claude Code 接收会话级环境变量与临时设置。Codex 使用临时影子
   `CODEX_HOME` 与 profile 覆盖。常规启动不改动原有 CLI 配置。
 - **本地网关：** 只绑定 `127.0.0.1`，需要本地鉴权，并校验私有文件权限。
 - **失败上报：** 错误在脱敏凭证的同时保留上游证据。日志不保存完整的请求与响应
   正文；中断的流不会被变成成功完成。
 
-既有 Hub 路由配置与日志保留在 `~/.cc-switch/` 以维持本机状态。该目录名不代表对
-CC Switch 的依赖。仍可通过显式的旧库覆盖把运行时指向外部数据库，见
+既有 Hub 路由配置与日志原地保留，升级不会丢失本机状态。仍可通过显式的旧库覆盖
+把运行时指向外部数据库，见
 [存储与兼容](docs/provider-management.md#数据所有权和兼容)。
 
 ## 参与贡献

@@ -29,9 +29,8 @@ and launch isolated Codex sessions without rewriting your normal configuration.
 Agent-Hub is a local runtime that owns the layer *around* your coding agent:
 providers, sessions, routing, protocol translation and observability.
 
-**CC Switch is optional.** Providers live in Hub's own database. Importing from
-CC Switch is an explicit operation; normal use does not depend on it running or
-staying installed.
+**Providers live in Hub's own database.** Nothing else needs to be running or
+installed for normal use.
 
 Provider management and session launching currently have separate terminal
 entrypoints. See [current boundaries](#current-boundaries) before choosing an
@@ -57,6 +56,65 @@ protocol translation and observability.
 The two paths are intentionally different: Claude Code can use the Agent-Hub
 gateway, while Codex keeps its native runtime and receives only an isolated
 session configuration.
+
+## Architecture
+
+Agent-Hub sits beside the coding agent, not inside its agent loop.
+
+Your coding agents continue to own reasoning and execution. Agent-Hub owns
+provider selection, session isolation, routing and protocol handling.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
+  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub sits between coding agents (Codex, Claude Code, Cursor) and upstream APIs (OpenAI, Anthropic, OpenAI-compatible). It owns provider selection, session isolation, routing and protocol translation.">
+</picture>
+
+### The Claude Code request path
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CC as Claude Code CLI
+    participant GW as Local gateway
+    participant UP as Upstream provider
+
+    CC->>GW: POST /v1/messages (slot resolved from /model)
+    Note over GW: bound to 127.0.0.1, local auth required
+    GW->>GW: resolve slot to provider, account pool, fallback chain
+    alt Anthropic-native upstream
+        GW->>UP: forward Messages API request
+    else OpenAI-compatible upstream
+        GW->>UP: translate to Chat Completions or Responses
+    end
+    UP-->>GW: status, headers, SSE events
+    Note over GW: degrade instead of reject on unknown shapes
+    GW-->>CC: upstream status and body returned as-is
+    Note over GW: record usage and redacted errors,<br/>do not persist payloads
+```
+
+### The Codex session lifecycle
+
+```mermaid
+flowchart TD
+    Start["codex1 provider"] --> Values["Validate provider profile"]
+    Values -->|invalid| Fail["Fail immediately,<br/>no silent default fallback"]
+    Values -->|valid| Temp["Create temporary CODEX_HOME"]
+    Temp --> Inherit["Inherit existing Codex state"]
+    Inherit --> Overlay["Overlay selected provider and profile"]
+    Overlay --> Run["Launch Codex session"]
+    Run --> Clean["Remove temporary environment on exit"]
+    Clean --> Untouched["~/.codex/config.toml and auth.json unchanged"]
+```
+
+The root Python modules own the request path and protocol semantics. Rust
+provides the management plane; the desktop interfaces are separate macOS and
+Windows builds. The Go gateway is an independent experiment.
+
+Read the [request-flow guide](docs/request-flow.md) for actual entrypoints, data
+flow and retry boundaries. The Python package console scripts under
+`src/claude_hub/` are help/version placeholders; use the installation above for
+working session launchers.
 
 ## Capabilities
 
@@ -87,8 +145,7 @@ normal Codex configuration and credentials remain untouched.
 
 ### Manage providers once
 
-Add providers directly to Agent-Hub or import compatible records from JSON or
-CC Switch.
+Add providers directly to Agent-Hub or import compatible records from JSON.
 
 ## Get started
 
@@ -120,7 +177,7 @@ source ~/.zshrc
 Ensure Cargo's binary directory (normally `~/.cargo/bin`) is on your `PATH`. The
 installer backs up replaced files, installs the Python runtime under `~/.claude`
 and `~/.codex/scripts`, and adds managed shell integration to `~/.zshrc`. It
-creates Hub's provider database without requiring CC Switch.
+creates Hub's provider database.
 
 ### Add a provider
 
@@ -128,8 +185,8 @@ creates Hub's provider database without requiring CC Switch.
 agent-hub
 ```
 
-Press `a` to add or update a provider, `i` to import from CC Switch, `f` to
-import JSON, or `r` to reload Hub's local configuration. API key input is hidden.
+Press `a` to add or update a provider, `f` to import JSON, or `r` to reload
+Hub's local configuration. API key input is hidden.
 
 The same operations are available from the CLI:
 
@@ -138,11 +195,11 @@ agent-hub provider add
 agent-hub provider list
 ```
 
-For an existing CC Switch setup, preview before importing:
+Preview an import before applying it:
 
 ```bash
-agent-hub provider import --cc-switch --preview
-agent-hub provider import --cc-switch
+agent-hub provider import --file /path/to/providers.json --preview
+agent-hub provider import --file /path/to/providers.json
 ```
 
 Imports preserve existing entries by default. Use `--replace` only to update
@@ -242,72 +299,13 @@ Scheduled desktop actions run while Agent-Hub is open.
 Windows source is maintained separately; no Windows installer is currently
 published.
 
-## Architecture
-
-Agent-Hub sits beside the coding agent, not inside its agent loop.
-
-Your coding agents continue to own reasoning and execution. Agent-Hub owns
-provider selection, session isolation, routing and protocol handling.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
-  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub sits between coding agents (Codex, Claude Code, Cursor) and upstream APIs (OpenAI, Anthropic, OpenAI-compatible). It owns provider selection, session isolation, routing and protocol translation.">
-</picture>
-
-### The Claude Code request path
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant CC as Claude Code CLI
-    participant GW as Local gateway
-    participant UP as Upstream provider
-
-    CC->>GW: POST /v1/messages (slot resolved from /model)
-    Note over GW: bound to 127.0.0.1, local auth required
-    GW->>GW: resolve slot to provider, account pool, fallback chain
-    alt Anthropic-native upstream
-        GW->>UP: forward Messages API request
-    else OpenAI-compatible upstream
-        GW->>UP: translate to Chat Completions or Responses
-    end
-    UP-->>GW: status, headers, SSE events
-    Note over GW: degrade instead of reject on unknown shapes
-    GW-->>CC: upstream status and body returned as-is
-    Note over GW: record usage and redacted errors,<br/>do not persist payloads
-```
-
-### The Codex session lifecycle
-
-```mermaid
-flowchart TD
-    Start["codex1 provider"] --> Values["Validate provider profile"]
-    Values -->|invalid| Fail["Fail immediately,<br/>no silent default fallback"]
-    Values -->|valid| Temp["Create temporary CODEX_HOME"]
-    Temp --> Inherit["Inherit existing Codex state"]
-    Inherit --> Overlay["Overlay selected provider and profile"]
-    Overlay --> Run["Launch Codex session"]
-    Run --> Clean["Remove temporary environment on exit"]
-    Clean --> Untouched["~/.codex/config.toml and auth.json unchanged"]
-```
-
-The root Python modules own the request path and protocol semantics. Rust
-provides the management plane; the desktop interfaces are separate macOS and
-Windows builds. The Go gateway is an independent experiment.
-
-Read the [request-flow guide](docs/request-flow.md) for actual entrypoints, data
-flow and retry boundaries. The Python package console scripts under
-`src/claude_hub/` are help/version placeholders; use the installation above for
-working session launchers.
-
 ## Configuration and security
 
 - **Provider storage:** `~/.agent-hub/providers.db`, with `0600` permissions.
   Credentials are stored locally and excluded from provider list output and
   desktop IPC responses.
-- **Explicit imports:** CC Switch is read only when requested for import.
-  Imported records belong to Hub and do not refresh automatically from the source.
+- **Explicit imports:** Imported records belong to Hub and do not refresh
+  automatically from the source.
 - **Session isolation:** Claude Code receives session-specific environment values
   and temporary settings. Codex uses a temporary shadow `CODEX_HOME` and profile
   overrides. Normal launching leaves the original CLI configuration unchanged.
@@ -317,10 +315,10 @@ working session launchers.
   redaction. Logs do not store complete request or response payloads; interrupted
   streams are not turned into successful completions.
 
-Existing Hub routing configuration and logs remain under `~/.cc-switch/` to
-preserve local state. The directory name does not imply a CC Switch dependency.
-Explicit legacy database overrides can still point the runtime at an external
-database; see [storage and compatibility](docs/provider-management.md#数据所有权和兼容).
+Existing Hub routing configuration and logs are preserved in place, so
+upgrading keeps local state. Explicit legacy database overrides can still point
+the runtime at an external database; see
+[storage and compatibility](docs/provider-management.md#数据所有权和兼容).
 
 ## Contributing
 
