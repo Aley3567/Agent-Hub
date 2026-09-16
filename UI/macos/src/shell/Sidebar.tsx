@@ -1,7 +1,7 @@
 /**
  * 主导航侧栏。展开 --sidebar-w(232px)，折叠 --sidebar-w-collapsed(56px) 只留图标（DESIGN.md 第 3 节）。
  * 分组：工作（Pull Request）、会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、扩展（插件、任务）；
- * 主题三态切换贴在品牌区正下方（第一个导航条目之上），底部固定「设置」入口与侧栏折叠。
+ * 主题三态切换贴在品牌区正下方（第一个导航条目之上），底部固定「设置」入口，侧栏折叠与主题同排。
  * 折叠态每一项都靠 Tooltip 说明自己是谁，否则只剩一排看不懂的图标。
  */
 import { t } from '../i18n';
@@ -94,8 +94,16 @@ export default function Sidebar() {
             aria-label={t("主题")}
             size="sm"
             fullWidth
+            className={styles.themeControl}
           />
         )}
+        <IconButton
+          icon="sidebar"
+          aria-label={t(collapsed ? "展开侧栏" : "折叠侧栏")}
+          tooltip={t(collapsed ? "展开侧栏 ⌘B" : "折叠侧栏 ⌘B")}
+          tooltipSide="right"
+          onClick={toggleSidebar}
+        />
       </div>
 
       <div className={styles.groups}>
@@ -131,27 +139,7 @@ export default function Sidebar() {
           />
         </ul>
 
-        {collapsed ? (
-          <div className={styles.footerActions}>
-            <IconButton
-              icon="sidebar"
-              aria-label={t("展开侧栏")}
-              tooltip={t("展开侧栏 ⌘B")}
-              tooltipSide="right"
-              onClick={toggleSidebar}
-            />
-          </div>
-        ) : (
-          <div className={styles.footerActions}>
-            <IconButton
-              icon="sidebar"
-              aria-label={t("折叠侧栏")}
-              tooltip={t("折叠侧栏 ⌘B")}
-              tooltipSide="top"
-              onClick={toggleSidebar}
-            />
-          </div>
-        )}
+
       </div>
     </nav>
   );

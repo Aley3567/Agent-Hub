@@ -49,13 +49,16 @@
    内缩 sp-2 与导航条目对齐；折叠态收成单个图标按钮并居中。内缩归零与图标居中都是
    折叠/展开的尺寸位移，同走 --dur-normal。 */
 .themeSlot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 0 var(--sp-2);
   margin-bottom: var(--sp-4);
   transition: padding var(--dur-normal) var(--ease-out);
 }
 
 .collapsed .themeSlot {
-  display: flex;
+  flex-direction: column;
   justify-content: center;
   padding: 0;
 }
@@ -195,17 +198,13 @@
   margin: 0;
 }
 
-.footerActions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-2);
-  /* 折叠时内缩归零、两个按钮改成竖排：仍是折叠展开的尺寸位移，同走 --dur-normal */
-  transition: padding var(--dur-normal) var(--ease-out);
+.themeControl {
+  flex: 1;
+  min-width: 0;
 }
 
-.collapsed .footerActions {
-  flex-direction: column;
-  padding: 0;
+.themeSlot .themeControl [role='radio'] {
+  flex: 1 1 auto;
+  padding-inline: 4px;
+  font-size: var(--fs-12);
 }
