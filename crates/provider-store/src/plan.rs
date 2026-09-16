@@ -404,7 +404,7 @@ impl Plan {
             || self.validate_sources(&environment),
         )
     }
-    fn validate_sources(&self, environment: impl Fn(&str) -> Option<String>) -> Result<()> {
+    pub(crate) fn validate_sources(&self, environment: impl Fn(&str) -> Option<String>) -> Result<()> {
         if self.created.elapsed() > Duration::from_secs(300) {
             bail!("plan_expired");
         }

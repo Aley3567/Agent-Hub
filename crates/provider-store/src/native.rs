@@ -22,13 +22,7 @@ pub fn apply(
     // Linux retains its existing legacy writer until an OS backend is accepted.
     #[cfg(target_os = "linux")]
     {
-        let mut conn = crate::open(path)?;
-        let (added, skipped) = crate::import(&mut conn, records, source, replace, false)?;
-        Ok(commit::Outcome {
-            added,
-            skipped,
-            ..Default::default()
-        })
+        crate::legacy::apply_checked(path, records, source, replace, || Ok(()), || Ok(()))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -39,7 +33,9 @@ pub fn apply_plan(plan: &Plan, selected: &[String], replace: bool) -> Result<com
     #[cfg(target_os = "linux")]
     {
         let records = plan.selected_records(selected, replace, |name| std::env::var(name).ok())?;
-        apply(plan.target(), &records, plan.source_label(), replace)
+        crate::legacy::apply_checked(plan.target(), &records, plan.source_label(), replace,
+            || plan.validate(|name| std::env::var(name).ok()),
+            || plan.validate_sources(|name| std::env::var(name).ok()))
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -52,6 +48,9 @@ pub fn migrate(path: &Path) -> Result<crate::migration::MigrationOutcome> {
     crate::migration::migrate(path, backend()?.as_ref())
 }
 pub fn remove(path: &Path, app: &str, id: &str) -> Result<commit::DeleteOutcome> {
+    #[cfg(target_os = "linux")]
+    { return crate::legacy::remove(path, app, id, &crate::references::References::from_env()?); }
+    #[cfg(not(target_os = "linux"))]
     commit::remove(
         path,
         app,
@@ -71,24 +70,6 @@ pub fn save(path: &Path, input: crate::edit::Input) -> Result<commit::Outcome> {
     }
     #[cfg(target_os = "linux")]
     {
-        let record = crate::custom(
-            input.id,
-            input.app_type,
-            input.name,
-            input
-                .endpoint
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("endpoint_required"))?,
-            input
-                .secret
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("credential_required"))?,
-            input
-                .model
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("model_required"))?,
-            input.protocol.as_deref().unwrap_or("anthropic"),
-        )?;
-        apply(path, &[record], "manual", input.expected_revision.is_some())
+        crate::edit::save_legacy(path, input)
     }
 }

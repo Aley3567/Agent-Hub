@@ -4,6 +4,7 @@ pub mod edit;
 pub mod commit;
 pub mod model;
 pub mod native;
+mod legacy;
 pub mod migration;
 pub mod paths;
 pub mod references;

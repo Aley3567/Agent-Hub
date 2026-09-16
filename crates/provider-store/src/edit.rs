@@ -128,6 +128,13 @@ fn update(record: &mut ImportProvider, input: &Input) -> Result<()> {
     Ok(())
 }
 pub fn save(path: &Path, input: Input, secrets: &dyn SecretStore) -> Result<commit::Outcome> {
+    save_inner(path, input, Some(secrets))
+}
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn save_legacy(path: &Path, input: Input) -> Result<commit::Outcome> {
+    save_inner(path, input, None)
+}
+fn save_inner(path: &Path, input: Input, secrets: Option<&dyn SecretStore>) -> Result<commit::Outcome> {
     if !["claude", "codex"].contains(&input.app_type.as_str())
         || input.name.trim().is_empty()
         || input.id.trim().is_empty()
@@ -173,6 +180,9 @@ pub fn save(path: &Path, input: Input, secrets: &dyn SecretStore) -> Result<comm
     if old.as_ref().map(|r| r.revision) != input.expected_revision {
         bail!("provider_revision_conflict");
     }
+    if secrets.is_none() && old.as_ref().is_some_and(|row| row.reference.is_some()) {
+        bail!("credential_store_required");
+    }
     let exists = old.is_some();
     let mut record = if let Some(row) = old {
         let mut probe = row.record.clone();
@@ -195,7 +205,7 @@ pub fn save(path: &Path, input: Input, secrets: &dyn SecretStore) -> Result<comm
                 bail!("credential_corrupt");
             }
             let payload = Envelope::decode(
-                &secrets.read(&reference)?,
+                &secrets.ok_or_else(|| anyhow::anyhow!("credential_store_required"))?.read(&reference)?,
                 &record.app_type,
                 &record.id,
                 row.revision,
@@ -232,23 +242,16 @@ pub fn save(path: &Path, input: Input, secrets: &dyn SecretStore) -> Result<comm
         )?
     };
     update(&mut record, &input)?;
-    commit::apply_checked(
-        path,
-        &[record],
-        "manual",
-        exists,
-        secrets,
-        || {
-            let now = if path.exists() {
-                commit::revision(&crate::snapshot::open(path)?)?
-            } else {
-                Vec::new()
-            };
-            if now != baseline {
-                bail!("provider_revision_conflict");
-            }
-            Ok(())
-        },
-        || Ok(()),
-    )
+    let preflight = || {
+        let now = if path.exists() {
+            commit::revision(&crate::snapshot::open(path)?)?
+        } else { Vec::new() };
+        if now != baseline { bail!("provider_revision_conflict"); }
+        Ok(())
+    };
+    if let Some(secrets) = secrets {
+        commit::apply_checked(path, &[record], "manual", exists, secrets, preflight, || Ok(()))
+    } else {
+        crate::legacy::apply_checked(path, &[record], "manual", exists, preflight, || Ok(()))
+    }
 }

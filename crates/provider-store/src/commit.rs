@@ -198,6 +198,7 @@ pub(crate) fn safe_error(error: anyhow::Error) -> anyhow::Error {
     let code = message.split(':').next().unwrap_or("");
     if [
         "provider_revision_conflict",
+        "credential_store_required",
         "provider_store_busy",
         "provider_write_alias",
         "invalid_writer_lock",

@@ -90,6 +90,19 @@ fn record(id: &str) -> crate::ImportProvider {
     )
     .unwrap()
 }
+
+#[test]
+fn legacy_import_advances_revision_and_stale_editor_cannot_overwrite() {
+    let t = Temp::new();
+    let mut conn = crate::open(&t.db()).unwrap();
+    crate::import(&mut conn, &[record("p")], "fixture", false, false).unwrap();
+    let first = crate::edit::view(&t.db(), "claude", "p").unwrap().revision;
+    let mut changed = record("p");
+    changed.name = "Changed elsewhere".into();
+    crate::import(&mut conn, &[changed], "fixture", true, false).unwrap();
+    let second = crate::edit::view(&t.db(), "claude", "p").unwrap().revision;
+    assert!(second > first, "legacy writes must invalidate editor revisions");
+}
 fn reference(path: &std::path::Path) -> String {
     crate::open_readonly(path)
         .unwrap()
@@ -594,4 +607,61 @@ fn rust_split_roundtrips_through_actual_python_resolver() {
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
     assert_eq!(output.stdout, b"ok\n");
+}
+
+#[test]
+fn legacy_editor_preserves_omitted_secret_and_rejects_stale_revision() {
+    let t = Temp::new();
+    let input = |name: &str, revision| crate::edit::Input {
+        app_type: "claude".into(), id: "p".into(), name: name.into(), expected_revision: revision,
+        endpoint: None, model: None, protocol: None, secret: None, clear_secret: false,
+    };
+    crate::import(&mut crate::open(&t.db()).unwrap(), &[record("p")], "fixture", false, false).unwrap();
+    crate::edit::save_legacy(&t.db(), input("Renamed", Some(1))).unwrap();
+    let conn = crate::open_readonly(&t.db()).unwrap();
+    let raw: String = conn.query_row("SELECT settings_config FROM providers", [], |r| r.get(0)).unwrap();
+    assert!(raw.contains("fake-secret-marker"));
+    assert_eq!(crate::edit::save_legacy(&t.db(), input("Stale", Some(1))).err().unwrap().to_string(), "provider_revision_conflict");
+    let mut clear = input("Renamed", Some(2)); clear.clear_secret = true;
+    crate::edit::save_legacy(&t.db(), clear).unwrap();
+    let raw: String = conn.query_row("SELECT settings_config FROM providers", [], |r| r.get(0)).unwrap();
+    assert!(!raw.contains("fake-secret-marker"));
+    commit::apply(&t.db(), &[record("p")], "fixture", true, &Memory::default()).unwrap();
+    assert_eq!(crate::edit::save_legacy(&t.db(), input("Unsafe downgrade", Some(4))).err().unwrap().to_string(), "credential_store_required");
+}
+
+#[test]
+fn legacy_writer_checks_lock_source_and_delete_references() {
+    let t = Temp::new();
+    let refs = crate::references::References { hub: t.0.join("hub.json"), catalog: t.0.join("catalog.json"), pools: t.0.join("pools.json"), config: t.0.join("config.json") };
+    crate::legacy::apply_checked(&t.db(), &[record("p")], "fixture", false, || Ok(()), || Ok(())).unwrap();
+    let lock = commit::WriterLock::acquire(&t.db()).unwrap();
+    assert_eq!(crate::legacy::remove(&t.db(), "claude", "p", &refs).err().unwrap().to_string(), "provider_store_busy");
+    drop(lock);
+    let result = crate::legacy::apply_checked(&t.db(), &[record("new")], "fixture", false, || Ok(()), || anyhow::bail!("plan_stale"));
+    assert_eq!(result.err().unwrap().to_string(), "plan_stale");
+    assert_eq!(crate::list_providers(&crate::open_readonly(&t.db()).unwrap(), None).unwrap().len(), 1);
+    fs::write(&refs.hub, r#"{"channels":{"main":{"provider":"id:p"}}}"#).unwrap();
+    assert!(!crate::legacy::remove(&t.db(), "claude", "p", &refs).unwrap().blockers.is_empty());
+    fs::write(&refs.hub, "{}").unwrap();
+    assert_eq!(crate::legacy::remove(&t.db(), "claude", "p", &refs).unwrap().removed, 1);
+    commit::apply(&t.db(), &[record("p")], "fixture", false, &Memory::default()).unwrap();
+    assert_eq!(crate::legacy::remove(&t.db(), "claude", "p", &refs).err().unwrap().to_string(), "credential_store_required");
+}
+
+#[test]
+fn legacy_sql_errors_are_redacted_and_preflight_cannot_move_baseline() {
+    let t = Temp::new();
+    crate::legacy::apply_checked(&t.db(), &[record("p")], "fixture", false, || Ok(()), || Ok(())).unwrap();
+    let result = crate::legacy::apply_checked(&t.db(), &[record("p")], "fixture", true, || {
+        crate::open(&t.db())?.execute("UPDATE providers SET name='concurrent'", [])?;
+        Ok(())
+    }, || Ok(()));
+    assert_eq!(result.err().unwrap().to_string(), "provider_revision_conflict");
+    let conn = crate::open(&t.db()).unwrap();
+    conn.execute_batch("CREATE TRIGGER fail_write BEFORE UPDATE ON providers BEGIN SELECT RAISE(ABORT, 'fake-secret-error'); END; CREATE TRIGGER fail_delete BEFORE DELETE ON providers BEGIN SELECT RAISE(ABORT, 'fake-secret-error'); END;").unwrap();
+    let result = crate::legacy::apply_checked(&t.db(), &[record("p")], "fixture", true, || Ok(()), || Ok(()));
+    assert_eq!(result.err().unwrap().to_string(), "provider_commit_failed");
+    let refs = crate::references::References { hub: t.0.join("hub"), catalog: t.0.join("catalog"), pools: t.0.join("pools"), config: t.0.join("config") };
+    assert_eq!(crate::legacy::remove(&t.db(), "claude", "p", &refs).err().unwrap().to_string(), "provider_commit_failed");
 }

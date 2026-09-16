@@ -134,6 +134,15 @@ pub fn import(
     replace: bool,
     preview: bool,
 ) -> Result<(usize, usize)> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let result = import_in_transaction(&tx, providers, source, replace, preview)?;
+    if !preview { tx.commit()?; }
+    Ok(result)
+}
+
+pub(crate) fn import_in_transaction(
+    tx: &Connection, providers: &[ImportProvider], source: &str, replace: bool, preview: bool,
+) -> Result<(usize, usize)> {
     let mut seen = std::collections::HashSet::new();
     for p in providers {
         validate(p)?;
@@ -141,7 +150,6 @@ pub fn import(
             bail!("duplicate provider identity in import");
         }
     }
-    let tx = conn.transaction()?;
     let (mut changed, mut skipped) = (0, 0);
     for p in providers {
         let exists: bool = tx.query_row(
@@ -164,11 +172,8 @@ pub fn import(
         if preview {
             continue;
         }
-        tx.execute("INSERT INTO providers(id,app_type,name,settings_config,meta,category,provider_type,sort_index,is_current) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(id,app_type) DO UPDATE SET name=excluded.name, settings_config=excluded.settings_config, meta=excluded.meta, category=excluded.category, provider_type=excluded.provider_type, sort_index=excluded.sort_index", params![p.id,p.app_type,p.name,p.settings_config.to_string(),p.meta.to_string(),p.category,p.provider_type,p.sort_index,p.is_current])?;
+        tx.execute("INSERT INTO providers(id,app_type,name,settings_config,meta,category,provider_type,sort_index,is_current,revision) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,1) ON CONFLICT(id,app_type) DO UPDATE SET name=excluded.name, settings_config=excluded.settings_config, meta=excluded.meta, category=excluded.category, provider_type=excluded.provider_type, sort_index=excluded.sort_index, revision=providers.revision+1", params![p.id,p.app_type,p.name,p.settings_config.to_string(),p.meta.to_string(),p.category,p.provider_type,p.sort_index,p.is_current])?;
         tx.execute("INSERT INTO provider_sources(id,app_type,source,imported_at) VALUES(?1,?2,?3,strftime('%s','now')) ON CONFLICT(id,app_type) DO UPDATE SET source=excluded.source, imported_at=excluded.imported_at", params![p.id,p.app_type,source])?;
-    }
-    if !preview {
-        tx.commit()?;
     }
     Ok((changed, skipped))
 }

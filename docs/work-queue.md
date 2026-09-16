@@ -28,6 +28,11 @@
 - **运行/视觉证据**：只用 Chrome headless 看过修改前离线渠道页，图 `/tmp/s25-channels-before.png`；新增 UI 未做交互验收或真实 Tauri 窗口验证。renderer 曾运行 127.0.0.1:1421，交接时停止；一次性 `/tmp/s25-ui-rust.py`、`/tmp/s25-ui-ts.py` 非幂等，不要重跑。
 - **后续顺序**：修正/验证 macOS 草稿与 L3 边界 → 更新合同并独立提交 macOS → 按差异迁入 Windows并独立验证/提交 → H0/H1/H2 的实际 CLI 合成上游认证优先级、平台凭证、真实窗口、安装与文档。Windows 原生环境不可用可继续代码，但禁止启用 Windows 迁移或宣称运行通过。严格零明文目标仍未完成（启动认证文件与私有 SQLite 临时副本存在）；不静默降低目标。当前尚不具备完整 S25 合入/发布条件。
 
+**接手续办（2026-09-16）**：已按 handoff current 校准 `edd0522`，无 upstream，相对本地 main ahead 20；保留并接续全部 macOS 草稿。当前行为账本：
+- 共享层 Linux 兼容写入：旧格式仍保留，统一 writer lock、事务内版本复核、来源再检查、编辑 omitted/clear 与 revision，删除关联阻断；禁止 referenced 记录降级。legacy revision 回归已先失败后通过，根 workspace 55 passed + 4 CLI，1 Keychain ignored；这是跨平台运行的共享实现测试，Linux 原生执行仍未验收。
+- macOS 草稿：StrictMode 重挂、重复提交、账号池/槽位 Claude 身份、任务 appType、历史归属已收口；Chrome 中真实 React StrictMode 回归先复现扫描被取消，修正后取消/失败/重复点击/刷新/历史同 ID 测试通过。Tauri Rust 76 项、typecheck/build 通过；尚未等同于真实 Tauri/Keychain/CLI 整链验收。
+- 后续独立 owner：Windows 对应接入；用户本轮新增双语设置与参考 Codex 设置导航的需求，作为独立 UI 检查点。默认中文，可选 English，持久化本机偏好；参考分组导航、搜索、选中态，不引入无对应能力的设置项。
+
 **实施层次与检查点**：
 1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价 → B2d 安装器新库初始化边界。每步独立检查；B2 完成前不开放桌面写入。
 2. **L2 凭证读取**：A1/A2 实验与 C0 合同 → C1/C2 后端 → D0–D3 所有 reader。只使用合成凭据；reader 未通过前不启用新格式写入。
