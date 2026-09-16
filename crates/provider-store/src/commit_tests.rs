@@ -665,3 +665,75 @@ fn legacy_sql_errors_are_redacted_and_preflight_cannot_move_baseline() {
     let refs = crate::references::References { hub: t.0.join("hub"), catalog: t.0.join("catalog"), pools: t.0.join("pools"), config: t.0.join("config") };
     assert_eq!(crate::legacy::remove(&t.db(), "claude", "p", &refs).err().unwrap().to_string(), "provider_commit_failed");
 }
+
+/// Filesystem-backed synthetic secret store survives a killed test subprocess.
+/// This proves journal recovery across process death, not OS credential ACL behavior.
+struct DurableFixture {
+    directory: PathBuf,
+    stop_after_create: bool,
+}
+impl DurableFixture {
+    fn path(&self, reference: &str) -> PathBuf {
+        assert!(crate::credentials::valid_reference(reference));
+        self.directory.join(reference.replace('/', "_"))
+    }
+}
+impl SecretStore for DurableFixture {
+    fn create(&self, reference: &str, payload: &[u8]) -> Result<(), CredentialError> {
+        use std::io::Write;
+        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(self.path(reference)).map_err(|_| CredentialError::Unavailable)?;
+        file.write_all(payload).map_err(|_| CredentialError::Unavailable)?;
+        file.sync_all().map_err(|_| CredentialError::Unavailable)?;
+        if self.stop_after_create {
+            fs::write(self.directory.join("ready"), b"created").unwrap();
+            loop { std::thread::park_timeout(std::time::Duration::from_secs(1)); }
+        }
+        Ok(())
+    }
+    fn read(&self, reference: &str) -> Result<Vec<u8>, CredentialError> {
+        fs::read(self.path(reference)).map_err(|e| if e.kind() == std::io::ErrorKind::NotFound { CredentialError::NotFound } else { CredentialError::Unavailable })
+    }
+    fn delete(&self, reference: &str) -> Result<(), CredentialError> {
+        match fs::remove_file(self.path(reference)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(CredentialError::Unavailable),
+        }
+    }
+}
+
+#[test]
+fn crash_fixture_child() {
+    let Some(raw) = std::env::var_os("AGENT_HUB_TEST_CRASH_DIRECTORY") else { return };
+    let directory = PathBuf::from(raw);
+    let fixture = DurableFixture { directory: directory.clone(), stop_after_create: true };
+    commit::apply(&directory.join("providers.db"), &[record("after-crash")], "synthetic-process-kill", false, &fixture).unwrap();
+    panic!("fixture should have been killed after durable create");
+}
+
+#[test]
+fn killed_process_releases_writer_lock_and_recovers_durable_secret_intent() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let temp = Temp::new();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "commit_tests::crash_fixture_child", "--nocapture"])
+        .env("AGENT_HUB_TEST_CRASH_DIRECTORY", &temp.0)
+        .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !temp.0.join("ready").exists() && Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() { break; }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let ready = temp.0.join("ready").exists();
+    let _ = child.kill();
+    let status = child.wait().unwrap();
+    assert!(ready, "child must reach durable secret creation before kill");
+    assert!(!status.success());
+    let fixture = DurableFixture { directory: temp.0.clone(), stop_after_create: false };
+    assert!(fs::read_dir(&temp.0).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("provider_v1_")));
+    assert_eq!(commit::recover(&temp.db(), &fixture).unwrap(), 0);
+    assert!(!fs::read_dir(&temp.0).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("provider_v1_")));
+    assert!(crate::list_providers(&crate::open(&temp.db()).unwrap(), None).unwrap().is_empty());
+    commit::apply(&temp.db(), &[record("retry")], "synthetic", false, &fixture).unwrap();
+}

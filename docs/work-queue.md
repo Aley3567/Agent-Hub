@@ -12,13 +12,13 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：实施中。2026-09-16 第一层与第二层代码已提交，三项审查问题已独立修复；第三层共享提交/恢复、迁移、来源计划与终端接入已形成检查点，第四层 macOS 有未提交草稿，Windows 尚未跟进。本轮用户因对话过长要求交接，停止继续实施；平台/CLI/窗口与最终交付仍未验收完成。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 已接续并提交共享 Linux legacy 边界、macOS/Windows 渠道管理与双语设置；macOS PR/应用内调度已提交，Windows 对应实现独立验证。macOS 真实窗口、合成 Keychain、实际 CLI 认证优先级、安装与进程强杀恢复已有证据；Windows/Linux 原生与严格零明文仍未验收，不具备完整 S25 合入/发布条件。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
 **分支**：实施从 `main@ed63114` 建立隔离分支 `s25/provider-foundation`，工作树为 `../claude-hub-wt/provider-foundation`。原 `main` 比 `origin/main` 领先 2 个文档提交，未跟踪 `.agents/`、`.mimosa/` 与三个 SVG 均保留；`ui/workspace-shell@d8105cf` 工作树干净，但缺 `372caeb`、`6fc85c9`、`e854fc2`、`ed63114`，故不在旧树直接实施、不 merge/rebase。所有本地检查点按行为提交，macOS/Windows 分开提交；未授权发布。
 
-**最新交接（2026-09-16，本轮用户主动换对话）**：
+**前次交接基线（2026-09-16，`edd0522`）**：
 - 交接前代码 HEAD 为 `f6833ee`，分支 `s25/provider-foundation` 未设置 upstream，相对本地 `main` 为 ahead 19 / behind 0。下一个 HEAD 仅记录本交接；禁止假定工作树干净或照抄旧 HEAD。
 - 本轮五个产品检查点：`fdc77b7` 凭证版本变化中止启动；`5c83b68` doctor 仅写验证过的 Hub 目标；`b40365c` SQLite 私有只读副本兼容 PERSIST/WAL；`3b4b848` E0 不可变引用提交/恢复内核；`f6833ee` L3 计划、显式迁移、删除/编辑保护及 CLI/TUI 接入。没有 push、merge、rebase/amend、真实凭证迁移或用户安装目录更新。
 - **未提交 owner 仅 `UI/macos/`**：22 个已跟踪文件修改，覆盖 Cargo.toml/lock、Rust db/channels/hubs/pools/launch/tasks/lib、types/api/mock/store、命令面板、渠道/聊天/任务视图及 slotModel；另新增 `src-tauri/src/provider_management.rs`、`src/views/channels/parts/ManagementDialog.tsx` 与同名 module.css。新增/导入/编辑/删除/迁移弹窗与 IPC、双应用投影/启动是草稿，保留，不 reset，不直接打包提交。
@@ -34,6 +34,19 @@
 - 已提交：Linux `ae00775`、macOS `f78f8c5`（Rust 77 passed）、Windows `41650e7`。Windows renderer typecheck/build/交互测试通过；MSVC cross-check 因缺 Windows SDK `stdlib.h` 未通过，原生凭证写入继续 gated。
 - 双语设置/导航/渠道管理：默认中文，可选 English，持久化本机偏好；分组、搜索、选中态已落地。双端 typecheck/build 与 StrictMode/语言持久化 renderer 测试通过，真实 Tauri 窗口仍另列验收。
 - 用户新增工作：主页突出 Pull Request 与定时任务入口；PR 只读列表、搜索和打开；定时任务明确要求应用运行期间自动执行，需先验证到点、暂停、重启不补跑、防重复，再启用循环。退出应用不执行；Windows 独立提交，真实平台缺项保持未验收。
+
+**最新交接（2026-09-16，接续验证后）**：
+- 工作树仍为 `/Users/admin/Desktop/claude-hub-wt/provider-foundation`，分支 `s25/provider-foundation`，无 upstream。旧 macOS 草稿已按行为接续，没有覆盖或丢弃。
+- 已提交检查点：`ae00775` Linux guarded legacy、`f78f8c5` macOS 管理/StrictMode/身份、`41650e7` Windows 管理、`400a5a8` macOS 双语、`fa520c0` Windows 双语、`8ca205c` macOS PR/应用内调度。后续本地提交以 git log 为准，不改写这些提交。
+- macOS 新行为：PR 使用现有 gh 登录只读查询与打开；主导航“工作”组；定时任务在应用运行时自动派发，每 occurrence 最多尝试一次，不补跑退出/长睡眠间隙；UI 的最近成功不代表模型会话完成。任务/PR 核心页面也支持双语；原先确认的全面翻译范围仍是设置、导航、渠道。
+- 最终代码检查：Python 1007 passed（`/tmp/s25-python-final.log`），根 workspace 57 provider-store passed / 1 Keychain ignored，CLI 4 passed（`/tmp/s25-workspace-final.log`）；ignored 合成 Keychain 单独显式运行 1 passed（`/tmp/s25-keychain-probe.log`）。macOS Tauri 85 passed、双端 typecheck/build、双端真实 React renderer 回归通过。安装 8 passed（`/tmp/s25-install-final.log`）。
+- H0 新证据：真实 macOS 测试 app bundle（独立 `com.agenthub.s25fixture`）中完成语言切换、PR 真查询、合成提醒分钟边界触发/暂停、合成渠道新增及保留凭据的编辑。Rust 写入后 Python 实际 Keychain reader 读回合成值；SQL 中只留引用；CLI 删除后新旧引用均 credential_missing，pendingCleanup=0。
+- 隔离实验解释：完全替换 HOME 的 app 写入曾返回 credential_timeout；`security default-keychain -d user` 确认该 HOME 没有默认 Keychain。保留正常用户 Keychain 域、将 provider DB/任务/配置/MRU/账号池等可写路径全部指向合成目录后上述流程通过。没有复制、迁移或展示真实凭证。该超时没有被伪装成成功。
+- 实际 CLI：Claude Code 2.1.261 与 Codex 0.154.0-alpha.6.2 在隔离 HOME + 本机 HTTP 合成上游中，基础配置与 ambient env 为 A，所选渠道为 B；收到 Claude `/v1/messages`、Codex `/v1/responses` 的请求均只有 B。上游刻意返回 400 停止，故这是实际 CLI 认证路由证据，不是模型回复或完整多轮语义验收。汇总 `/tmp/s25-real-cli-result.json`。
+- 崩溃耐久：新增真实子进程 kill 回归，停在合成 secret durable create 之后，杀进程再 recover；未提交记录不可见、orphan 回收、writer lock 释放、再次提交通过。SecretStore 用文件夹合成实现，不能代替 OS ACL 崩溃场景。
+- 未验收项：Windows 原生 Credential Manager/终端/打包/窗口，Linux 原生写入；macOS 四来源和双应用全矩阵的真实终端会话闭环；系统 Keychain 锁定/拒绝的完整人工矩阵；严格零明文（启动 settings/shadow auth/私有 SQLite 临时副本仍存在）。Windows cross-check 受缺少 Windows SDK `stdlib.h` 阻断，backend 继续 gated。
+- H2：隔离安装和 macOS fixture bundle 已验证；未安装到个人运行目录，未做正式签名、公证、Windows安装包或发布。最终交付门保留，不把测试 bundle 当发布包。
+- 全程没有 push、merge、rebase/amend、真实凭证迁移或用户运行目录更新；旧 `/tmp/s25-ui-rust.py`、`/tmp/s25-ui-ts.py` 没有重跑。测试 helper 不是生产自动化，重试前先核对其作用目录与当前 git 状态。
 
 **实施层次与检查点**：
 1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价 → B2d 安装器新库初始化边界。每步独立检查；B2 完成前不开放桌面写入。
