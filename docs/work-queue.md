@@ -14,9 +14,9 @@
 
 **状态**：规划完成，实施未开始。2026-09-16 用户指定完整技术文档，要求用 Luna 窄范围探索后形成清晰的分层计划；本轮只登记设计与任务。该任务优先于 S24 历史英文整理。
 
-**设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)。原始输入为 `woolly-tinkering-conway.md`；代码核对基线 `main@6fc85c9`。旧计划中的渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
+**设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
-**分支**：计划在当前 `main` 留档；产品实施仍按原文使用 `ui/workspace-shell`。该工作树为 `d8105cf`，相对共同基线只有 handoff 忽略提交，尚缺 `372caeb` 与 `6fc85c9`。开始实施时先报告两树状态和具体基线；不自动 merge/rebase，也不改写另一条工作的 handoff。所有本地检查点均按行为提交，macOS/Windows 分开提交；未授权发布。
+**分支**：计划在当前 `main` 留档；产品实施使用 `ui/workspace-shell`。该工作树为 `d8105cf`，相对共同基线只有 handoff 忽略提交，尚缺 `372caeb` 与 `6fc85c9`。开始实施时先报告两树状态和具体基线；不自动 merge/rebase，也不改写另一条工作的 handoff。所有本地检查点均按行为提交，macOS/Windows 分开提交；未授权发布。
 
 **目标**：桌面三源发现及预览、保留 JSON 文件导入、两类渠道自定义 CRUD、统一安全存储、显式旧数据迁移，以及 CLI/桌面/运行时正确取用同一身份。先打通读路径，再启用 Keychain-only 写路径。三源/双平台目标不删减；Windows 未实机验证时单列状态。
 
