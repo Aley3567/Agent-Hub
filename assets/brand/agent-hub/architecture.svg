@@ -1,0 +1,236 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16 -16 1032 496" width="1032" height="496" role="img" aria-labelledby="archTitle archDesc">
+  <title id="archTitle">Agent-Hub architecture: one hub between coding agents and upstream APIs</title>
+  <desc id="archDesc">Codex, Claude Code, Cursor and other CLIs sit on the left. Agent-Hub in the centre owns provider selection, session isolation, routing and protocol translation. OpenAI, Anthropic and OpenAI-compatible upstreams sit on the right.</desc>
+
+  <defs>
+    <filter id="glow" x="-300%" y="-300%" width="700%" height="700%">
+      <feGaussianBlur stdDeviation="1.8" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <filter id="hubShadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#4F46E5" flood-opacity="0.18"/>
+    </filter>
+
+    <!-- Claude Code mark -->
+    <g id="ic-claude" fill="none">
+      <circle cx="12" cy="12" r="3.4" fill="#D97757" stroke="none"/>
+      <g stroke="#D97757" stroke-width="1.9" stroke-linecap="round">
+        <line x1="12" y1="7.4" x2="12" y2="2.8"/><line x1="12" y1="16.6" x2="12" y2="21.2"/>
+        <line x1="7.4" y1="12" x2="2.8" y2="12"/><line x1="16.6" y1="12" x2="21.2" y2="12"/>
+        <line x1="8.7" y1="8.7" x2="5.5" y2="5.5"/><line x1="15.3" y1="8.7" x2="18.5" y2="5.5"/>
+        <line x1="8.7" y1="15.3" x2="5.5" y2="18.5"/><line x1="15.3" y1="15.3" x2="18.5" y2="18.5"/>
+      </g>
+    </g>
+
+    <!-- OpenAI mark -->
+    <g id="ic-openai" fill="#101418">
+      <path d="M14.949 6.547a3.94 3.94 0 0 0-.348-3.273 4.11 4.11 0 0 0-4.4-1.934A4.1 4.1 0 0 0 8.423.2 4.15 4.15 0 0 0 6.305.086a4.1 4.1 0 0 0-1.891.948 4.04 4.04 0 0 0-1.158 1.753 4.1 4.1 0 0 0-1.563.679A4 4 0 0 0 .554 4.72a3.99 3.99 0 0 0 .502 4.731 3.94 3.94 0 0 0 .346 3.274 4.11 4.11 0 0 0 4.402 1.933c.382.425.852.764 1.377.995.526.231 1.095.35 1.67.346 1.78.002 3.358-1.132 3.901-2.804a4.1 4.1 0 0 0 1.563-.68 4 4 0 0 0 1.14-1.253 3.99 3.99 0 0 0-.506-4.716m-6.097 8.406a3.05 3.05 0 0 1-1.945-.694l.096-.054 3.23-1.838a.53.53 0 0 0 .265-.455v-4.49l1.366.778q.02.011.025.035v3.722c-.003 1.653-1.361 2.992-3.037 2.996m-6.53-2.75a2.95 2.95 0 0 1-.36-2.01l.095.057L5.29 12.09a.53.53 0 0 0 .527 0l3.949-2.246v1.555a.05.05 0 0 1-.022.041L6.473 13.3c-1.454.826-3.311.335-4.15-1.098m-.85-6.94A3.02 3.02 0 0 1 3.07 3.949v3.785a.51.51 0 0 0 .262.451l3.93 2.237-1.366.779a.05.05 0 0 1-.048 0L2.585 9.342a2.98 2.98 0 0 1-1.113-4.094zm11.216 2.571L8.747 5.576l1.362-.776a.05.05 0 0 1 .048 0l3.265 1.86a3 3 0 0 1 1.173 1.207 2.96 2.96 0 0 1-.27 3.2 3.05 3.05 0 0 1-1.36.997V8.279a.52.52 0 0 0-.276-.445m1.36-2.015-.097-.057-3.226-1.855a.53.53 0 0 0-.53 0L6.249 6.153V4.598a.04.04 0 0 1 .019-.04L9.533 2.7a3.07 3.07 0 0 1 3.257.139c.474.325.843.778 1.066 1.303.223.526.289 1.103.191 1.664zM5.503 8.575 4.139 7.8a.05.05 0 0 1-.026-.037V4.049c0-.57.166-1.127.476-1.607s.752-.864 1.275-1.105a3.08 3.08 0 0 1 3.234.41l-.096.054-3.23 1.838a.53.53 0 0 0-.265.455zm.742-1.577 1.758-1 1.762 1v2l-1.755 1-1.762-1z"/>
+    </g>
+
+    <!-- Anthropic mark -->
+    <g id="ic-anthropic" fill="#101418">
+      <path d="M13.827 3.52h3.603L24 20h-3.603l-6.57-16.48zm-7.258 0h3.767L16.906 20h-3.674l-1.343-3.461H5.017l-1.344 3.46H0L6.57 3.522zm4.132 9.959L8.453 7.687 6.205 13.48H10.7z"/>
+    </g>
+
+    <!-- Cursor mark -->
+    <g id="ic-cursor" fill="#101418">
+      <path d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"/>
+    </g>
+
+    <!-- Hub mark -->
+    <g id="ic-hub" fill="none">
+      <g stroke="#4F46E5" stroke-width="28" stroke-linecap="round">
+        <path d="M104 48H76C60.536 48 48 60.536 48 76V104"/>
+        <path d="M152 48H180C195.464 48 208 60.536 208 76V104"/>
+        <path d="M208 152V180C208 195.464 195.464 208 180 208H152"/>
+        <path d="M104 208H76C60.536 208 48 195.464 48 180V152"/>
+      </g>
+      <rect x="104" y="104" width="48" height="48" rx="14" fill="#4F46E5"/>
+    </g>
+
+    <style>
+      .kicker  { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 11px; font-weight: 680; letter-spacing: 0.9px; fill: #8A929E; }
+      .ctitle  { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 13.5px; font-weight: 600; fill: #101418; }
+      .csub    { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 11.5px; font-weight: 400; fill: #5B6470; }
+      .muted .ctitle { fill: #8A929E; font-weight: 500; }
+      .muted .csub   { fill: #8A929E; }
+      .brand-name { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 25px; font-weight: 700; fill: #101418; letter-spacing: -0.6px; }
+      .brand-sub  { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12.5px; font-weight: 400; fill: #5B6470; }
+      .pill-txt { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 12.5px; font-weight: 500; fill: #3730A3; }
+      .card  { fill: #FFFFFF; stroke: #E4E7EC; stroke-width: 1; }
+      .card-empty { fill: none; stroke: #DCDFE4; stroke-width: 1; stroke-dasharray: 4 3; }
+      .col   { fill: #FAFBFC; stroke: #E4E7EC; stroke-width: 1; }
+      .pill  { fill: #FAFBFC; stroke: #E4E7EC; stroke-width: 1; }
+      .dot-a { fill: #4F46E5; stroke: #FFFFFF; stroke-width: 1.5; }
+      .dot-m { fill: #FFFFFF; stroke: #DCDFE4; stroke-width: 1.5; }
+      .wire  { fill: none; stroke-width: 1.4; }
+      @media (prefers-reduced-motion: reduce) {
+        .pulse { display: none; }
+      }
+    </style>
+  </defs>
+
+  <rect x="-16" y="-16" width="1032" height="496" fill="#FFFFFF"/>
+
+  <!-- ================= brand, above the frame ================= -->
+  <use href="#ic-hub" transform="translate(471 0) scale(0.2266)"/>
+  <text class="brand-name" x="500" y="92" text-anchor="middle">Agent-Hub</text>
+  <text class="brand-sub" x="500" y="109" text-anchor="middle">Local gateway &amp; provider manager</text>
+
+  <!-- ================= wires, converging on the hub ================= -->
+  <g id="wires">
+    <path class="wire" d="M 264 218 C 302.25 218 310.75 304.5 349 304.5" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="22s" repeatCount="indefinite"/>
+    </path>
+    <path class="wire" d="M 264 284 C 302.25 284 310.75 304.5 349 304.5" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="25s" repeatCount="indefinite"/>
+    </path>
+    <path class="wire" d="M 264 350 C 302.25 350 310.75 304.5 349 304.5" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="19s" repeatCount="indefinite"/>
+    </path>
+    <path class="wire" d="M 264 416 C 302.25 416 310.75 304.5 349 304.5" stroke="#E4E7EC" stroke-dasharray="2 6">
+      <animate attributeName="stroke-dashoffset" from="0" to="-80" dur="30s" repeatCount="indefinite"/>
+    </path>
+
+    <path class="wire" d="M 651 304.5 C 689.25 304.5 697.75 218 736 218" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="20s" repeatCount="indefinite"/>
+    </path>
+    <path class="wire" d="M 651 304.5 C 689.25 304.5 697.75 317 736 317" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="24s" repeatCount="indefinite"/>
+    </path>
+    <path class="wire" d="M 651 304.5 C 689.25 304.5 697.75 416 736 416" stroke="#C7CBF6" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="0" to="-100" dur="28s" repeatCount="indefinite"/>
+    </path>
+  </g>
+
+  <!-- the two convergence nodes -->
+  <circle class="dot-a" cx="349" cy="304.5" r="3.5"/>
+  <circle class="dot-a" cx="651" cy="304.5" r="3.5"/>
+
+  <!-- ================= travelling particles ================= -->
+  <g id="particles" class="pulse">
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="2.6s" repeatCount="indefinite" path="M 264 218 C 302.25 218 310.75 304.5 349 304.5"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="2.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="3.1s" begin="-1.4s" repeatCount="indefinite" path="M 264 284 C 302.25 284 310.75 304.5 349 304.5"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="3.1s" begin="-1.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="2.3s" begin="-0.6s" repeatCount="indefinite" path="M 264 350 C 302.25 350 310.75 304.5 349 304.5"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="2.3s" begin="-0.6s" repeatCount="indefinite"/>
+    </circle>
+
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="2.4s" begin="-0.4s" repeatCount="indefinite" path="M 651 304.5 C 689.25 304.5 697.75 218 736 218"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="2.4s" begin="-0.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="2.9s" begin="-1.7s" repeatCount="indefinite" path="M 651 304.5 C 689.25 304.5 697.75 317 736 317"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="2.9s" begin="-1.7s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="2.6" fill="#4F46E5" filter="url(#glow)">
+      <animateMotion dur="3.2s" begin="-2.3s" repeatCount="indefinite" path="M 651 304.5 C 689.25 304.5 697.75 416 736 416"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.12;0.85;1" dur="3.2s" begin="-2.3s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <!-- ================= left column : coding agents ================= -->
+  <rect class="col" x="0" y="145" width="264" height="319" rx="18"/>
+  <text class="kicker" x="18" y="174">CODING AGENTS</text>
+
+  <g id="agent-codex">
+    <rect class="card" x="16" y="190" width="232" height="56" rx="12"/>
+    <use href="#ic-openai" transform="translate(33.5 208.5) scale(1.1875)"/>
+    <text class="ctitle" x="67" y="211.5">Codex</text>
+    <text class="csub" x="67" y="226.5">Isolated session config</text>
+    <circle class="dot-a" cx="264" cy="218" r="3.5"/>
+  </g>
+
+  <g id="agent-claude-code">
+    <rect class="card" x="16" y="256" width="232" height="56" rx="12"/>
+    <use href="#ic-claude" transform="translate(33 274) scale(0.8333)"/>
+    <text class="ctitle" x="67" y="277.5">Claude Code</text>
+    <text class="csub" x="67" y="292.5">Gateway routing</text>
+    <circle class="dot-a" cx="264" cy="284" r="3.5"/>
+  </g>
+
+  <g id="agent-cursor">
+    <rect class="card" x="16" y="322" width="232" height="56" rx="12"/>
+    <use href="#ic-cursor" transform="translate(34 341) scale(0.75)"/>
+    <text class="ctitle" x="67" y="343.5">Cursor</text>
+    <text class="csub" x="67" y="358.5">Gateway routing</text>
+    <circle class="dot-a" cx="264" cy="350" r="3.5"/>
+  </g>
+
+  <g id="agent-other" class="muted">
+    <rect class="card-empty" x="16" y="388" width="232" height="56" rx="12"/>
+    <g transform="translate(34 407)" fill="none" stroke="#8A929E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <g transform="scale(0.75)">
+        <rect x="3" y="4" width="18" height="16" rx="2"/>
+        <path d="m8 10 2 2-2 2"/><path d="M13 14h4"/>
+      </g>
+    </g>
+    <text class="ctitle" x="67" y="409.5">Other CLIs</text>
+    <text class="csub" x="67" y="424.5">Actively in development</text>
+    <circle class="dot-m" cx="264" cy="416" r="3.5"/>
+  </g>
+
+  <!-- ================= centre column : what the hub owns ================= -->
+  <rect x="349" y="145" width="302" height="319" rx="18" fill="#FFFFFF" stroke="#C7CBF6" stroke-width="1.5" filter="url(#hubShadow)"/>
+  <text class="kicker" x="371" y="174">WHAT THE HUB OWNS</text>
+
+  <g id="hub-pills">
+    <rect class="pill" x="371" y="190" width="258" height="31" rx="9"/>
+    <text class="pill-txt" x="383" y="209.5">Model routing</text>
+
+    <rect class="pill" x="371" y="246" width="258" height="31" rx="9"/>
+    <text class="pill-txt" x="383" y="265.5">Session isolation</text>
+
+    <rect class="pill" x="371" y="302" width="258" height="31" rx="9"/>
+    <text class="pill-txt" x="383" y="321.5">Provider store</text>
+
+    <rect class="pill" x="371" y="358" width="258" height="31" rx="9"/>
+    <text class="pill-txt" x="383" y="377.5">Protocol translation</text>
+
+    <rect class="pill" x="371" y="414" width="258" height="31" rx="9"/>
+    <text class="pill-txt" x="383" y="433.5">Usage &amp; failure records</text>
+  </g>
+
+  <!-- ================= right column : upstream APIs ================= -->
+  <rect class="col" x="736" y="145" width="264" height="319" rx="18"/>
+  <text class="kicker" x="754" y="174">UPSTREAM APIS</text>
+
+  <g id="provider-openai">
+    <rect class="card" x="752" y="190" width="232" height="56" rx="12"/>
+    <circle class="dot-a" cx="736" cy="218" r="3.5"/>
+    <use href="#ic-openai" transform="translate(769.5 208.5) scale(1.1875)"/>
+    <text class="ctitle" x="803" y="211.5">OpenAI</text>
+    <text class="csub" x="803" y="226.5">Chat Completions / Responses</text>
+  </g>
+
+  <g id="provider-anthropic">
+    <rect class="card" x="752" y="289" width="232" height="56" rx="12"/>
+    <circle class="dot-a" cx="736" cy="317" r="3.5"/>
+    <use href="#ic-anthropic" transform="translate(770.5 308) scale(0.7083)"/>
+    <text class="ctitle" x="803" y="310.5">Anthropic</text>
+    <text class="csub" x="803" y="325.5">Native Messages API</text>
+  </g>
+
+  <g id="provider-openai-compatible">
+    <rect class="card" x="752" y="388" width="232" height="56" rx="12"/>
+    <circle class="dot-a" cx="736" cy="416" r="3.5"/>
+    <g transform="translate(770 407)" fill="none" stroke="#5B6470" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <g transform="scale(0.75)">
+        <rect x="3" y="5" width="18" height="6" rx="2"/>
+        <rect x="3" y="13" width="18" height="6" rx="2"/>
+        <circle cx="6.6" cy="8" r=".9" fill="#5B6470" stroke="none"/>
+        <circle cx="9.3" cy="8" r=".9" fill="#8A929E" stroke="none"/>
+      </g>
+    </g>
+    <text class="ctitle" x="803" y="409.5">OpenAI-compatible</text>
+    <text class="csub" x="803" y="424.5">Any endpoint you configure</text>
+  </g>
+</svg>

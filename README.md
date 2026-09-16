@@ -39,7 +39,7 @@ interface.
 
 ## Where Agent-Hub fits
 
-Agent-Hub does not replace Claude Code or Codex.
+Agent-Hub does not replace your coding agents.
 
 They remain responsible for reasoning, tools, permissions and execution.
 Agent-Hub manages the layer around them: providers, sessions, routing,
@@ -246,23 +246,14 @@ published.
 
 Agent-Hub sits beside the coding agent, not inside its agent loop.
 
-Claude Code and Codex continue to own reasoning and execution. Agent-Hub owns
+Your coding agents continue to own reasoning and execution. Agent-Hub owns
 provider selection, session isolation, routing and protocol handling.
 
-```mermaid
-flowchart LR
-    Import["Optional CC Switch / JSON import"] --> Store["Hub provider database"]
-    Manage["agent-hub TUI / CLI"] --> Store
-    Store -.-> Launch["Session launchers"]
-    Store -.-> Gateway["Local Python gateway"]
-    Launch --> Claude["Claude Code"]
-    Launch --> Codex["Codex CLI"]
-    Claude --> Gateway
-    Claude --> Native["Anthropic upstream"]
-    Gateway --> Native
-    Gateway --> OpenAI["OpenAI Chat / Responses upstream"]
-    Codex --> Responses["Responses upstream"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
+  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub sits between coding agents (Codex, Claude Code, Cursor) and upstream APIs (OpenAI, Anthropic, OpenAI-compatible). It owns provider selection, session isolation, routing and protocol translation.">
+</picture>
 
 ### The Claude Code request path
 

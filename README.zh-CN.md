@@ -36,7 +36,7 @@ Agent-Hub 是管理编程 Agent **周边那一层**的本机运行时：渠道�
 
 ## Agent-Hub 的位置
 
-Agent-Hub 不替代 Claude Code 或 Codex。
+Agent-Hub 不替代编程 Agent。
 
 推理、工具、权限与执行仍由它们负责。Agent-Hub 管理它们周边的那一层：渠道、
 会话、路由、协议转换与可观测性。
@@ -226,23 +226,14 @@ Windows 源码单独维护；当前不发布 Windows 安装器。
 
 Agent-Hub 位于编程 Agent 旁边，而不是进入它的 agent loop。
 
-Claude Code 与 Codex 继续负责推理与执行。Agent-Hub 负责渠道选择、会话隔离、
+编程 Agent 继续负责推理与执行。Agent-Hub 负责渠道选择、会话隔离、
 路由与协议处理。
 
-```mermaid
-flowchart LR
-    Import["可选的 CC Switch / JSON 导入"] --> Store["Hub 渠道数据库"]
-    Manage["agent-hub TUI / CLI"] --> Store
-    Store -.-> Launch["会话启动器"]
-    Store -.-> Gateway["本地 Python 网关"]
-    Launch --> Claude["Claude Code"]
-    Launch --> Codex["Codex CLI"]
-    Claude --> Gateway
-    Claude --> Native["Anthropic 上游"]
-    Gateway --> Native
-    Gateway --> OpenAI["OpenAI Chat / Responses 上游"]
-    Codex --> Responses["Responses 上游"]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/agent-hub/architecture-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/brand/agent-hub/architecture.svg">
+  <img src="assets/brand/agent-hub/architecture.svg" width="100%" alt="Agent-Hub 位于编程 Agent（Codex、Claude Code、Cursor）与上游 API（OpenAI、Anthropic、OpenAI 兼容端点）之间，负责渠道选择、会话隔离、路由与协议转换。">
+</picture>
 
 ### Claude Code 的请求路径
 
