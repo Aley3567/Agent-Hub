@@ -1,11 +1,4 @@
-/**
- * 视图路由表与视图元数据。
- *
- * VIEWS 的十个键与 import 路径由 CONTRACT.md 第 6.1 节写死：目录名与「默认导出无 props 组件」
- * 的形式都不可更改，否则 lazy 加载会找不到视图；键的顺序即侧栏分组顺序
- * （chat 在 channels 前，plugins/tasks 在 doctor 后、settings 前）。
- * 侧栏标签、视图标题、副标题逐字取自 CONTRACT.md 第 6.5 节的文案锚点表，一个字都不改写。
- */
+/** Shared route metadata. Workspace shortcuts retain their original numeric positions. */
 import type { IconName } from '../components';
 import { useApp } from '../store';
 import type { RefreshKey } from '../store';
@@ -13,6 +6,7 @@ import { useNav } from '../store/nav';
 import type { ViewId } from '../store/nav';
 
 export const VIEWS = {
+  pullRequests: () => import('../views/pull-requests'),
   chat: () => import('../views/chat'),
   channels: () => import('../views/channels'),
   slots: () => import('../views/slots'),
@@ -29,7 +23,7 @@ export const VIEWS = {
  * 侧栏分组（DESIGN.md 第 3 节）：会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、
  * 扩展（插件、任务）。system 组是底部固定的设置，不参与主体循环。
  */
-export type ViewGroup = 'session' | 'observe' | 'extend' | 'system';
+export type ViewGroup = 'work' | 'session' | 'observe' | 'extend' | 'system';
 
 export interface ViewMeta {
   id: ViewId;
@@ -58,9 +52,11 @@ export const VIEW_ORDER = [
   'plugins',
   'tasks',
   'settings',
+  'pullRequests',
 ] as const satisfies readonly ViewId[];
 
 export const VIEW_META: Record<ViewId, ViewMeta> = {
+  pullRequests: { id: 'pullRequests', navLabel: 'Pull Request', title: 'Pull Request', subtitle: '查看与你相关的代码审查', icon: 'pull-request', group: 'work', fullWidth: false },
   chat: {
     id: 'chat',
     navLabel: '对话',
@@ -136,11 +132,11 @@ export const VIEW_META: Record<ViewId, ViewMeta> = {
   },
   tasks: {
     id: 'tasks',
-    navLabel: '任务',
-    title: '计划任务',
-    subtitle: '哪些事被定时触发，下一次什么时候跑',
+    navLabel: '定时任务',
+    title: '定时任务',
+    subtitle: '应用运行期间自动触发，退出或休眠后不补跑',
     icon: 'tasks',
-    group: 'extend',
+    group: 'work',
     fullWidth: false,
   },
   settings: {
@@ -155,9 +151,10 @@ export const VIEW_META: Record<ViewId, ViewMeta> = {
 };
 
 /** 元数据数组，按侧栏顺序 */
-export const VIEW_LIST: ViewMeta[] = VIEW_ORDER.map((id) => VIEW_META[id]);
+export const VIEW_LIST: ViewMeta[] = ['pullRequests' as ViewId, ...VIEW_ORDER.filter(id => id !== 'pullRequests')].map((id) => VIEW_META[id]);
 
 export const GROUP_LABEL: Record<ViewGroup, string> = {
+  work: '工作',
   session: '会话',
   observe: '观测',
   extend: '扩展',
@@ -165,7 +162,7 @@ export const GROUP_LABEL: Record<ViewGroup, string> = {
 };
 
 /** 侧栏主体渲染的三组；system 组固定在底部，不参与这里的循环 */
-export const SIDEBAR_GROUPS: ViewGroup[] = ['session', 'observe', 'extend'];
+export const SIDEBAR_GROUPS: ViewGroup[] = ['work', 'session', 'observe', 'extend'];
 
 /**
  * 每个视图刷新时该刷哪些 store key。口径与各视图自己的 reload 实现逐一核对过：
@@ -173,6 +170,7 @@ export const SIDEBAR_GROUPS: ViewGroup[] = ['session', 'observe', 'extend'];
  * hubs / channels / usage，所以这两个视图不止一个 key。数组顺序即刷新顺序。
  */
 export const VIEW_REFRESH_KEY: Record<ViewId, RefreshKey[]> = {
+  pullRequests: [],
   chat: ['chat'],
   channels: ['channels'],
   slots: ['hubs', 'channels', 'usage'],
@@ -207,5 +205,6 @@ export async function refreshView(view: ViewId): Promise<void> {
  */
 export function viewShortcut(id: ViewId): string {
   const index = VIEW_ORDER.indexOf(id);
+  if (index >= 10) return '';
   return `⌘${index === 9 ? 0 : index + 1}`;
 }

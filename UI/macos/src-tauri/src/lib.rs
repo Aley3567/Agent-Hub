@@ -20,6 +20,7 @@ mod plugins;
 mod pools;
 mod redact;
 mod tasks;
+mod pull_requests;
 
 use std::process::Command;
 
@@ -287,8 +288,49 @@ fn run_open(args: &[&str], shown: &str) -> Result<(), String> {
     )))
 }
 
+#[tauri::command]
+async fn list_pull_requests(filter: String, repository: String) -> Result<Vec<pull_requests::PullRequest>, String> {
+    tauri::async_runtime::spawn_blocking(move || pull_requests::list(&filter, &repository)).await.map_err(|_| "PR 查询中断".to_string())?
+}
+#[tauri::command]
+fn open_pull_request(url: String) -> Result<(), String> { pull_requests::open(&url) }
+
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            use tauri::Emitter;
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                let mut previous = tasks::now_ts();
+                let mut last_error: Option<String> = None;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    let now = tasks::now_ts();
+                    let result = tasks::run_due(previous, now, |task| {
+                        if task.kind == "doctor-reminder" {
+                            return Ok("体检提醒已记录，请打开本机体检 / Reminder recorded; open Diagnostics".into());
+                        }
+                        let target = task.target.clone().ok_or("任务缺少启动目标")?;
+                        let result = launch::launch(target)?;
+                        if result.ok { Ok(result.message) } else { Err(result.message) }
+                    });
+                    match result {
+                        Ok(runs) => {
+                            previous = now;
+                            last_error = None;
+                            for run in runs { let _ = handle.emit("scheduled-task-run", run); }
+                        }
+                        Err(error) => {
+                            if last_error.as_ref() != Some(&error) {
+                                let _ = handle.emit("scheduled-task-error", crate::redact::redact_text(&error));
+                            }
+                            last_error = Some(error);
+                        }
+                    }
+                }
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             provider_management::preview_import,
             provider_management::select_import,
@@ -316,6 +358,8 @@ pub fn run() {
             send_chat_message,
             list_plugins,
             set_plugin_enabled,
+            list_pull_requests,
+            open_pull_request,
             list_tasks,
             create_task,
             update_task,

@@ -26,9 +26,11 @@ import { useAnnouncer } from './shell/announce';
 import { useGlobalKeyboard } from './shell/keyboard';
 import { VIEWS, VIEW_META, VIEW_REFRESH_KEY, refreshView } from './shell/views';
 import styles from './App.module.css';
+import { useScheduledTaskEvents } from './shell/taskEvents';
 
 /** 路由表的键与路径由 CONTRACT.md 第 6.1 节写死，这里只是把它们包成 lazy 组件 */
 const LAZY_VIEWS = {
+  pullRequests: lazy(VIEWS.pullRequests),
   chat: lazy(VIEWS.chat),
   channels: lazy(VIEWS.channels),
   slots: lazy(VIEWS.slots),
@@ -62,6 +64,7 @@ export default function App() {
   const bootstrapped = useRef(false);
 
   useGlobalKeyboard();
+  useScheduledTaskEvents();
 
   useEffect(() => {
     // StrictMode 在开发期会重挂一次，这个闸门保证首屏只拉一遍数据
@@ -101,6 +104,7 @@ export default function App() {
         return t("{0} 个插件", [pluginCount]);
       case 'tasks':
         return t("{0} 个任务", [taskCount]);
+      case 'pullRequests':
       case 'settings':
         return null;
     }

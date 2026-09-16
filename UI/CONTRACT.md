@@ -335,8 +335,7 @@ export interface PluginItem {
   detail: string | null;
 }
 
-/** 计划任务：定时启动会话 / 定时体检提醒。桌面端只管本地任务清单（CRUD + 展示），
-    持久化到 `agent-hub-tasks.json`；执行层本轮不做 */
+/** 应用运行期间定时派发会话 / 记录体检提醒；不补跑退出期间的任务。 */
 export interface ScheduledTask {
   id: string;
   name: string;
@@ -350,7 +349,9 @@ export interface ScheduledTask {
   scheduleText: string;
   enabled: boolean;
   /** unix 秒，未跑过为 null */
-  lastRunAt: number | null;
+  lastRunAt: number | null; // Last dispatch attempt, not session completion
+  lastRunStatus?: 'unconfirmed' | 'dispatched' | 'reminded' | 'failed' | null;
+  lastRunMessage?: string | null;
   /** unix 秒，由 Rust 侧按 cron 计算返回，前端不自算；disabled 时为 null */
   nextRunAt: number | null;
   createdAt: number;    // unix 秒
@@ -598,7 +599,8 @@ export type IconName =
 | `accounts` | 账号池 | 账号池 | 同一渠道的多个账号怎么轮换 |
 | `doctor` | 体检 | 本机体检 | 本机配置有没有问题，只读不联网 |
 | `plugins` | 插件 | 插件 | hooks、输出风格、状态栏、权限这些扩展点各自是什么状态 |
-| `tasks` | 任务 | 计划任务 | 哪些事被定时触发，下一次什么时候跑 |
+| `tasks` | 定时任务 | 定时任务 | 应用运行期间自动触发，退出或休眠后不补跑 |
+| `pullRequests` | Pull Request | Pull Request | 查看与你相关的代码审查 |
 | `settings` | 设置 | 设置 | 外观、路径与本机环境 |
 
 
@@ -638,3 +640,13 @@ macOS 已实现下列命令；Windows 接入同一合同后独立验证。无 Ta
 ### 桌面语言偏好（2026-09-16）
 
 设置、主导航和渠道管理支持简体中文 / English，即时切换并保存到本机 localStorage 的 `agent-hub.desktop.language`。默认中文，非法值回退中文；存储不可用时本次会话仍可切换。用户命名、模型、诊断目录与后端错误保留原文；其余既有视图不宣称完整双语。设置按常规、外观、路径、环境、关于分组，搜索只过滤现有设置。macOS / Windows 保留各自窗口行为与快捷键。
+
+### PR 与应用内调度（2026-09-16）
+
+- 新 `pullRequests` 路由、`pull-request` 图标，与 `tasks` 位于主导航顶部“工作”组。原 Cmd/Ctrl+1…9/0 保持，PR 不占数字快捷键。
+- `list_pull_requests(filter, repository)` 使用既有 `gh` 登录，仅搜索 github.com 的开放 PR：`all`=involves @me、`review`=review-requested @me、`authored`=author @me。仓库可空或 owner/repository；更新时间倒序最多 100 条，本地搜索标题/仓库/作者。20 秒超时，错误脱敏后展示；离线预览明确不可读取，绝不伪造 PR。
+- `open_pull_request(url)` 只允许 HTTPS github.com/{owner}/{repo}/pull/{number}。无创建、评论、合并或凭证复制能力。
+- Tauri 应用运行时每 2 秒扫描任务；cron 用本地时区。启动时以当前时间为边界，超过 60 秒的轮询间隙及时间回拨不补跑。退出应用没有后台服务。暂停在认领前生效，认领后的终端派发不能撤回。
+- CRUD 与调度共用 fs2 文件锁；先原子持久化 `lastClaimAt`、`lastRunAt`、`lastRunStatus=unconfirmed`，再释放锁调用执行器。每个任务每个 cron occurrence 最多尝试一次，中断可能漏一次，绝不承诺 exactly-once。完成后重新读文件合并结果，不覆盖并发暂停/改名/删除。
+- `lastRunAt` 是派发尝试时间；新增可选 `lastRunStatus`（unconfirmed/dispatched/reminded/failed）、`lastRunMessage`。会话派发成功不等于模型执行完成；体检提醒写入最近结果并在应用内提示，不自动执行 doctor --fix，也没有系统通知保证。未来 cron 仍继续。
+- UI 搜索、全部/已开启/已暂停/最近成功筛选；失败和未确认结果在全部页可见，最近成功仅包含 dispatched/reminded。事件丢失时每 15 秒刷新任务结果。语言可切换，后端错误保留原文。

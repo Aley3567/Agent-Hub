@@ -267,3 +267,12 @@ export const saveProvider = (input: ProviderInput): Promise<ProviderOutcome> => 
 export const removeProvider = (appType: AppType, id: string): Promise<DeleteOutcome> => manage('remove_provider', { appType, id });
 export const credentialStatus = (): Promise<CredentialStatus> => manage('credential_status', {});
 export const migrateCredentials = (): Promise<MigrationOutcome> => manage('migrate_credentials', {});
+
+export async function listPullRequests(filter: string, repository: string): Promise<import('../types/contract').PullRequest[]> {
+  if (isOffline) throw new Error('PR 列表需要桌面应用与本机 gh 登录 / Open the desktop app and sign in with gh.');
+  return invoke('list_pull_requests', { filter, repository });
+}
+export async function openPullRequest(url: string): Promise<void> {
+  if (isOffline) throw new Error('请在桌面应用中打开 PR / Open this PR from the desktop app.');
+  return invoke('open_pull_request', { url });
+}

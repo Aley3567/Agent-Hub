@@ -272,6 +272,8 @@ export interface ScheduledTask {
   enabled: boolean;
   /** unix 秒，未跑过为 null */
   lastRunAt: number | null;
+  lastRunStatus?: 'unconfirmed' | 'dispatched' | 'reminded' | 'failed' | null;
+  lastRunMessage?: string | null;
   /** unix 秒，由 Rust 侧按 cron 计算返回，前端不自算；disabled 时为 null */
   nextRunAt: number | null;
   createdAt: number;    // unix 秒
@@ -320,3 +322,9 @@ export interface ProviderInput { appType: AppType; id: string; name: string; exp
 export interface CredentialStatus { legacy: number; referenced: number; pendingCleanup: number }
 export interface MigrationOutcome { applied: ProviderOutcome; storageCleanupPending: boolean }
 export interface DeleteOutcome { removed: number; blockers: string[]; pendingCleanup: number }
+
+export interface PullRequest {
+  number: number; title: string; url: string;
+  repository: { nameWithOwner: string }; author: { login: string };
+  state: string; isDraft: boolean; updatedAt: string;
+}

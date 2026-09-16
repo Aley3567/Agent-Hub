@@ -10,7 +10,7 @@ import styles from './Icon.module.css';
 export type IconName =
   // 导航
   | 'channels' | 'slots' | 'usage' | 'diagnostics' | 'accounts' | 'doctor' | 'settings'
-  | 'chat' | 'plugins' | 'tasks'
+  | 'chat' | 'plugins' | 'tasks' | 'pull-request'
   // 动作
   | 'search' | 'plus' | 'close' | 'check' | 'refresh' | 'play' | 'copy' | 'edit'
   | 'trash' | 'external' | 'filter' | 'download' | 'reveal' | 'send' | 'puzzle' | 'calendar'
@@ -54,6 +54,7 @@ const GEAR = buildGearPath(8, 9.6, 7.4, 12, 12);
 /** 每个名字一套自己的几何，不复用同一个图形糊弄多个名字 */
 const GLYPHS: Record<IconName, ReactNode> = {
   // —— 导航 ——
+  'pull-request': <><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="19" r="2" /><path d="M6 7v10m12 0v-7a5 5 0 0 0-5-5h-1m2-3-3 3 3 3" /></>,
   channels: (
     <>
       <path d="M3.5 6h9" />

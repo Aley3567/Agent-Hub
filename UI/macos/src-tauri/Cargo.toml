@@ -25,6 +25,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 provider-store = { path = "../../../crates/provider-store" }
 dirs = "5"
 chrono = "0.4"
+fs2 = "0.4"
 
 [profile.release]
 codegen-units = 1
