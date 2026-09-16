@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS providers (
     settings_config TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',
     category TEXT, provider_type TEXT, is_current BOOLEAN NOT NULL DEFAULT 0,
     in_failover_queue BOOLEAN NOT NULL DEFAULT 0, sort_index INTEGER,
+    credential_ref TEXT, credential_version INTEGER,
+    revision INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (id, app_type)
 );
 CREATE TABLE IF NOT EXISTS provider_sources (

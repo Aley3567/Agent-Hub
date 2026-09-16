@@ -37,6 +37,21 @@ pub fn open(path: &Path) -> Result<Connection> {
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     validate_hub_database(&tx)?;
     tx.execute_batch(SCHEMA)?;
+    let columns = tx
+        .prepare("PRAGMA table_info(providers)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for (name, definition) in [
+        ("credential_ref", "TEXT"),
+        ("credential_version", "INTEGER"),
+        ("revision", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        if !columns.iter().any(|column| column == name) {
+            tx.execute_batch(&format!(
+                "ALTER TABLE providers ADD COLUMN {name} {definition}"
+            ))?;
+        }
+    }
     tx.commit()?;
     Ok(conn)
 }

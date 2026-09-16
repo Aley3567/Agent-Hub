@@ -130,6 +130,7 @@ for source_file in \
   "$SCRIPT_DIR/claude1_launcher_view.py" \
   "$SCRIPT_DIR/claude1_hub_config.py" \
   "$SCRIPT_DIR/claude1_providers.py" \
+  "$SCRIPT_DIR/claude1_credentials.py" \
   "$SCRIPT_DIR/claude1_usage_report.py" \
   "$SCRIPT_DIR/statusline-model.py" \
   "$SCRIPT_DIR/codex-provider-once.py" \
@@ -164,8 +165,10 @@ if [ -L "$INSTALL_ROOT/scripts/claude-provider-once.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_launcher_view.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_hub_config.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_providers.py" ] ||
+  [ -L "$INSTALL_ROOT/scripts/claude1_credentials.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/claude1_usage_report.py" ] ||
   [ -L "$INSTALL_ROOT/scripts/statusline-model.py" ] ||
+  [ -L "$CODEX_INSTALL_ROOT/scripts/claude1_credentials.py" ] ||
   [ -L "$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py" ] ||
   [ -L "$INSTALL_ROOT/claude1/zsh-functions.sh" ] ||
   { [ "$MANAGE_STICKY" -eq 1 ] &&
@@ -192,8 +195,10 @@ for target_path in \
   "$INSTALL_ROOT/scripts/claude1_launcher_view.py" \
   "$INSTALL_ROOT/scripts/claude1_hub_config.py" \
   "$INSTALL_ROOT/scripts/claude1_providers.py" \
+  "$INSTALL_ROOT/scripts/claude1_credentials.py" \
   "$INSTALL_ROOT/scripts/claude1_usage_report.py" \
   "$INSTALL_ROOT/scripts/statusline-model.py" \
+  "$CODEX_INSTALL_ROOT/scripts/claude1_credentials.py" \
   "$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py" \
   "$INSTALL_ROOT/claude1/zsh-functions.sh"
 do
@@ -244,9 +249,11 @@ TERMINAL_TARGET="$INSTALL_ROOT/scripts/claude1_terminal.py"
 LAUNCHER_VIEW_TARGET="$INSTALL_ROOT/scripts/claude1_launcher_view.py"
 HUB_CONFIG_TARGET="$INSTALL_ROOT/scripts/claude1_hub_config.py"
 PROVIDERS_TARGET="$INSTALL_ROOT/scripts/claude1_providers.py"
+CREDENTIALS_TARGET="$INSTALL_ROOT/scripts/claude1_credentials.py"
 USAGE_REPORT_TARGET="$INSTALL_ROOT/scripts/claude1_usage_report.py"
 STATUSLINE_MODEL_TARGET="$INSTALL_ROOT/scripts/statusline-model.py"
 CODEX_LAUNCHER_TARGET="$CODEX_INSTALL_ROOT/scripts/codex-provider-once.py"
+CODEX_CREDENTIALS_TARGET="$CODEX_INSTALL_ROOT/scripts/claude1_credentials.py"
 SHELL_TARGET="$INSTALL_ROOT/claude1/zsh-functions.sh"
 STICKY_TARGET="$INSTALL_ROOT/claude1/zsh-sticky-integration.sh"
 
@@ -324,9 +331,11 @@ NEED_TERMINAL=0
 NEED_LAUNCHER_VIEW=0
 NEED_HUB_CONFIG=0
 NEED_PROVIDERS=0
+NEED_CREDENTIALS=0
 NEED_USAGE_REPORT=0
 NEED_STATUSLINE_MODEL=0
 NEED_CODEX_LAUNCHER=0
+NEED_CODEX_CREDENTIALS=0
 NEED_SHELL=0
 NEED_STICKY=0
 NEED_ZSHRC=0
@@ -360,10 +369,14 @@ needs_install "$SCRIPT_DIR/claude1_hub_config.py" "$HUB_CONFIG_TARGET" 644 &&
   NEED_HUB_CONFIG=1
 needs_install "$SCRIPT_DIR/claude1_providers.py" "$PROVIDERS_TARGET" 644 &&
   NEED_PROVIDERS=1
+needs_install "$SCRIPT_DIR/claude1_credentials.py" "$CREDENTIALS_TARGET" 644 &&
+  NEED_CREDENTIALS=1
 needs_install "$SCRIPT_DIR/claude1_usage_report.py" "$USAGE_REPORT_TARGET" 644 &&
   NEED_USAGE_REPORT=1
 needs_install "$SCRIPT_DIR/statusline-model.py" "$STATUSLINE_MODEL_TARGET" 755 &&
   NEED_STATUSLINE_MODEL=1
+needs_install "$SCRIPT_DIR/claude1_credentials.py" "$CODEX_CREDENTIALS_TARGET" 644 &&
+  NEED_CODEX_CREDENTIALS=1
 needs_install "$SCRIPT_DIR/codex-provider-once.py" "$CODEX_LAUNCHER_TARGET" 755 &&
   NEED_CODEX_LAUNCHER=1
 needs_install "$SCRIPT_DIR/scripts/zsh-functions.sh" "$SHELL_TARGET" 644 &&
@@ -447,6 +460,9 @@ fi
 if [ "$NEED_PROVIDERS" -eq 1 ]; then
   backup_existing "$PROVIDERS_TARGET" "claude1_providers.py"
 fi
+if [ "$NEED_CREDENTIALS" -eq 1 ]; then
+  backup_existing "$CREDENTIALS_TARGET" "claude1_credentials.py"
+fi
 if [ "$NEED_USAGE_REPORT" -eq 1 ]; then
   backup_existing "$USAGE_REPORT_TARGET" "claude1_usage_report.py"
 fi
@@ -455,6 +471,9 @@ if [ "$NEED_STATUSLINE_MODEL" -eq 1 ]; then
 fi
 if [ "$NEED_CODEX_LAUNCHER" -eq 1 ]; then
   backup_existing "$CODEX_LAUNCHER_TARGET" "codex-provider-once.py"
+fi
+if [ "$NEED_CODEX_CREDENTIALS" -eq 1 ]; then
+  backup_existing "$CODEX_CREDENTIALS_TARGET" "codex-claude1_credentials.py"
 fi
 if [ "$NEED_SHELL" -eq 1 ]; then
   backup_existing "$SHELL_TARGET" "zsh-functions.sh"
@@ -525,11 +544,17 @@ fi
 if [ "$NEED_PROVIDERS" -eq 1 ]; then
   install_file "$SCRIPT_DIR/claude1_providers.py" "$PROVIDERS_TARGET" 644
 fi
+if [ "$NEED_CREDENTIALS" -eq 1 ]; then
+  install_file "$SCRIPT_DIR/claude1_credentials.py" "$CREDENTIALS_TARGET" 644
+fi
 if [ "$NEED_STATUSLINE_MODEL" -eq 1 ]; then
   install_file "$SCRIPT_DIR/statusline-model.py" "$STATUSLINE_MODEL_TARGET" 755
 fi
 if [ "$NEED_CODEX_LAUNCHER" -eq 1 ]; then
   install_file "$SCRIPT_DIR/codex-provider-once.py" "$CODEX_LAUNCHER_TARGET" 755
+fi
+if [ "$NEED_CODEX_CREDENTIALS" -eq 1 ]; then
+  install_file "$SCRIPT_DIR/claude1_credentials.py" "$CODEX_CREDENTIALS_TARGET" 644
 fi
 if [ "$NEED_SHELL" -eq 1 ]; then
   install_file "$SCRIPT_DIR/scripts/zsh-functions.sh" "$SHELL_TARGET" 644

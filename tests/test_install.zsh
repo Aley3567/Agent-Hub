@@ -122,6 +122,9 @@ test_first_install_is_safe() {
   command cmp -s "$REPO_ROOT/claude1_providers.py" \
     "$home/install root/scripts/claude1_providers.py" ||
     fail "providers module was not installed"
+  command cmp -s "$REPO_ROOT/claude1_credentials.py" \
+    "$home/install root/scripts/claude1_credentials.py" ||
+    fail "credentials module was not installed"
   command cmp -s "$REPO_ROOT/claude1_usage_report.py" \
     "$home/install root/scripts/claude1_usage_report.py" ||
     fail "usage report module was not installed"

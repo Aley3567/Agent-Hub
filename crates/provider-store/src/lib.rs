@@ -1,4 +1,5 @@
 //! Hub-owned persistence shared by terminal and desktop clients.
+pub mod credentials;
 pub mod model;
 pub mod paths;
 pub mod sources;
