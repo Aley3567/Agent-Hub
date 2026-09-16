@@ -13,10 +13,12 @@ Provider 默认位于 `~/.agent-hub/`；已有 Hub JSON、日志和定价文件�
 | 显式指定的定价 SQLite | **只读** | 可选 `model_pricing` 表，与渠道 DB 独立 | `AGENT_HUB_PRICING_DB`，未指定不读 DB |
 | `claude1-config.json` | 读写 | Agent Hub 本地覆盖：hidden / 别名 / 模型 / effort / routing | `CLAUDE1_CONFIG_PATH` |
 | `claude1-mru.json` | 只读 | `{ "<provider name 或 id>": <unix 秒，float> }` 最近使用 | — |
-| `claude-hub.json` | 读写 | 默认 hub 配置（槽位、端口、channels、routes） | — |
+| `claude-hub.json` | 读写 | 默认 hub 配置（槽位、端口、channels、routes） | `CLAUDE_HUB_CONFIG`（**仅** `chat_hub` 与 `doctor` 读它；`hubs.rs` 的 hub 列表仍按 `~/.cc-switch/claude-hub.json` 解析，这个偏差见 §3.2 说明） |
 | `claude-hubs.json` | 只读 | 命名 hub 注册表 | — |
 | `hubs/<name>.json` | 读写 | 命名 hub 各自配置，结构同 `claude-hub.json` | — |
 | `agent-hub-tasks.json` | 读写 | 桌面端自有的计划任务清单（`ScheduledTask[]`，见 §2）。写入纪律与 hub json 相同：原子替换 + 保留未知键 | `AGENT_HUB_TASKS_PATH` |
+| `agent-hub-chat.json` | 读写（0600） | 桌面端自有的对话：本地会话 + 当前选中项目。写入纪律同 `agent-hub-tasks.json`。**不是凭证存储**，只存已脱敏的对话正文 | `AGENT_HUB_CHAT_PATH` |
+| `~/.claude/projects/<key>/*.jsonl` | **只读** | Claude Code 的会话 transcript，chat 历史回放的唯一来源。只读枚举，不走 `paths::ensure_inside` 白名单；正文进 IPC 前按 §1.2 剥离 | `CLAUDE_CONFIG_DIR` / `CLAUDE1_CLAUDE_HOME`（取该目录下的 `projects/`） |
 | `claude1-account-pools.json` | **只读**（首版） | 账号池 | — |
 | `model-pricing.json` | 只读 | `{version, models: []}`；非空优先，为空仅尝试显式定价库，仍无价不估算费用 | — |
 | `logs/claude-hub-usage.jsonl` + `.bak-*` | 只读 | 用量 journal | — |
@@ -103,7 +105,10 @@ Rust 侧构造 `Channel` 时**先剥离后返回**，凭证不允许出现在任
   token 第二道闸不命中，这是用换来的取舍，不是疏漏。
 - 上述剥离规则对 §2 的全部类型一体适用，包括后增的对话 / 插件 / 计划任务类型：
   `PluginItem.detail`、`ChatMessage.content` 等任何来自源数据的字符串，进 IPC 响应前都要过同一套剥离。
-  本地回显（如 chat 的 pending 消息、演示回复摘录）没过第一道，渲染前必须过第二道。
+  本地回显（如 chat 的 pending 消息、回复摘录）没过第一道，渲染前必须过第二道。
+  **这条一体适用于事件通道的 payload**（§3.2 的 `chat-stream*`），以及
+  `~/.claude/projects` 里读出来的 transcript 正文——后者是仓库里第一次把历史对话正文
+  送到 renderer，脱敏是新增的必需环节，不是既有保障。
 
 ## 2. TypeScript 类型（`src/types/contract.ts`，两侧各一份，内容逐字相同）
 
@@ -295,8 +300,9 @@ export interface DegradeEntry {
   severity: DegradeSeverity;
 }
 
-/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content）；
-    本轮为演示数据，后端 seam 在 IPC 层，未来直连 claude-hub 时签名与形状不变 */
+/** 对话消息。role/content 形状对齐 Anthropic 兼容的 POST /v1/messages（role + 文本 content）。
+    历史会话的正文来自 `~/.claude/projects` 的 transcript；thinking / tool_use / tool_result
+    块在 Rust 侧拍平成文本占位，所以这里恒为纯文本，不引入 block 数组 */
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   /** 文本内容；进 IPC 前按 §1.2 过一遍凭证剥离 */
@@ -305,7 +311,8 @@ export interface ChatMessage {
   ts: number;
 }
 
-/** 对话会话。本轮只做 UI 骨架 + 演示数据，不接真实后端 */
+/** 对话会话。两类来源：history 是只读回放的历史 transcript（不可发送），
+    local 是本应用新建、经 hub 真发送的会话（落 `agent-hub-chat.json`） */
 export interface ChatSession {
   id: string;
   title: string;
@@ -315,6 +322,48 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;    // unix 秒
   updatedAt: number;    // unix 秒
+  /** history = 只读回放；local = 可写、走 hub 真发送 */
+  source: 'history' | 'local';
+  /** 仅 local 有意义：绑定的 hub id；null = 默认 hub */
+  hubName: string | null;
+  /** 仅 history 有意义：来源项目目录 key（`~/.claude/projects` 下的目录名） */
+  projectKey: string | null;
+}
+
+/** `~/.claude/projects` 下的一个项目目录。
+    key 到真实路径**不可逆**（`-` 与路径里的连字符有歧义），所以 path 取 transcript
+    里的 `cwd` 字段，不由 key 反解 */
+export interface ChatProject {
+  key: string;
+  path: string;
+  sessionCount: number;
+  updatedAt: number;    // unix 秒
+}
+
+/** 流式增量事件 `chat-stream` 的 payload */
+export interface ChatStreamChunk {
+  sessionId: string;
+  requestId: string;
+  delta: string;
+}
+
+/** 流终态事件 `chat-stream-end` 的 payload。
+    reason 为 `truncated` 表示上游没发终止帧就干净结束了：本轮收到的正文已落盘，
+    并由一条 system 消息说明截断。**绝不补 `message_stop`**（失败不伪装成功） */
+export interface ChatStreamEnd {
+  sessionId: string;
+  requestId: string;
+  reason: 'stop' | 'truncated';
+  stopReason: string | null;
+}
+
+/** 流失败事件 `chat-stream-error` 的 payload。message 已按 §1.2 剥离。
+    带 sessionId / requestId 是为了让前端能把错误归因到具体某次发送——
+    没有它就只能靠「缓冲还在就是在途」去猜，迟到的旧流错误会误伤新流 */
+export interface ChatStreamError {
+  sessionId: string;
+  requestId: string;
+  message: string;
 }
 
 /** Claude Code 配置扩展点（hooks / outputStyle / statusLine / permissions / mcp）。
@@ -335,6 +384,19 @@ export interface PluginItem {
   detail: string | null;
 }
 
+/** schedule 的结构化解释。
+    人话文案**由前端按当前语言渲染**，Rust 只给结构——英文界面下不出现中文人话。
+    `unknown` 是兜底：认不出的表达式原样回显，不硬翻（翻错比不翻更糟），
+    典型如 `0 9 1 * 1,3,5`（日与周同时受限，Vixie 惯例取「或」，翻成人话必然误导） */
+export type ScheduleSpec =
+  | { kind: 'hourly'; minute: number }
+  | { kind: 'daily'; minute: number; hour: number }
+  /** days：0 = 周日 … 6 = 周六，升序去重 */
+  | { kind: 'weekly'; minute: number; hour: number; days: number[] }
+  | { kind: 'monthly'; minute: number; hour: number; day: number }
+  | { kind: 'everyMinutes'; period: number }
+  | { kind: 'unknown'; raw: string };
+
 /** 应用运行期间定时派发会话 / 记录体检提醒；不补跑退出期间的任务。 */
 export interface ScheduledTask {
   id: string;
@@ -345,8 +407,11 @@ export interface ScheduledTask {
   target: LaunchTarget | null;
   /** cron 五字段字符串（分 时 日 月 周），解析与计算都在 Rust 侧 */
   schedule: string;
-  /** schedule 的中文人话，如「每工作日 09:00」，由 Rust 侧生成 */
-  scheduleText: string;
+  /** schedule 的结构化解释，人话文案由前端按当前语言渲染 */
+  scheduleSpec: ScheduleSpec;
+  /** 降级或异常备注（cron 无法解析、kind 不在支持列表等），由前端一并展示。
+      独立成字段是为了让「有损但可观测」的记号在双语界面下也能如实呈现 */
+  notes: string[];
   enabled: boolean;
   /** unix 秒，未跑过为 null */
   lastRunAt: number | null; // Last dispatch attempt, not session completion
@@ -357,7 +422,7 @@ export interface ScheduledTask {
   createdAt: number;    // unix 秒
 }
 
-/** create_task 的入参：id / 时间戳 / scheduleText / nextRunAt 都由 Rust 侧补全 */
+/** create_task 的入参：id / 时间戳 / scheduleSpec / nextRunAt 都由 Rust 侧补全 */
 export interface NewScheduledTask {
   name: string;
   kind: ScheduledTask['kind'];
@@ -392,8 +457,12 @@ export interface NewScheduledTask {
 | `app_env` | — | `{ platform, appVersion, tauriVersion, dbPath, configPath, logsDir, hasClaudeBin, pythonVersion }` | 设置页与 doctor 用 |
 | `open_path` | `path` | `()` | 用系统默认程序打开（历史状态目录内，或精确匹配当前 provider DB；不放行其父目录/相邻文件） |
 | `reveal_in_folder` | `path` | `()` | 同上白名单 |
-| `list_chat_sessions` | — | `ChatSession[]` | 本轮恒走演示实现：返回内置演示会话，不连任何上游；真后端接入时签名不变 |
-| `send_chat_message` | `sessionId, content` | `ChatMessage` | 本轮恒走演示实现：Rust 侧返回内置演示回复（内容按 Anthropic 消息形状构造，前端模拟流式逐字呈现），不连任何上游；真后端接入时签名不变 |
+| `list_chat_sessions` | — | `ChatSession[]` | 当前选中项目的历史会话（只读回放）+ 本应用新建的本地会话。**签名与返回形状未变**，语义已从演示实现换成真实数据源 |
+| `send_chat_message` | `sessionId, content` | `ChatMessage` | 走 hub 真发送。Rust 侧新增 `AppHandle` 首参（JS 可见签名不变），流式增量经 §3.2 的事件通道投递；返回值是落盘后的最终副本。历史会话（`source === 'history'`）一律拒绝 |
+| `chat_projects` | — | `ChatProject[]` | 枚举 `~/.claude/projects` 下**真有 transcript** 的项目目录。只读，不走 `paths::ensure_inside` 白名单 |
+| `select_chat_project` | `key` | `()` | 记住当前项目，落 `agent-hub-chat.json` 的 `selectedProject`。未选中 = 不显示任何历史 |
+| `create_chat_session` | `hubName, channelId` | `ChatSession` | 新建本地会话。模型取该渠道的本地覆盖或声明模型；两者皆无则报中文错误，**不编默认模型名** |
+| `delete_chat_session` | `id` | `()` | 只删本地会话；历史会话不可删 |
 | `list_plugins` | — | `PluginItem[]` | 聚合全局与渠道级扩展点：只读源 + `claude1-config.json` 本地覆盖合并后返回 |
 | `set_plugin_enabled` | `id, enabled` | `()` | 只写 `claude1-config.json` 的本地覆盖；对只读来源（渠道级 settings_config）的项返回中文错误说明不可写 |
 | `list_tasks` | — | `ScheduledTask[]` | 读 `agent-hub-tasks.json`，文件缺失返回空数组，不报错 |
@@ -411,6 +480,48 @@ export interface NewScheduledTask {
 
 `LaunchResult.command` 必须回显真实命令。找不到 `claude1` 时返回中文错误，**不静默失败**。
 
+### 3.2 对话流式事件通道（`chat-stream*`）
+
+对话的流式增量不走 IPC 回执，走 Tauri event——一条命令只能有一个返回值，而流式要的是
+「随时到达的增量」。payload 一律 `#[serde(rename_all = "camelCase")]`：
+
+| 事件 | payload | 语义 |
+|---|---|---|
+| `chat-stream` | `ChatStreamChunk` | 增量片段，非终态 |
+| `chat-stream-end` | `ChatStreamEnd` | **唯一**的成功 / 截断终态 |
+| `chat-stream-error` | `ChatStreamError` | 失败终态 |
+
+**终态纪律（「失败不伪装成功」的落点）**：
+
+- 收到上游 `message_stop` → `reason: "stop"`，落盘 assistant 消息
+- 流干净结束但**没有**收到终止帧 → `reason: "truncated"`，把已收到的正文落盘，
+  并附一条 system 消息说明截断。**绝不补一个 `message_stop` 出来**
+- 传输层错误 / 超时 / 收到上游 `error` 事件 → 发 `chat-stream-error`，
+  **不落盘 assistant 消息**，命令本身也返回 `Err`
+- 前端收到 error 时**不得在消息流里插入任何 assistant 气泡**——只在 toast 里如实报错
+
+**超时**：连接超时 2 秒；两个 chunk 之间允许的最长静默 120 秒（reqwest `read_timeout`，
+即单次读的空闲上限）；整条流 deadline 600 秒，在 chunk 之间检查。不用 reqwest 的全局
+`.timeout()`——那是「整条响应必须在 N 秒内结束」，会把正常长回复腰斩且原因被伪装成超时。
+静默窗取 120 秒而非更小，依据 `docs/sse-truncation-fix-2026-08-26.md` 的实测：
+真 Claude Code 对 75 秒纯静默耐受无恙，hub 自身的上游保护窗是 45 秒——客户端必须让
+hub 先按它的窗口收尾并发出真实终态帧，不能抢先把一次合法长思考判成失败。
+
+**凭证边界**：`local_token` 只在 Rust 侧的发送流程里作为局部值存在，
+**不进任何序列化结构体、不进事件 payload、不进错误字符串**。解析顺序为
+「hub 配置的 `local_token_env`（缺省 `CLAUDE_HUB_LOCAL_TOKEN`）→ 配置文件里的
+`local_token` 键」，两者皆无则报错，**绝不发不带 Authorization 的请求**。
+所有 `Err` 与事件 payload 里的文本都要过 `redact::redact_text`；HTTP 错误页会先截断
+到 500 字符、再把 `Authorization` 整行打码，然后才过闸——响应体回显请求头是这条链路上
+最容易漏的一处。
+
+**已知偏差（`CLAUDE_HUB_CONFIG`）**：该变量目前只被 `chat_hub::resolve_target`（默认 hub）
+与 `doctor.rs` 读取，`hubs.rs` 的 hub 列表仍按 `~/.cc-switch/claude-hub.json` 解析。
+设了这个变量时，界面上的 hub 与对话实际发送的目标可能不是同一个文件。
+CLI 侧（`claude-hub.py:112`）认这个变量，所以这是桌面端内部的不一致，不是与 CLI 的不一致。
+本机当前未设置该变量，所以这条偏差暂无实际影响；要消除得让 `hubs.rs` 的默认 hub
+也走 `paths::default_hub_config_path()`。
+
 ## 4. Mock 数据（`src/api/mock.ts`）
 
 Rust 不可用时（浏览器里跑 `npm run dev:renderer`、或 IPC 抛错）自动回退到 mock，并在
@@ -421,8 +532,11 @@ StatusBar 显示琥珀色 `离线示例数据` 徽章——**绝不让假数据�
 mock 至少提供：8 个渠道（覆盖三种 apiFormat、1 个 hidden、1 个 incompatible、1 个 isCurrent）、
 2 个 hub（一个 running）、400 行 usage（跨 7 天、含 6 种降级码）、30 行 errors（含 4xx/5xx/超时/
 连接失败）、2 个账号池、10 条 doctor 结果（含 2 个 fail）。
-另需：3 个对话会话（合计 ≥12 条消息，覆盖 user/assistant/system 三种 role，含一条演示降级提示，
-如「当前为演示数据，未连接真实后端」）、10 个插件项（五种 kind 全覆盖，含只读与可写两态）、
+**对话不提供 mock 数据**：chat 的会话与消息一律来自真实数据源（transcript 回放或 hub 发送），
+离线时 `list_chat_sessions` 返回空数组、发送被拒绝，**绝不退回假会话**——
+「假数据必须显式标明」这条在 chat 上的落实方式是根本不造。
+
+另需：10 个插件项（五种 kind 全覆盖，含只读与可写两态）、
 4 个计划任务（三种 kind 全覆盖、1 个 disabled、`nextRunAt` 为过去与将来各一）。
 
 ## 5. 降级码目录
@@ -493,6 +607,16 @@ export interface AppState {
   usage: UsageSummary | null; recentUsage: UsageRow[]; errors: ErrorRow[];
   doctor: DoctorCheck[];
   chatSessions: ChatSession[]; plugins: PluginItem[]; tasks: ScheduledTask[];
+  /** 历史项目候选，只服务对话视图的项目选择器 */
+  chatProjects: ChatProject[];
+  /** 在途的流式缓冲。整会话同一时刻只允许一条流；null = 无在途流。
+      requestId 为空串表示「本次尝试尚未收到第一个增量」——Rust 的 requestId 只出现在
+      事件里，发送回执不带，所以首个增量「认领」这次尝试，此后 sessionId 或 requestId
+      对不上一律丢弃（切换会话后作废的流不许写状态） */
+  chatStream: { sessionId: string; requestId: string; text: string } | null;
+  /** 本轮流是否已由事件通道交代过终态。纯粹用于「同一次失败不弹两条 toast、
+      截断不重复报」，不参与渲染 */
+  chatStreamTerminal: { sessionId: string; reason: 'stop' | 'truncated' | 'error' } | null;
   env: AppEnv | null;
   offline: boolean;                 // 使用 mock 数据
   loading: Record<string, boolean>; // 按 key 的加载态
@@ -500,7 +624,7 @@ export interface AppState {
   loadedKeys: Record<string, boolean>; // 该 key 是否至少完成过一次加载（成败都算）；
                                        // 空态只准在 loadedKeys[key]===true 且数据为空时出现
   // refresh 永不抛出；await 后读 error[key]===null 即成功，非 null 即失败原因原文
-  refresh(key: 'channels'|'hubs'|'pools'|'usage'|'errors'|'doctor'|'env'|'chat'|'plugins'|'tasks'): Promise<void>;
+  refresh(key: 'channels'|'hubs'|'pools'|'usage'|'errors'|'doctor'|'env'|'chat'|'chatProjects'|'plugins'|'tasks'): Promise<void>;
   refreshAll(): Promise<void>;
   // 动作直通 IPC，成功后自动 refresh 相关 key
   setHidden(id: string, hidden: boolean): Promise<void>;
@@ -509,7 +633,18 @@ export interface AppState {
   setSlot(hub: string, slot: SlotName, channel: string | null, model: string | null): Promise<void>;
   setSlotEffort(hub: string, slot: SlotName, effort: Effort | null): Promise<void>;
   launch(target: LaunchTarget): Promise<LaunchResult>;
-  sendChatMessage(sessionId: string, content: string): Promise<ChatMessage>;   // 成功后自动 refresh('chat')
+  // 流式发送：返回值是**落盘后的最终副本**，只用于兜底与失败判定，不驱动渲染——
+  // 渲染由 chat-stream* 事件驱动（§3.2）。截断时命令返回 Err，但该次终态已由
+  // chat-stream-end 交代过，前端靠 chatStreamTerminal 判重，不重复播报。
+  // 历史会话（source==='history'）调用会被拒绝。
+  sendChatMessage(sessionId: string, content: string): Promise<ChatMessage>;
+  // 对话的四个动作：选择历史项目 / 新建本地会话 / 删除本地会话 / 流式事件三件套
+  selectChatProject(key: string): Promise<void>;                              // 成功后 refresh('chatProjects') + refresh('chat')
+  createChatSession(hubName: string | null, channelId: string): Promise<ChatSession>; // 成功后 refresh('chat')
+  deleteChatSession(id: string): Promise<void>;                               // 成功后 refresh('chat')
+  appendChatDelta(chunk: ChatStreamChunk): void;                              // 事件驱动，不经 IPC
+  endChatStream(end: ChatStreamEnd): void;
+  failChatStream(error: ChatStreamError): void;
   setPluginEnabled(id: string, enabled: boolean): Promise<void>;               // 成功后自动 refresh('plugins')
   createTask(task: NewScheduledTask): Promise<ScheduledTask>;                  // 成功后自动 refresh('tasks')
   updateTask(id: string, patch: {enabled?: boolean; schedule?: string; name?: string}): Promise<ScheduledTask>; // 成功后自动 refresh('tasks')

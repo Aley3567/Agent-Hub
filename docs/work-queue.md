@@ -10,6 +10,59 @@
 > - 行号是 2026-08-19 快照，会漂移；以符号名为准。
 > - 【现状】/【部分】/【待建】三档分明，不把待建写成现状。
 
+## S26 · 桌面 schedule 选择器与对话接入真实
+
+✅ 2026-09-16 (296848d macOS, c0ab952 Windows) — 已完成。macOS 已验收；Windows 代码完成、运行态未验证。
+
+**背景**：计划任务表单让用户手写 cron（截图里 `0 9 * * 1-5` 被标红报「Cron needs five fields」）；
+对话页整套是演示数据（横幅 + 模板回复 + 前端假流式）。
+
+**做了什么**
+
+- schedule 手写框 → 可视化选择器：**每小时 / 每天 / 每周 + 自定义**逃生口，对齐 Codex automations
+  的预设面。存储仍是 cron 五字段字符串，`agent-hub-tasks.json` 格式与 `tasks.rs` CRUD 不动。
+- **「不静默改写」不变量**：`0 9 * * 1-5` 识别为「每周 + 周一到周五」，未改动时**逐字节原样提交**；
+  改动后才生成规范形。选择器表达不了的表达式（`0 * * * 1-5`、`*/30 * * * *`、`0 9 1 * 1,3,5`）
+  一律落「自定义」原样保留。
+- `scheduleText` 中文串 → 结构化 `scheduleSpec` + `notes`，**人话由前端渲染双语**。顺带消掉了
+  `mock.ts` 里那份平行的 cron 文案实现（macos/windows 各一份的重复只剩解析）。
+- 对话接入真实：历史只读回放（`~/.claude/projects/<key>/*.jsonl`）+ 本地会话真发送
+  （hub `/v1/messages`，**真 SSE 流式**），落 `~/.cc-switch/agent-hub-chat.json`。
+  目录选择器由 Rust 枚举已有项目（不引 dialog/fs 插件）。
+- **失败不伪装成成功**：截断（干净 EOF 无终态帧）不补 `message_stop`，落部分正文 + 一条 system 说明；
+  流失败只在 toast 报错、**消息流里不插助手气泡**；hub 离线显示空态而**不退回假数据**
+  （chat 已彻底不提供 mock）。
+- 「错误原样暴露」不再让用户猜：`chat-stream-error` 带 `sessionId` / `requestId`，可归因到具体某次发送。
+
+**证据**
+
+- `UI/macos/src-tauri` `cargo test`：**124 passed**（基线 85，净 +39）
+- 前端 harness `UI/{macos,windows}/tests/work-pages.tsx`：**两平台 PASS**，并做过**负对照**——
+  把修过的判定条件改回错误版本，run 如期失败（`0 * * * 1-5 应当落在 custom 档，实际 hourly`），
+  再逐字节还原。断言不是空转的。
+- 两平台 `npm run typecheck` + `npm run build:renderer` 干净
+- 协议层 `python3 -m unittest discover -s tests`：**1007 tests OK**（未被波及）
+- Windows `cron.rs` 用 `--target x86_64-pc-windows-msvc` 单独编译通过，真的走了
+  `_localtime64_s` / `_mktime64` 那条 `#[cfg]` 分支
+
+**未闭环（打捞成卡，不留在代码注释里）**
+
+- 【待建】`failChatStream` 在首个增量到达前无法严格归因：`chatStream.requestId` 还是空串时，
+  错误事件只能按「缓冲还在就是在途」接受。窄窗口，后果是这一轮不再实时流式、正文仍由 refresh 落到真值。
+  闭合需要「发送回执带 requestId」或一个 attempt 代次计数。
+- 【部分】`CLAUDE_HUB_CONFIG` 只被 `chat_hub::resolve_target`（默认 hub）与 `doctor.rs` 读取，
+  `hubs.rs` 的 hub 列表仍按 `~/.cc-switch/claude-hub.json` 解析。设了该变量时界面上的 hub
+  与对话实际发送目标可能不是同一个文件。本机未设该变量，暂无影响。详见 `UI/CONTRACT.md` §3.2。
+- 【待建】`tests/*.tsx` 不在 tsconfig 的 `include` 里——**harness 不被 `npm run typecheck` 覆盖**，
+  会静默腐烂。本轮就发现它已因 `scheduleText` 改名而挂掉（挂载 tasks 视图直接抛异常）。
+- 【部分】Windows 未编译验证：该 crate 用了 `std::os::windows::process::CommandExt::raw_arg`，
+  在 macOS 上编不过。Windows 侧的验证只到 typecheck + build:renderer + harness。
+- 【待建】`create_chat_session` 的 hub 选择依赖 `hubs.rs` 的列表；命名 hub 的发送路径本轮
+  未做端到端实跑（只跑了默认 hub）。
+
+**分支**：`s25/provider-foundation`（工作树 `~/Desktop/claude-hub-wt/provider-foundation`）。
+`main` 是它的直系祖先，落后 28 个提交；本轮未做 merge。
+
 ## S25 · 桌面渠道写入与系统凭证迁移
 
 **状态**：实施中。2026-09-16 已接续并提交共享 Linux legacy 边界、macOS/Windows 渠道管理与双语设置；macOS PR/应用内调度已提交，Windows 对应实现独立验证。macOS 真实窗口、合成 Keychain、实际 CLI 认证优先级、安装与进程强杀恢复已有证据；Windows/Linux 原生与严格零明文仍未验收，不具备完整 S25 合入/发布条件。
