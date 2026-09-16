@@ -89,9 +89,9 @@ export interface AppState {
     key: 'channels' | 'hubs' | 'pools' | 'usage' | 'errors' | 'doctor' | 'env' | 'chat' | 'plugins' | 'tasks',
   ): Promise<void>;
   refreshAll(): Promise<void>;
-  setHidden(id: string, hidden: boolean): Promise<void>;
-  setAlias(id: string, alias: string | null): Promise<void>;
-  setOverride(id: string, model: string | null, effort: Effort | null): Promise<void>;
+  setHidden(id: string, hidden: boolean, appType?: Channel['appType']): Promise<void>;
+  setAlias(id: string, alias: string | null, appType?: Channel['appType']): Promise<void>;
+  setOverride(id: string, model: string | null, effort: Effort | null, appType?: Channel['appType']): Promise<void>;
   setSlot(hub: string, slot: SlotName, channel: string | null, model: string | null): Promise<void>;
   setSlotEffort(hub: string, slot: SlotName, effort: Effort | null): Promise<void>;
   launch(target: LaunchTarget): Promise<LaunchResult>;
@@ -329,12 +329,12 @@ export const useApp = create<AppState>()((set, get) => {
       await Promise.all(REFRESH_KEYS.map((key) => get().refresh(key)));
     },
 
-    setHidden: (id, hidden) => runAction('setHidden', () => setChannelHidden(id, hidden), ['channels']),
+    setHidden: (id, hidden, appType) => runAction('setHidden', () => setChannelHidden(id, hidden, appType), ['channels']),
 
-    setAlias: (id, alias) => runAction('setAlias', () => setChannelAlias(id, alias), ['channels']),
+    setAlias: (id, alias, appType) => runAction('setAlias', () => setChannelAlias(id, alias, appType), ['channels']),
 
-    setOverride: (id, model, effort) =>
-      runAction('setOverride', () => setChannelOverride(id, model, effort), ['channels']),
+    setOverride: (id, model, effort, appType) =>
+      runAction('setOverride', () => setChannelOverride(id, model, effort, appType), ['channels']),
 
     setSlot: (hub, slot, channel, model) =>
       runAction('setSlot', () => setHubSlot(hub, slot, channel, model), ['hubs']),

@@ -1,3 +1,4 @@
+import { channelKey } from '../../../types/contract';
 /**
  * 新建 / 编辑计划任务的对话框（Dialog 最大宽 520，DESIGN.md 4.1）。
  *
@@ -75,7 +76,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
     const target = task?.target ?? null;
     setName(task?.name ?? '');
     setKind(task?.kind ?? 'doctor-reminder');
-    setChannelId(target?.kind === 'channel' ? target.channelId ?? '' : '');
+    setChannelId(target?.kind === 'channel' ? `${target.appType ?? 'claude'}:${target.channelId ?? ''}` : '');
     setHubName(target?.kind === 'slot' ? target.hubName ?? '' : '');
     setSlot(target?.kind === 'slot' ? target.slot ?? 'sonnet' : 'sonnet');
     setSchedule(task?.schedule ?? '');
@@ -86,7 +87,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
 
   const editing = task !== null;
 
-  const channelOptions = channels.map((channel) => ({ value: channel.id, label: channel.name }));
+  const channelOptions = channels.map((channel) => ({ value: channelKey(channel), label: `${channel.name} · ${channel.appType}` }));
   const hubOptions = hubs.map((hub) => ({
     value: hub.name,
     label: hub.isDefault ? `${hub.name}（默认）` : hub.name,
@@ -104,7 +105,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   }
 
   function buildTarget(): LaunchTarget | null {
-    if (kind === 'launch-channel') return { kind: 'channel', channelId };
+    if (kind === 'launch-channel') { const channel = channels.find((c) => channelKey(c) === channelId); return { kind: 'channel', channelId: channel?.id, appType: channel?.appType }; }
     if (kind === 'launch-slot') {
       return { kind: 'slot', hubName: hubName === '' ? undefined : hubName, slot };
     }

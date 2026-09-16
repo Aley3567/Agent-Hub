@@ -23,7 +23,7 @@ import { THEME_LABEL } from '../store/nav';
 import { useToast } from '../store/toast';
 import { DENSITY_LABEL, useUi } from '../store/ui';
 import type { Density } from '../store/ui';
-import type { Effort, HubConfig, LaunchTarget, SlotName } from '../types/contract';
+import type { Channel, Effort, HubConfig, LaunchTarget, SlotName } from '../types/contract';
 import { EFFORT_CHOICES } from '../views/channels/model';
 import { EFFORT_UNSET, SLOT_DEFAULT_EFFORT, effortChoices, fromEffortChoice, toEffortChoice } from '../views/slots/slotModel';
 import { PRESET_GRANULARITY, PRESET_LABEL, matchPreset, rangeFor } from '../views/usage/parts/range';
@@ -112,7 +112,7 @@ interface PaletteItem {
 type PaletteMode =
   | { kind: 'root' }
   | { kind: 'slot'; hubName: string; slot: SlotName }
-  | { kind: 'channel'; channelId: string };
+  | { kind: 'channel'; channelId: string; appType: Channel['appType'] };
 
 interface ScoredRow {
   item: PaletteItem;
@@ -307,7 +307,7 @@ export default function CommandPalette() {
     // 别名与模型覆盖是自由文本，直接用上方输入框的文字当新值（条目上回显），Enter 写入；
     // 隐藏渠道也完整列在这里，别名与 id 仍然能启动（CONTRACT.md），不许过滤掉。
     if (mode.kind === 'channel') {
-      const channel = channels.find((candidate) => candidate.id === mode.channelId) ?? null;
+      const channel = channels.find((candidate) => candidate.id === mode.channelId && candidate.appType === mode.appType) ?? null;
       if (!channel) {
         return [
           {
@@ -330,7 +330,7 @@ export default function CommandPalette() {
       if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
       if (channel.credential === 'missing') notes.push('凭证未配置');
       rows.push({
-        id: `channel-${channel.id}-launch`,
+        id: `channel-${channel.appType}:${channel.id}-launch`,
         group: 'channel',
         label: `用 ${channel.name} 启动会话`,
         hint: notes.join(' · '),
@@ -338,12 +338,13 @@ export default function CommandPalette() {
         keywords: `${channel.alias ?? ''} launch 启动`,
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
         },
       });
 
+      if (channel.appType !== 'claude') return rows;
       rows.push({
-        id: `channel-${channel.id}-hidden`,
+        id: `channel-${channel.appType}:${channel.id}-hidden`,
         group: 'channel',
         label: channel.hidden ? `取消隐藏渠道 ${channel.name}` : `隐藏渠道 ${channel.name}`,
         hint: '隐藏后列表默认不显示，别名与 id 仍能启动',
@@ -361,7 +362,7 @@ export default function CommandPalette() {
 
       if (typed !== '' && typed !== (channel.alias ?? '')) {
         rows.push({
-          id: `channel-${channel.id}-alias-set`,
+          id: `channel-${channel.appType}:${channel.id}-alias-set`,
           group: 'channel',
           label: `把 ${channel.name} 的别名设为「${typed}」`,
           hint: channel.alias === null ? '当前未设置别名' : `当前别名：${channel.alias}`,
@@ -375,7 +376,7 @@ export default function CommandPalette() {
       }
       if (channel.alias !== null) {
         rows.push({
-          id: `channel-${channel.id}-alias-clear`,
+          id: `channel-${channel.appType}:${channel.id}-alias-clear`,
           group: 'channel',
           label: `清除 ${channel.name} 的别名`,
           hint: `当前别名：${channel.alias}`,
@@ -390,7 +391,7 @@ export default function CommandPalette() {
 
       if (typed !== '' && typed !== (channel.modelOverride ?? '')) {
         rows.push({
-          id: `channel-${channel.id}-model-set`,
+          id: `channel-${channel.appType}:${channel.id}-model-set`,
           group: 'channel',
           label: `把 ${channel.name} 的模型覆盖设为「${typed}」`,
           hint: channel.modelOverride === null ? '当前未覆盖模型' : `当前覆盖：${channel.modelOverride}`,
@@ -408,7 +409,7 @@ export default function CommandPalette() {
       }
       if (channel.modelOverride !== null) {
         rows.push({
-          id: `channel-${channel.id}-model-clear`,
+          id: `channel-${channel.appType}:${channel.id}-model-clear`,
           group: 'channel',
           label: `清除 ${channel.name} 的模型覆盖`,
           hint: `当前覆盖：${channel.modelOverride}`,
@@ -434,7 +435,7 @@ export default function CommandPalette() {
             ? `清除 ${channel.name} 的 effort 覆盖`
             : `把 ${channel.name} 的 effort 覆盖设为 ${choice.label}`;
         rows.push({
-          id: `channel-${channel.id}-effort-${choice.value}`,
+          id: `channel-${channel.appType}:${channel.id}-effort-${choice.value}`,
           group: 'channel',
           label,
           hint: isCurrent ? `当前 · ${choice.title}` : choice.title,
@@ -588,7 +589,7 @@ export default function CommandPalette() {
       .slice(0, MAX_RECENT);
     for (const channel of recentChannels) {
       rows.push({
-        id: `recent-${channel.id}`,
+        id: `recent-${channel.appType}:${channel.id}`,
         group: 'recent',
         label: `用 ${channel.name} 启动会话`,
         hint: `最近使用 ${formatRelative(channel.lastUsedAt)}`,
@@ -596,7 +597,7 @@ export default function CommandPalette() {
         keywords: `recent 最近 ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
         },
       });
     }
@@ -608,7 +609,7 @@ export default function CommandPalette() {
       if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
       if (channel.credential === 'missing') notes.push('凭证未配置');
       rows.push({
-        id: `channel-${channel.id}`,
+        id: `channel-${channel.appType}:${channel.id}`,
         group: 'channel',
         label: `用 ${channel.name} 启动会话`,
         hint: notes.join(' · '),
@@ -616,7 +617,7 @@ export default function CommandPalette() {
         keywords: `${channel.alias ?? ''} ${channel.endpoint ?? ''} ${channel.declaredModel ?? ''}`,
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
         },
       });
       const manageHints = [
@@ -624,13 +625,13 @@ export default function CommandPalette() {
         channel.hidden ? '已隐藏' : null,
       ].filter((part): part is string => part !== null);
       rows.push({
-        id: `channel-manage-${channel.id}`,
+        id: `channel-manage-${channel.appType}:${channel.id}`,
         group: 'channel',
         label: `管理 ${channel.name}（启动、隐藏、别名、覆盖）`,
         hint: manageHints.length === 0 ? null : manageHints.join(' · '),
         icon: 'edit',
         keywords: `管理 隐藏 别名 覆盖 manage ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
-        action: { kind: 'enter', mode: { kind: 'channel', channelId: channel.id } },
+        action: { kind: 'enter', mode: { kind: 'channel', channelId: channel.id, appType: channel.appType } },
       });
     }
 
@@ -1038,7 +1039,7 @@ export default function CommandPalette() {
             <span className={styles.scope}>
               {mode.kind === 'slot'
                 ? `槽位 · ${mode.slot}`
-                : `渠道 · ${channels.find((candidate) => candidate.id === mode.channelId)?.name ?? mode.channelId}`}
+                : `渠道 · ${channels.find((candidate) => candidate.id === mode.channelId && candidate.appType === mode.appType)?.name ?? mode.channelId}`}
               <button type="button" className={styles.scopeBack} onClick={backToRoot} aria-label="返回全部命令">
                 <Icon name="close" size={14} />
               </button>

@@ -283,7 +283,7 @@ fn build_hub(hub: &HubRef, raw: &Map<String, Value>, channel_list: &[Channel]) -
         let api_format = declared_format.or_else(|| {
             resolved
                 .as_ref()
-                .and_then(|id| channel_list.iter().find(|channel| &channel.id == id))
+                .and_then(|id| channel_list.iter().find(|channel| channel.app_type == "claude" && &channel.id == id))
                 .map(|channel| channel.api_format)
         });
         let models = definition
@@ -410,19 +410,19 @@ fn resolve_provider_selector(selector: &str, channel_list: &[Channel]) -> Option
         let id = id.trim();
         return channel_list
             .iter()
-            .find(|channel| channel.id == id)
+            .find(|channel| channel.app_type == "claude" && channel.id == id)
             .map(|channel| channel.id.clone());
     }
     let folded = selector.to_lowercase();
     channel_list
         .iter()
         .find(|channel| {
-            channel.name.to_lowercase() == folded
+            channel.app_type == "claude" && (channel.name.to_lowercase() == folded
                 || channel
                     .alias
                     .as_deref()
                     .map(|alias| alias.to_lowercase() == folded)
-                    .unwrap_or(false)
+                    .unwrap_or(false))
         })
         .map(|channel| channel.id.clone())
 }

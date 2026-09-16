@@ -276,13 +276,13 @@ export default function ChannelDetail({
         </div>
       </div>
 
-      <div className={styles.editors}>
-        <AliasEditor channel={channel} onSave={(alias) => actions.setAlias(channel.id, alias)} />
+      {channel.appType === 'claude' ? <div className={styles.editors}>
+        <AliasEditor channel={channel} onSave={(alias) => actions.setAlias(channel.id, alias, channel.appType)} />
         <OverrideEditor
           channel={channel}
-          onSave={(model, effort) => actions.setOverride(channel.id, model, effort)}
+          onSave={(model, effort) => actions.setOverride(channel.id, model, effort, channel.appType)}
         />
-      </div>
+      </div> : null}
     </div>
   );
 }

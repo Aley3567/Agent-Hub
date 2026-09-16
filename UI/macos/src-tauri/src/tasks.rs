@@ -146,6 +146,14 @@ fn validate(
         ));
     }
     cron::parse(schedule).map_err(|err| format!("任务的 cron 表达式无效：{err}"))?;
+    if let Some(target) = target {
+        if !["claude", "codex"].contains(&target.app_type.as_str()) {
+            return Err("target.appType 必须是 claude 或 codex".into());
+        }
+        if kind == "launch-slot" && target.app_type != "claude" {
+            return Err("launch-slot 仅支持 Claude".into());
+        }
+    }
     match kind {
         "doctor-reminder" => {
             if target.is_some() {
@@ -385,6 +393,19 @@ mod tests {
     }
 
     #[test]
+    fn task_targets_validate_application_and_default_legacy_to_claude() {
+        let mut target: LaunchTarget = serde_json::from_value(serde_json::json!({"kind":"channel","channelId":"same"})).unwrap();
+        assert_eq!(target.app_type, "claude");
+        assert!(validate("fixture", "launch-channel", Some(&target), "0 9 * * *").is_ok());
+        target.app_type = "codex".into();
+        assert!(validate("fixture", "launch-channel", Some(&target), "0 9 * * *").is_ok());
+        target.kind = "slot".into(); target.slot = Some("opus".into());
+        assert!(validate("fixture", "launch-slot", Some(&target), "0 9 * * *").is_err());
+        target.app_type = "unknown".into(); target.kind = "channel".into();
+        assert!(validate("fixture", "launch-channel", Some(&target), "0 9 * * *").unwrap_err().contains("appType"));
+    }
+
+    #[test]
     fn missing_file_lists_empty_without_error() {
         let _env = TasksEnv::new("missing");
         assert!(list_tasks().unwrap().is_empty());
@@ -458,6 +479,7 @@ mod tests {
         // doctor-reminder 不许带 target；launch-channel 必须有 channelId
         let mut task = new_task("x", "doctor-reminder", "0 9 * * *");
         task.target = Some(LaunchTarget {
+            app_type: "claude".into(),
             kind: "channel".into(),
             channel_id: Some("ch-1".into()),
             hub_name: None,
@@ -467,6 +489,7 @@ mod tests {
         assert!(create_task(task).unwrap_err().contains("doctor-reminder"));
         let mut task = new_task("x", "launch-channel", "0 9 * * *");
         task.target = Some(LaunchTarget {
+            app_type: "claude".into(),
             kind: "channel".into(),
             channel_id: None,
             hub_name: None,

@@ -1,0 +1,5 @@
+.form { display: grid; gap: var(--space-4, 16px); }
+.error { color: var(--danger); white-space: pre-wrap; overflow-wrap: anywhere; }
+.candidates { display: grid; gap: var(--space-3, 12px); }
+.candidate { display: flex; gap: 10px; align-items: flex-start; }
+.candidate small { display: block; color: var(--text-muted); overflow-wrap: anywhere; }

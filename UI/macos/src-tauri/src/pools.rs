@@ -141,7 +141,7 @@ fn build_member(
     let resolved = resolve_selector(&selector, channel_list);
     let display_name = resolved
         .as_ref()
-        .and_then(|id| channel_list.iter().find(|channel| &channel.id == id))
+        .and_then(|id| channel_list.iter().find(|channel| channel.app_type == "claude" && &channel.id == id))
         .map(|channel| channel.name.clone())
         .unwrap_or_else(|| format!("成员 {}（{}）", index + 1, selector));
     let stats = activity.get(&selector).copied().unwrap_or_default();
@@ -166,7 +166,7 @@ fn resolve_selector(selector: &str, channel_list: &[Channel]) -> Option<String> 
     let bare = selector.strip_prefix("id:").unwrap_or(selector);
     channel_list
         .iter()
-        .find(|channel| channel.id == bare)
+        .find(|channel| channel.app_type == "claude" && channel.id == bare)
         .map(|channel| channel.id.clone())
 }
 

@@ -99,16 +99,16 @@ export function listChannels(): Promise<Channel[]> {
   return read('list_channels', {}, () => MOCK_CHANNELS);
 }
 
-export function setChannelHidden(id: string, hidden: boolean): Promise<void> {
-  return write('set_channel_hidden', { id, hidden }, '改隐藏状态');
+export function setChannelHidden(id: string, hidden: boolean, appType: Channel['appType'] = 'claude'): Promise<void> {
+  return write('set_channel_hidden', { id, hidden, appType }, '改隐藏状态');
 }
 
-export function setChannelAlias(id: string, alias: string | null): Promise<void> {
-  return write('set_channel_alias', { id, alias }, '改别名');
+export function setChannelAlias(id: string, alias: string | null, appType: Channel['appType'] = 'claude'): Promise<void> {
+  return write('set_channel_alias', { id, alias, appType }, '改别名');
 }
 
-export function setChannelOverride(id: string, model: string | null, effort: Effort | null): Promise<void> {
-  return write('set_channel_override', { id, model, effort }, '改本地覆盖');
+export function setChannelOverride(id: string, model: string | null, effort: Effort | null, appType: Channel['appType'] = 'claude'): Promise<void> {
+  return write('set_channel_override', { id, model, effort, appType }, '改本地覆盖');
 }
 
 // ---------------------------------------------------------------------------
@@ -251,3 +251,19 @@ export function deleteTask(id: string): Promise<void> {
   if (isOffline) return mockDeleteTask(id);
   return invoke<void>('delete_task', { id });
 }
+
+// Management requests are explicit writes; raw settings/secrets never return to the renderer.
+import type { ProviderSource, ImportPreview, ImportSelection, ProviderOutcome, ProviderEditView, ProviderInput, CredentialStatus, MigrationOutcome, DeleteOutcome, AppType } from '../types/contract';
+async function manage<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  if (isOffline) throw offlineWriteRejection('管理渠道');
+  return invoke<T>(command, args);
+}
+export const previewImport = (source: ProviderSource): Promise<ImportPreview> => manage('preview_import', { source });
+export const selectImport = (planId: string, selected: string[], replace: boolean): Promise<ImportSelection> => manage('select_import', { planId, selected, replace });
+export const applyImport = (planId: string, selected: string[], replace: boolean): Promise<ProviderOutcome> => manage('apply_import', { planId, selected, replace });
+export const cancelImport = (planId: string): Promise<void> => manage('cancel_import', { planId });
+export const providerEditView = (appType: AppType, id: string): Promise<ProviderEditView> => manage('provider_edit_view', { appType, id });
+export const saveProvider = (input: ProviderInput): Promise<ProviderOutcome> => manage('save_provider', { input });
+export const removeProvider = (appType: AppType, id: string): Promise<DeleteOutcome> => manage('remove_provider', { appType, id });
+export const credentialStatus = (): Promise<CredentialStatus> => manage('credential_status', {});
+export const migrateCredentials = (): Promise<MigrationOutcome> => manage('migrate_credentials', {});

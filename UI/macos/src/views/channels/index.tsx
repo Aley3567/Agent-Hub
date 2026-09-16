@@ -1,6 +1,9 @@
+import ManagementDialog, { type ManagementMode } from './parts/ManagementDialog';
+import { channelKey } from '../../types/contract';
 /** 渠道选择：名称、模型、历史记录与启动入口。配置放在展开详情。 */
 import { useMemo, useState } from 'react';
 import {
+  Button,
   EmptyState,
   Icon,
   SearchInput,
@@ -42,6 +45,8 @@ export default function ChannelsView() {
   const setOverride = useApp((state) => state.setOverride);
   const launch = useApp((state) => state.launch);
 
+  const [dialog, setDialog] = useState<{ mode: ManagementMode; channel?: Channel } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [formatFilter, setFormatFilter] = useState<FormatFilter>('all');
   const [onlyUsable, setOnlyUsable] = useState(false);
@@ -50,10 +55,11 @@ export default function ChannelsView() {
 
   const actions = useMemo<ChannelActions>(
     () => ({
+      manage: (channel, mode) => setDialog({ channel, mode }),
       setHidden,
       setAlias,
       setOverride,
-      launch: (id) => launch({ kind: 'channel', channelId: id }),
+      launch: (id, appType) => launch({ kind: 'channel', channelId: id, appType }),
     }),
     [launch, setAlias, setHidden, setOverride],
   );
@@ -126,7 +132,12 @@ export default function ChannelsView() {
           label="只看配置就绪"
           aria-label="凭证已配置、未隐藏、未判为不兼容；不代表已通过网络测试"
         />
+        <Button size="sm" onClick={() => setDialog({ mode: 'create' })}>新增</Button>
+        <Button size="sm" onClick={() => setDialog({ mode: 'import' })}>导入</Button>
+        <Button size="sm" onClick={() => setDialog({ mode: 'migrate' })}>迁移凭证</Button>
       </Toolbar>
+      {notice ? <p role="status">{notice}</p> : null}
+      {dialog ? <ManagementDialog mode={dialog.mode} channel={dialog.channel} onClose={() => setDialog(null)} onComplete={setNotice} /> : null}
 
       {loadError === null || channels.length === 0 ? null : (
         <p className={styles.error} role="alert">
@@ -168,13 +179,13 @@ export default function ChannelsView() {
           <tbody>
             {visible.map((channel) => (
               <ChannelRow
-                key={channel.id}
+                key={channelKey(channel)}
                 channel={channel}
                 actions={actions}
                 recentUsage={recentUsage}
                 usageError={usageError}
                 columnCount={COLUMN_COUNT}
-                expanded={expanded.includes(channel.id)}
+                expanded={expanded.includes(channelKey(channel))}
                 onSetExpanded={toggleExpanded}
               />
             ))}
@@ -210,13 +221,13 @@ export default function ChannelsView() {
               {hiddenExpanded
                 ? hiddenMatches.map((channel) => (
                     <ChannelRow
-                      key={channel.id}
+                      key={channelKey(channel)}
                       channel={channel}
                       actions={actions}
                       recentUsage={recentUsage}
                       usageError={usageError}
                       columnCount={COLUMN_COUNT}
-                      expanded={expanded.includes(channel.id)}
+                      expanded={expanded.includes(channelKey(channel))}
                       onSetExpanded={toggleExpanded}
                     />
                   ))

@@ -31,10 +31,11 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface ChannelActions {
-  setHidden(id: string, hidden: boolean): Promise<void>;
-  setAlias(id: string, alias: string | null): Promise<void>;
-  setOverride(id: string, model: string | null, effort: Effort | null): Promise<void>;
-  launch(id: string): Promise<LaunchResult>;
+  manage(channel: Channel, mode: 'edit' | 'delete'): void;
+  setHidden(id: string, hidden: boolean, appType?: Channel['appType']): Promise<void>;
+  setAlias(id: string, alias: string | null, appType?: Channel['appType']): Promise<void>;
+  setOverride(id: string, model: string | null, effort: Effort | null, appType?: Channel['appType']): Promise<void>;
+  launch(id: string, appType: Channel['appType']): Promise<LaunchResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +341,13 @@ export function channelWindow(
   for (const row of rows) {
     if (oldestTs === null || row.ts < oldestTs) oldestTs = row.ts;
     if (row.ts < since) continue;
-    if (!keys.includes(row.channel.trim().toLowerCase())) continue;
+    if (row.providerId) {
+      if (row.providerId !== channel.id || row.providerApp !== channel.appType) continue;
+    } else {
+      // Legacy gateway journals belong to Claude; unattributed Codex rows stay unattributed.
+      if (channel.appType !== 'claude' || (row.providerApp && row.providerApp !== 'claude') || row.harness === 'codex') continue;
+      if (!keys.includes(row.channel.trim().toLowerCase())) continue;
+    }
     turns += 1;
     inTokens += row.in ?? 0;
     outTokens += row.out ?? 0;

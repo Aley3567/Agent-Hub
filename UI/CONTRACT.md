@@ -9,14 +9,14 @@ Provider 默认位于 `~/.agent-hub/`；已有 Hub JSON、日志和定价文件�
 
 | 路径 | 权限 | 内容 | 覆盖变量 |
 |---|---|---|---|
-| `~/.agent-hub/providers.db` | 桌面当前**只读**；CLI/TUI 经共享层写入 | Hub `providers` 与 `provider_sources` 表 | 读：`CLAUDE1_DB_PATH` → `AGENT_HUB_PROVIDER_DB` → 默认；写：仅 `AGENT_HUB_PROVIDER_DB` → 默认 |
+| `~/.agent-hub/providers.db` | 桌面/CLI/TUI 经共享层显式写入（Windows 新凭证写入待原生验收） | Hub `providers` 与 `provider_sources` 表 | 读：`CLAUDE1_DB_PATH` → `AGENT_HUB_PROVIDER_DB` → 默认；写：仅 `AGENT_HUB_PROVIDER_DB` → 默认 |
 | 显式指定的定价 SQLite | **只读** | 可选 `model_pricing` 表，与渠道 DB 独立 | `AGENT_HUB_PRICING_DB`，未指定不读 DB |
 | `claude1-config.json` | 读写 | Agent Hub 本地覆盖：hidden / 别名 / 模型 / effort / routing | `CLAUDE1_CONFIG_PATH` |
 | `claude1-mru.json` | 只读 | `{ "<provider name 或 id>": <unix 秒，float> }` 最近使用 | — |
 | `claude-hub.json` | 读写 | 默认 hub 配置（槽位、端口、channels、routes） | — |
 | `claude-hubs.json` | 只读 | 命名 hub 注册表 | — |
 | `hubs/<name>.json` | 读写 | 命名 hub 各自配置，结构同 `claude-hub.json` | — |
-| `agent-hub-tasks.json` | 读写 | 桌面端自有的计划任务清单（`ScheduledTask[]`，见 §2）。**唯一新增的可写文件**；写入纪律与 hub json 相同：原子替换 + 保留未知键 | `AGENT_HUB_TASKS_PATH` |
+| `agent-hub-tasks.json` | 读写 | 桌面端自有的计划任务清单（`ScheduledTask[]`，见 §2）。写入纪律与 hub json 相同：原子替换 + 保留未知键 | `AGENT_HUB_TASKS_PATH` |
 | `claude1-account-pools.json` | **只读**（首版） | 账号池 | — |
 | `model-pricing.json` | 只读 | `{version, models: []}`；非空优先，为空仅尝试显式定价库，仍无价不估算费用 | — |
 | `logs/claude-hub-usage.jsonl` + `.bak-*` | 只读 | 用量 journal | — |
@@ -25,7 +25,7 @@ Provider 默认位于 `~/.agent-hub/`；已有 Hub JSON、日志和定价文件�
 
 ### 1.1 Hub provider schema 与展示投影
 
-唯一 schema 为根 `provider-schema.sql`。Hub 维护 application_id `1095259458`（AHUB）和自己的 `provider_sources`，不跟随 CC Switch 的 `user_version`。共享层拒绝把外部库当写目标；外部来源仅显式只读导入。当前持久配置仍含凭证，系统凭证迁移尚未启用。
+唯一 schema 为根 `provider-schema.sql`。Hub 维护 application_id `1095259458`（AHUB）和自己的 `provider_sources`，不跟随 CC Switch 的 `user_version`。共享层拒绝把外部库当写目标；外部来源仅显式只读导入。macOS 管理命令已接不可变系统凭证引用与显式迁移；旧记录仍兼容读取。Windows 新写/迁移后端未放行，Linux 保留受保护的旧格式写入。真实运行验收状态见 S25。
 
 ```sql
 CREATE TABLE providers (
@@ -33,6 +33,7 @@ CREATE TABLE providers (
   settings_config TEXT NOT NULL, meta TEXT NOT NULL DEFAULT '{}',
   category TEXT, provider_type TEXT, is_current BOOLEAN NOT NULL DEFAULT 0,
   in_failover_queue BOOLEAN NOT NULL DEFAULT 0, sort_index INTEGER,
+  credential_ref TEXT, credential_version INTEGER, revision INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (id, app_type)
 );
 ```
@@ -42,13 +43,13 @@ CREATE TABLE providers (
 查询固定为：
 
 ```sql
-SELECT id, name, settings_config, meta, is_current, in_failover_queue,
+SELECT id, app_type, credential_ref, name, settings_config, meta, is_current, in_failover_queue,
        category, notes, icon, icon_color, provider_type, created_at, sort_index
-FROM providers WHERE app_type='claude' ORDER BY sort_index
+FROM providers WHERE app_type IN ('claude','codex') ORDER BY sort_index
 ```
 
 **必须先 `PRAGMA table_info(providers)` 探测可选展示列，缺列则该字段返回 `null`**；
-兼容库可选列缺失时不能整个界面白屏。当前桌面投影只取 `app_type='claude'`；Hub 存储已按 `(app_type,id)` 区分 Claude/Codex，双应用桌面投影尚未启用。
+兼容库可选列缺失时不能整个界面白屏。渠道投影与列表 key 使用 `(appType,id)`；Claude 专用槽位、账号池、别名与本地覆盖只接受 Claude。旧任务缺失 appType 时默认为 Claude，Codex 不得进入槽位任务。Codex 历史只有明确 providerApp/providerId 才绑定渠道；旧 Claude gateway journal 可按名称/别名匹配。
 
 `settings_config` 是 JSON 字符串，实测形状（**斜体键含凭证**）：
 
@@ -613,3 +614,23 @@ export type IconName =
 - 定价是配置单价估算，不是账单结算。缺价格或计量字段时显示未知；费用图中的已知部分不代表完整费用。
 - Codex 只读取 `sessions/**/*.jsonl` 的元数据、模型和 token_count，不返回对话正文；只消费一种用量事件，避免 token_usage_record 重复记账。缓存只保存归一化统计，不保存正文。
 - 0.2 本轮桌面交付为 macOS，Windows 独立工程未同步此版本。
+
+## S25 provider management commands
+
+macOS 已实现下列命令；Windows 接入同一合同后独立验证。无 Tauri 的离线示例模式拒绝所有管理操作。
+
+| IPC | 请求 | 响应 |
+|---|---|---|
+| `preview_import` | `source: {kind, path}`；Codex 用 `{kind, config, auth, profile}` | `planId, source, candidates, blocked` |
+| `select_import` | `planId, selected: candidateId[], replace` | `added, updated, skipped, selected, replace` |
+| `apply_import` | 与已确认 selection 完全一致 | `added, updated, skipped, pendingCleanup` |
+| `cancel_import` | `planId` | void，取消不写库 |
+| `provider_edit_view` | `appType, id` | 安全 `provider` 投影、`revision, model` |
+| `save_provider` | `input: {appType,id,name,expectedRevision,endpoint?,model?,protocol?,secret?,clearSecret}` | 与 apply 相同 |
+| `remove_provider` | `appType, id` | `removed, blockers, pendingCleanup` |
+| `credential_status` | 无 | `legacy, referenced, pendingCleanup` |
+| `migrate_credentials` | 无，必须来自明确确认 | `applied, storageCleanupPending` |
+
+候选只有 `candidateId,id,appType,name,endpoint,protocol,credential,conflict,blockedReason`，endpoint 仅保留 scheme/authority。原始 settings 与凭证留在后端短期计划中；手填 secret 只出现在一次写请求，禁止进共享状态、响应、事件和日志。omitted secret 保留、clearSecret 显式清除，不能同时替换与清除；编辑复核 revision。错误留在弹窗，不重复 error toast，提交期间关闭与重复提交被阻止；成功刷新 channels/hubs/pools，取消和卸载清理计划与输入。
+
+`LaunchTarget.appType` 可为 claude/codex，缺失时兼容旧任务默认 claude；channel 目标按复合身份查找并分派 claude1/codex1。hub/slot 仅 Claude。`set_channel_hidden/alias/override` 请求显式携带 appType，并在后端拒绝非 Claude。

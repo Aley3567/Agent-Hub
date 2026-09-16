@@ -17,6 +17,8 @@ use crate::paths;
 /// `providers` 表里一行 claude 渠道的原始值。缺列的字段为 `None`。
 #[derive(Clone)]
 pub struct ProviderRow {
+    pub app_type: String,
+    pub credential_ref: Option<String>,
     pub id: String,
     pub name: String,
     pub settings_config: Option<String>,
@@ -66,6 +68,10 @@ fn provider_columns(conn: &Connection) -> Result<BTreeSet<String>, String> {
 
 /// CONTRACT.md 1.1 节的固定查询：只取 `app_type='claude'`，按 `sort_index` 排。
 pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
+    Ok(provider_rows()?.into_iter().filter(|row| row.app_type == "claude").collect())
+}
+
+pub fn provider_rows() -> Result<Vec<ProviderRow>, String> {
     let path = paths::db_path()?;
     let conn = open_readonly(&path)?;
     let available = provider_columns(&conn)?;
@@ -84,6 +90,8 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
     }
 
     let optional = [
+        "app_type",
+        "credential_ref",
         "settings_config",
         "meta",
         "is_current",
@@ -103,7 +111,7 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
     );
     let mut sql = format!("SELECT {} FROM providers", selected.join(", "));
     if available.contains("app_type") {
-        sql.push_str(" WHERE app_type='claude'");
+        sql.push_str(" WHERE app_type IN ('claude','codex')");
     }
     if available.contains("sort_index") {
         sql.push_str(" ORDER BY sort_index");
@@ -138,6 +146,8 @@ pub fn claude_provider_rows() -> Result<Vec<ProviderRow>, String> {
         }
         let name = read_text(row, 1)?.unwrap_or_else(|| id.clone());
         out.push(ProviderRow {
+            app_type: read_opt_text(row, index("app_type"))?.unwrap_or_else(|| "claude".into()),
+            credential_ref: read_opt_text(row, index("credential_ref"))?,
             id,
             name,
             settings_config: read_opt_text(row, idx_settings)?,
