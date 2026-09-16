@@ -71,7 +71,6 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
         <span className={styles.title}>{t(check.title)}</span>
       </StatusDot>
       <span className={styles.tail}>
-        <code className={styles.id}>{check.id}</code>
         <span className={styles.level}>{LEVEL_LABEL[check.level]}</span>
         {hasBody ? (
           // 一枚箭头旋转到位，不换图标名：旋转能被看见，换名是硬切（样式见 .chevron / .chevronOpen）
@@ -103,6 +102,7 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
 
       {bodyOpen ? (
         <div className={cx(styles.body, !entered && styles.bodyEnter)} id={bodyId}>
+          <code className={styles.id}>{check.id}</code>
           {detail === '' ? null : <p className={styles.detail}>{detail}</p>}
 
           {hasFix ? (

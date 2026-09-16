@@ -7,13 +7,13 @@
 }
 
 .header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 150px;
+  grid-template-areas: "title count meta" "code count meta";
+  gap: 4px 20px;
   align-items: center;
-  gap: var(--sp-2);
-  min-height: var(--row-h);
-  padding: var(--sp-1) var(--sp-4) var(--sp-1) var(--sp-2);
-  /* 行 hover 只变背景色，按 DESIGN.md 2.5 的反向判据钉在 --dur-instant */
-  transition: background-color var(--dur-instant) var(--ease-out);
+  min-height: 76px;
+  padding: 14px 20px;
 }
 
 .header:hover {
@@ -197,4 +197,27 @@
   font-family: var(--font-ui);
   font-size: var(--fs-13);
   line-height: var(--lh-13);
+}
+
+.toggle { grid-area: title; display: grid; grid-template-columns: 16px 96px minmax(0, 1fr); padding: 0; gap: 10px; width: 100%; }
+.title { overflow-wrap: anywhere; line-height: 1.5; }
+.severity { min-width: 0; }
+.code { grid-area: code; padding-left: 132px; font-size: 10px; }
+.count { grid-area: count; text-align: right; font-family: var(--font-ui); font-size: 12px; }
+.meta { grid-area: meta; justify-content: flex-end; white-space: normal; text-align: right; line-height: 1.5; font-family: var(--font-ui); }
+.extra { grid-column: 1; justify-self: start; margin-left: 132px; background: transparent; padding: 0; }
+.panel { padding: 20px 24px; }
+.blockHead { flex-wrap: wrap; }
+.blockHead .code { padding-left: 0; }
+.facts { grid-template-columns: 130px minmax(0, 1fr); }
+.text { overflow-wrap: anywhere; line-height: 1.65; }
+@media (max-width: 1150px) {
+  .header { grid-template-columns: minmax(0, 1fr) 100px; grid-template-areas: "title count" "code meta"; gap: 6px 14px; }
+  .toggle { grid-template-columns: 16px minmax(0, 1fr); }
+  .severity { grid-column: 2; grid-row: 1; }
+  .toggle .chevron { grid-column: 1; grid-row: 1 / 3; }
+  .title { grid-column: 2; grid-row: 2; }
+  .code { padding-left: 26px; }
+  .meta { font-size: 10px; }
+  .extra { margin-left: 26px; }
 }

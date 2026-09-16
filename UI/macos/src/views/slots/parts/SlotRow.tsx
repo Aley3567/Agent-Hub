@@ -10,7 +10,7 @@ import { t } from '../../../i18n';
  *   3. 未绑定不留空白：说明它会走 fallback，并把 fallback 的确切落点写出来。
  */
 import { useEffect, useRef, useState } from 'react';
-import { Badge, Button, SegmentedControl, Spinner, StatusDot, Tooltip } from '../../../components';
+import { Button, Select, Spinner, StatusDot, Tooltip } from '../../../components';
 import { Sparkline } from '../../../components/charts';
 import { formatCount, formatTokens } from '../../../lib';
 import { errorText, useApp } from '../../../store';
@@ -123,11 +123,10 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
     <li className={styles.item}>
       <div className={styles.line}>
         <div className={styles.cell}>
-          <span className={styles.label}>{t("槽位")}</span>
           <Tooltip content={slotHitText(slot)}>
             <span className={styles.slotName}>{slot}</span>
           </Tooltip>
-          {isLaunchSlot ? <Badge tone="accent">{t("启动槽位")}</Badge> : null}
+          {isLaunchSlot ? <span className={styles.launchLabel}>{t("启动槽位")}</span> : null}
           <span className={styles.status} aria-live="polite">
             {saving ? <Spinner size="sm" label={t("写入中")} /> : null}
             {!saving && saved !== null ? <StatusDot tone="ok">{saved}</StatusDot> : null}
@@ -146,13 +145,11 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
 
         <div className={styles.cell}>
           <span className={styles.label}>{t("effort 档位")}</span>
-          <SegmentedControl
+          <Select selectSize="sm"
             options={effortChoices(slot)}
             value={toEffortChoice(effort)}
-            onChange={commitEffort}
+            onChange={(event) => commitEffort(event.target.value as EffortChoice)}
             disabled={saving}
-            fullWidth
-            truncate={false}
             aria-label={t("{0} 槽位的 effort 档位", [slot])}
           />
         </div>
@@ -165,6 +162,8 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
             </Tooltip>
           ) : binding === null ? (
             <span className={styles.usageNote}>{t("未绑定，没有可统计的调用")}</span>
+          ) : usage.turns === 0 ? (
+            <span className={styles.usageNote}>{t("24 小时无调用")}</span>
           ) : (
             <>
               <Sparkline
@@ -218,9 +217,10 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
         ) : null}
 
         {hubChannel !== null && hubChannel.resolvedChannelId === null ? (
-          <p className={styles.note}>
-            {t("hub 渠道 {0} 的 provider 选择器「{1}」没解析到本机渠道，凭证与端点都得看 hub 配置自己怎么写。", [hubChannel.name, hubChannel.provider])}
-          </p>
+          <details className={styles.note}>
+            <summary>{t("渠道尚未关联本机配置")}</summary>
+            <p>{t("hub 渠道 {0} 的 provider 选择器「{1}」没解析到本机渠道，凭证与端点都得看 hub 配置自己怎么写。", [hubChannel.name, hubChannel.provider])}</p>
+          </details>
         ) : null}
       </div>
     </li>

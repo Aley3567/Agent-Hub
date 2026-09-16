@@ -8,7 +8,7 @@ import { t } from '../../../i18n';
  */
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Badge, Button, Card, CodeBlock, StatusDot } from '../../../components';
+import { Button, Card, CodeBlock, StatusDot } from '../../../components';
 import { errorText, useApp } from '../../../store';
 import { useNav } from '../../../store/nav';
 import { useToast } from '../../../store/toast';
@@ -160,18 +160,16 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
       title={
         <>
           <span className={styles.hubName}>{hub.name}</span>
-          <Badge tone={hub.isDefault ? 'accent' : 'neutral'} mono={false}>
+          <span className={styles.hubType}>
             {hub.isDefault ? t("默认 hub") : t("命名 hub")}
-          </Badge>
+          </span>
         </>
       }
       subtitle={
         <span className={styles.meta}>
           <span>{t(" 监听端口 ")}<span className={styles.mono}>{hub.port === null ? t("未配置") : hub.port}</span>
           </span>
-          <span>{t(" 配置版本 ")}<span className={styles.mono}>v{hub.version}</span>
-          </span>
-          <span className={styles.path}>{hub.configPath}</span>
+
         </span>
       }
       actions={
@@ -204,16 +202,16 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
       }
     >
       {warnings.length === 0 ? null : (
-        <div className={styles.hubWarnings}>
-          {warnings.map((warning) => (
-            <p key={warning.key} className={styles.hubWarning}>
-              <StatusDot tone="degraded">{t("降级提示")}</StatusDot>
-              <span>{warning.text}</span>
-              <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>{t(" 去诊断视图 ")}</Button>
-            </p>
-          ))}
-        </div>
+        <details className={styles.hubWarnings}>
+          <summary>{t("{0} 条诊断提示", [warnings.length])}</summary>
+          {warnings.map((warning) => <p key={warning.key} className={styles.hubWarning}>{warning.text}</p>)}
+          <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>{t("去诊断视图")}</Button>
+        </details>
       )}
+      <details className={styles.configDetails}>
+        <summary>{t("配置详情")}</summary>
+        <span className={styles.path}>{hub.configPath} · v{hub.version}</span>
+      </details>
 
       <div className={styles.slotsScroll}>
         <ul className={styles.slots}>

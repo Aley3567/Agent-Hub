@@ -46,7 +46,7 @@
 }
 
 .slotsScroll {
-  overflow-x: auto;
+  min-width: 0;
 }
 
 .slots {
@@ -99,3 +99,10 @@
   font-size: var(--fs-12);
   line-height: var(--lh-12);
 }
+
+.hubType { color: var(--text-tertiary); font-size: 11px; font-weight: 400; }
+.hubWarnings { display: block; padding: 0 0 12px; color: var(--warn); font-size: 12px; }
+.hubWarnings summary, .configDetails summary { cursor: pointer; }
+.hubWarning { margin-top: 8px; line-height: 1.6; color: var(--text-secondary); }
+.configDetails { color: var(--text-tertiary); font-size: 11px; line-height: 1.6; padding: 10px 0 0; }
+.configDetails[open] .path { display: block; padding-top: 8px; }

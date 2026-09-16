@@ -115,3 +115,12 @@
   font-size: var(--fs-12);
   color: var(--text-primary);
 }
+
+.summary { padding: 20px 24px; }
+.live { width: 100%; }
+.counters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.counters li { display: flex; flex-direction: column; gap: 6px; padding-left: 24px; border-left: 1px solid var(--border-subtle); }
+.counters li:first-child { padding-left: 0; border-left: 0; }
+.counters strong { font-size: 26px; line-height: 32px; font-weight: var(--fw-semibold); color: var(--text-primary); }
+.scopeIcon { color: var(--text-tertiary); }
+.group { gap: 12px; }

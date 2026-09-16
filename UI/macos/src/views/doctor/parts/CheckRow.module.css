@@ -143,3 +143,13 @@
   line-height: var(--lh-12);
   overflow-wrap: anywhere;
 }
+
+.trigger, .static { min-height: 58px; padding: 16px 20px; align-items: flex-start; }
+.dot { align-items: flex-start; }
+.dot > :last-child { white-space: normal; overflow: visible; }
+.title { font-size: 13px; line-height: 20px; }
+.tail { padding-top: 2px; }
+.level { width: 70px; text-align: right; font-size: 11px; color: var(--text-tertiary); }
+.body { padding: 0 20px 20px 34px; gap: 12px; }
+.detail { max-width: 90ch; line-height: 1.7; }
+.fixHint { max-width: 50ch; line-height: 1.5; }

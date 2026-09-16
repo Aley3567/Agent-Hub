@@ -27,8 +27,8 @@
 }
 
 .accent {
-  background: var(--accent-muted);
-  color: var(--accent-text);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
 }
 
 .violet {
@@ -37,7 +37,7 @@
 }
 
 .success {
-  background: var(--success-muted);
+  background: transparent;
   color: var(--success);
 }
 

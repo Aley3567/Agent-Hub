@@ -57,20 +57,20 @@
 /* 选中：元素级时长切到 --dur-fast（chip/tab 选中档）。于是选中项被 hover 时的变色也走
    140ms——DESIGN.md 2.4.1 叠加规则明确说这是元素级 transition 的必然结果，不算违规 */
 .current {
-  background-color: var(--bg-selected);
+  background-color: transparent;
   color: var(--accent-text);
   transition-duration: var(--dur-fast);
 }
 
 /* selected + hover / active：选中标识恒亮，背景在 --bg-selected 上再叠一层（叠加规则第 1 条） */
 .current:hover:not(:disabled) {
-  background-color: var(--bg-selected);
+  background-color: transparent;
   background-image: linear-gradient(var(--bg-hover), var(--bg-hover));
   color: var(--accent-text);
 }
 
 .current:active:not(:disabled) {
-  background-color: var(--bg-selected);
+  background-color: transparent;
   background-image: linear-gradient(var(--bg-active), var(--bg-active));
   transition-duration: var(--dur-fast);
 }
@@ -103,3 +103,6 @@
 .current .count {
   color: var(--accent-text);
 }
+
+.anchor { border-radius: 0; border-bottom: 2px solid transparent; padding: 0 4px 8px; gap: 12px; }
+.current { border-bottom-color: var(--accent); color: var(--text-primary); }

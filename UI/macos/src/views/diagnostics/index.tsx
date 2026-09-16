@@ -298,7 +298,6 @@ export default function DiagnosticsView() {
             {filtersActive ? (
               <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>{t(" 清空筛选 ")}</Button>
             ) : null}
-            <Button variant="secondary" size="sm" icon="refresh" loading={busy} onClick={reload}>{t(" 刷新 ")}</Button>
           </>
         }
       >
@@ -306,7 +305,7 @@ export default function DiagnosticsView() {
           value={query}
           onChange={setQuery}
           aria-label={t("过滤诊断记录")}
-          placeholder={t("搜降级码、人话标题、状态码、渠道、模型、原文")}
+          placeholder={t("搜索诊断记录")}
         />
       </Toolbar>
 

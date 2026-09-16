@@ -78,7 +78,7 @@ export default function DoctorView() {
           ]
             .filter((part): part is string => part !== null)
             .join('，');
-  const conclusionTone: DoctorLevel | null = total === 0 ? null : failCount > 0 ? 'fail' : warnCount > 0 ? 'info' : 'ok';
+
 
   /** 即时结论同时进 toast 与播报区并留持久一份（fixNote）；半失败按失败口径走，
    *  「清理跑完了但仍是失败」不是成功，不许顶着 success 样式 3 秒后无痕消失 */
@@ -113,43 +113,21 @@ export default function DoctorView() {
   return (
     <div className={styles.view}>
       <p className={styles.scope}>
-        <Icon name="lock" size={14} className={styles.scopeIcon} />{t(" 检查只读本机配置，不连任何上游：每条结论都从本机文件推出来，不发一个请求。唯一的修复动作会先备份、 再改本机文件，且确认后才执行。 ")}</p>
+        <Icon name="lock" size={14} className={styles.scopeIcon} />{t("只读本机检查。修复前会确认并备份。")}</p>
 
       <section className={styles.summary}>
         {/* 播报区只圈住结论文本：把按钮圈进 aria-live 会让读屏器反复念按钮名 */}
         <div className={styles.live} aria-live="polite">
-          {conclusionTone === null ? (
-            <span className={styles.conclusionText}>{conclusion}</span>
-          ) : (
-            <StatusDot tone={LEVEL_TONE[conclusionTone]}>
-              <span className={styles.conclusionText}>{conclusion}</span>
-            </StatusDot>
-          )}
-
-          {total === 0 ? null : (
-            <ul className={styles.counters}>
-              <li>
-                <StatusDot tone={LEVEL_TONE.ok}>{t("通过 ")}{okCount}{t(" 项")}</StatusDot>
-              </li>
-              <li>
-                <StatusDot tone={LEVEL_TONE.info}>{t("警告 ")}{warnCount}{t(" 项")}</StatusDot>
-              </li>
-              <li>
-                <StatusDot tone={LEVEL_TONE.fail}>{t("失败 ")}{failCount}{t(" 项")}</StatusDot>
-              </li>
-            </ul>
-          )}
-
+          <span className="sr-only">{conclusion}</span>
+          <ul className={styles.counters}>
+            <li><strong>{failCount}</strong><StatusDot tone={LEVEL_TONE.fail}>{t("失败")}</StatusDot></li>
+            <li><strong>{warnCount}</strong><StatusDot tone={LEVEL_TONE.info}>{t("警告")}</StatusDot></li>
+            <li><strong>{okCount}</strong><StatusDot tone={LEVEL_TONE.ok}>{t("通过")}</StatusDot></li>
+          </ul>
           {fixNote === null ? null : <p className={styles.fixNote}>{fixNote}</p>}
         </div>
 
-        <Button
-          variant="secondary"
-          size="sm"
-          icon="refresh"
-          loading={loading}
-          onClick={() => void refresh('doctor')}
-        >{t(" 重新体检 ")}</Button>
+
       </section>
 
       {reason === null ? null : (
@@ -193,7 +171,7 @@ export default function DoctorView() {
                 <CheckRow
                   key={check.id}
                   check={check}
-                  defaultOpen={level !== 'ok'}
+                  defaultOpen={false}
                   canFix={check.fixAction === FIX_SUBAGENT_PINS}
                   onFix={(target) => setPending(target)}
                   fixing={fixingId === check.id}

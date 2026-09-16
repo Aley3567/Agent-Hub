@@ -101,8 +101,8 @@ export function SlotPicker({
                   ? t("{0}·provider 未解析", [protocolLabel(item.apiFormat)])
                   : `${protocolLabel(item.apiFormat)}·${real.name}`;
               return (
-                <option key={item.name} value={item.name} disabled={empty}>
-                  {`${item.name}（${suffix}）`}
+                <option key={item.name} value={item.name} disabled={empty} title={suffix}>
+                  {item.name}{empty ? ` · ${suffix}` : ''}
                 </option>
               );
             })}

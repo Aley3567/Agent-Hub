@@ -38,10 +38,10 @@ export function DegradeItem({ entries, count = null, meta, footer, expanded, onT
       <div className={styles.header}>
         <button type="button" className={styles.toggle} aria-expanded={expanded} onClick={onToggle}>
           <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={16} className={styles.chevron} />
-          <StatusDot tone={SEVERITY_TONE[head.severity]}>{SEVERITY_LABEL[head.severity]}</StatusDot>
-          <span className={cx(styles.title, head.severity === 'lossy' && styles.lossy)}>{head.title}</span>
+          <span className={styles.severity}><StatusDot tone={SEVERITY_TONE[head.severity]}>{SEVERITY_LABEL[head.severity]}</StatusDot></span>
+          <span className={cx(styles.title, head.severity === 'lossy' && styles.lossy)}>{head.title === head.code ? t("未分类事件") : head.title}</span>
         </button>
-        <span className={styles.code}>{head.code}</span>
+        <span className={styles.code} title={head.code}>{head.code}</span>
         {extra > 0 ? (
           <button
             type="button"

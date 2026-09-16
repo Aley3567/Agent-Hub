@@ -5,7 +5,6 @@
  * 计数与筛选必须同口径（见各调用方的 caption），否则数字和列表长度对不上，界面就在骗人。
  */
 import type { ReactNode } from 'react';
-import { StatusDot } from '../../../components';
 import type { StatusToneInput } from '../../../components';
 import { cx, formatCount } from '../../../lib';
 import styles from './FilterChips.module.css';
@@ -60,7 +59,7 @@ export function FilterChips<T extends string>({
             title={chip.title}
             onClick={() => onChange(active === chip.id ? null : chip.id)}
           >
-            <StatusDot tone={chip.tone}>{chip.label}</StatusDot>
+            <span className={styles.label}>{chip.label}</span>
             <span className={styles.count}>{formatCount(chip.count)}</span>
           </button>
         ))}

@@ -1527,5 +1527,12 @@
   "全局的状态栏命令": "Global status bar command",
   "全局的权限规则（allow / deny / ask）": "Global permission rules (allow / deny / ask)",
   "渠道「{0}」的权限规则（allow / deny / ask）": "Permission rules for channel “{0}” (allow / deny / ask)",
-  "渠道「{0}」的 MCP 服务器「{1}」": "MCP server “{1}” for channel “{0}”"
+  "渠道「{0}」的 MCP 服务器「{1}」": "MCP server “{1}” for channel “{0}”",
+  "未分类事件": "Uncatalogued event",
+  "只读本机检查。修复前会确认并备份。": "Local, read-only checks. Repairs require confirmation and create a backup.",
+  "渠道尚未关联本机配置": "Provider not linked locally",
+  "改动自动保存，下次启动生效 · 统计说明": "Saved automatically · Applies on next launch · About these metrics",
+  "配置详情": "Configuration details",
+  "{0} 条诊断提示": "{0} diagnostic notices",
+  "搜索诊断记录": "Search diagnostics"
 }

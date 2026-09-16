@@ -165,10 +165,10 @@ export default function SlotsView() {
           onClick={() => void fillFromCurrent()}
           title={`${fillScope}。${fillHint}`}
         >{t(" 按当前渠道一键填充四槽 ")}</Button>
-        <span className={styles.hint}>{fillHint}</span>
+
       </Toolbar>
 
-      <p className={styles.caption}>{t(" 槽位改动直接落到 hub 的配置文件；hub 正在运行时，改动要等下次启动才生效。最近 24 小时调用量按「渠道别名 + 模型 id」从 store 里最近 ")}<span className={styles.mono}>{usageRows.length}</span>{' '}{t(" 条用量流水统计，早于这批记录的调用不计入，所以它是下限而不是全量；未配置价格表，不估算成本。 ")}</p>
+      <details className={styles.caption}><summary>{t("改动自动保存，下次启动生效 · 统计说明")}</summary><p>{t(" 槽位改动直接落到 hub 的配置文件；hub 正在运行时，改动要等下次启动才生效。最近 24 小时调用量按「渠道别名 + 模型 id」从 store 里最近 ")}<span className={styles.mono}>{usageRows.length}</span>{' '}{t(" 条用量流水统计，早于这批记录的调用不计入，所以它是下限而不是全量；未配置价格表，不估算成本。 ")}</p></details>
 
       {offline ? (
         <p className={styles.warn}>{t(" 当前显示的是离线示例数据（Rust 侧不可用），槽位改动不会写进本机配置。 ")}</p>

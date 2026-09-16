@@ -136,3 +136,10 @@
   /* 「还有 N 条出现记录没列出」——计数，DESIGN.md 2.3 */
   font-variant-numeric: tabular-nums;
 }
+
+.layout { flex-direction: column-reverse; gap: 20px; }
+.main { width: 100%; }
+.rail { position: static; width: 100%; flex: none; }
+.rail > span { display: none; }
+.rail > ul { flex-direction: row; gap: 16px; }
+.sectionHead { position: static; padding: 0; }
