@@ -19,7 +19,7 @@
 **分支**：实施从 `main@ed63114` 建立隔离分支 `s25/provider-foundation`，工作树为 `../claude-hub-wt/provider-foundation`。原 `main` 比 `origin/main` 领先 2 个文档提交，未跟踪 `.agents/`、`.mimosa/` 与三个 SVG 均保留；`ui/workspace-shell@d8105cf` 工作树干净，但缺 `372caeb`、`6fc85c9`、`e854fc2`、`ed63114`，故不在旧树直接实施、不 merge/rebase。所有本地检查点按行为提交，macOS/Windows 分开提交；未授权发布。
 
 **实施层次与检查点**：
-1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价。每步独立检查；B2 完成前不开放桌面写入。
+1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价 → B2d 安装器新库初始化边界。每步独立检查；B2 完成前不开放桌面写入。
 2. **L2 凭证读取**：A1/A2 实验与 C0 合同 → C1/C2 后端 → D0–D3 所有 reader。只使用合成凭据；reader 未通过前不启用新格式写入。
 3. **L3 变更与导入**：E0 提交/恢复 → E1 显式迁移；F0 安全预览计划 → F1/F2/F3 四种来源。计划模型由主线固定，scanner 不能自行定义另一份 DTO。
 4. **L4 桌面操作**：G0 双应用身份 → G1 macOS 命令与启动 → G2 渠道交互；G3 独立 Windows 适配。维持现有渠道页面视觉与结构。
@@ -35,7 +35,7 @@
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| A0 ✅ 2026-09-16 | 基线与平台矩阵；owner：本卡与 `docs/provider-management.md` | 无 | 列清工作树、真实 CLI 版本、macOS/Windows 验收环境、Linux 保留策略；区分持久存储与全部临时文件的零明文目标。 |
+| A0 ✅ 2026-09-16 (`6c1649a`) | 基线与平台矩阵；owner：本卡与 `docs/provider-management.md` | 无 | 列清工作树、真实 CLI 版本、macOS/Windows 验收环境、Linux 保留策略；区分持久存储与全部临时文件的零明文目标。 |
 | A1 | macOS 安全写入探针；owner：隔离 `/tmp` probe，结论回填设计 | A0 | 合成秘密在无 TTY/终端/签名 App 场景完成写读删；argv、日志、回显均无秘密；锁定/拒绝/超时明确。失败只阻断 OS adapter，不阻断纯存储/来源解析。 |
 | A2 | CLI 认证优先级探针；owner：隔离 probe、`tests/test_launcher.py` / `tests/test_codex_provider_once.py` 的合成案例 | A0 | 全局凭证 A、选中凭证 B，实际合成上游收到 B；原配置不变。确定消除临时明文的可行入口；失败时禁止直接剥字段，也不得宣称全程零明文。 |
 
@@ -44,8 +44,8 @@
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
 | B0 ✅ 代码/依赖图 | 共享 crate 骨架与依赖；owner：根及三个 `Cargo.toml`/lock、`crates/provider-store/src/lib.rs` | A0 | 根成员与 UI path 依赖分别验证；统一 rusqlite，完整依赖图无 links 冲突。暂不迁移业务。 |
-| B1 ✅ 2026-09-16 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 ✅ 代码/依赖图 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
-| B2 ✅ 代码，Windows 后验 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 ✅ 2026-09-16 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
+| B1 ✅ 2026-09-16 | 现有 provider 存储迁入共享层；owner：新 crate `model/store`、agent-hub 的 `db/provider_store` 外壳 | B0 | 旧 CLI 行为与数据字段不变；必需列错误有上下文，外部 source 内容未变，原有事务/幂等测试迁入并通过；schema 仍唯一。 |
+| B2 ✅ 代码，Windows 后验 | Hub 写目标与外部只读源分离；owner：共享路径解析、两平台 `paths.rs` / `db.rs` | B1 | 两平台路径矩阵通过；旧只读覆盖不会成为写目标，来源/目标同文件拒绝；Windows 空库引导明确，pricing 来源被显式核对。 |
 
 **B 分层进度**：
 - B0a ✅ 2026-09-16 (`8ff1b1f`)：根 workspace 纳入 `provider-store`，管理面 SQLite 统一到 rusqlite 0.32.1；原有 7 个测试在调整前后均通过。共享 crate 暂无业务。
@@ -56,13 +56,17 @@
 - B2b ✅ 2026-09-16 (`b2516f0`)：macOS 读取共享路径；缺库/空库引导不要求 CC Switch；定价文件优先，DB 定价仅通过独立 `AGENT_HUB_PRICING_DB` 显式选入。文件打开/显示仅增加精确当前 provider DB 许可，不放行其父目录与相邻文件。Rust 75 项、typecheck、renderer build 通过。浏览器连接不可用，窗口验收未完成。
 - B2c ✅ 代码，2026-09-16 (`8375ce8`)：Windows 默认改读 Hub 库，共享读路径、空库引导、独立定价与精确文件操作许可。typecheck/renderer build 和完整 metadata 已通过；原生编译/窗口仍按用户要求后验。
 - Windows 编译边界：本机交叉 check 在 bundled SQLite C 编译处缺 Windows SDK `stdlib.h`，不是 links 冲突；原生编译和测试后置，未用 macOS 测试冒充。
-- B2d ✅ 2026-09-16，安装器边界收口；owner：`install.sh` / `tests/test_install.zsh`。新增失败测试证明已有外部 DB 会被初始化脚本修改；安装器改为只初始化新文件，拒绝已知外部库及别名，不重复实现共享存储的迁移规则。验收：8 项安装集成通过，已有 DB 字节不变、默认独立安装可用、来源目标及软/硬链接冲突不写入。
+- B2d ✅ 2026-09-16 (`f7b36c4`)，安装器边界收口；owner：`install.sh` / `tests/test_install.zsh`。新增失败测试证明已有外部 DB 会被初始化脚本修改；安装器改为只初始化新文件，拒绝已知外部库及别名，不重复实现共享存储的迁移规则。验收：8 项安装集成通过，已有 DB 字节不变、默认独立安装可用、来源目标及软/硬链接冲突不写入。
+
+**L1 收口证据**：根 Rust workspace 18 个共享层单测 + 3 个 CLI 进程测试；macOS Tauri Rust 75 项；Python 全量 992 项；安装集成 8 项；双端 TypeScript 与 renderer build；双端完整 Cargo metadata；文档索引与 staged secret guard 均通过。实施树无混入原树未跟踪文件；未推送、未改写历史、未覆盖真实运行目录。Windows 原生编译与窗口、macOS 真实窗口仍未验收。
+
+**下一层入口**：A1 先证明安全凭证输入通道，A2 先证明真实 CLI 的账号优先级；C0 固定跨语言 envelope/错误/引用合同后再接 reader。保留严格的临时文件零明文最终目标；若实验不支持，记录明确阻塞，不通过删认证字段或回退明文掩盖。桌面写入、四来源预览和显式迁移继续分别由 E/F/G/H 验收，不计入本层已完成成果。
 
 ### C · 凭证引用与平台适配
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 ✅ 2026-09-16 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
+| C0 | 版本化 envelope、引用与错误合同；owner：共享 `model/credentials`、schema、合成 fixtures | B1 | 复合身份、secret revision、NotFound/Denied/Locked/Unavailable/Corrupt 分明；API key、代理认证覆盖；不破坏 standalone UUID。使用内存 adapter 验证，不启用真实新写。 |
 | C1 | macOS 凭证 adapter；owner：共享 `credentials/macos`、对应 OS 测试 | A1,C0 | 安全输入机制通过实测，错误与超时不泄漏；用合成条目验证跨进程读写；无不明文兜底。 |
 | C2 | Windows 凭证 adapter；owner：共享 `credentials/windows`、对应 OS 测试 | C0 | CredRead/Write/Delete、Unicode/长度/权限错误合同通过；无 Windows 实机则停在代码完成，禁止启用迁移。 |
 
