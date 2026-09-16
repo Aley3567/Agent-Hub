@@ -19,8 +19,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["macos-private-api"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# CC Switch 数据库只读打开；bundled 避免依赖系统 libsqlite3 版本
+# Provider SQLite access; bundled avoids system SQLite version differences
 rusqlite = { version = "0.32", features = ["bundled"] }
+provider-store = { path = "../../../crates/provider-store" }
 dirs = "5"
 chrono = "0.4"
 
