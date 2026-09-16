@@ -254,7 +254,11 @@ def walk_private_json(
                 if SENSITIVE_KEY_RE.search(key_text):
                     add_fingerprint(output, "private-credential", child)
                 elif re.search(r"(?i)(?:base[_-]?url|endpoint|proxy|website[_-]?url)", key_text):
-                    if not is_loopback_url(child):
+                    loopback_bypass = key_text.casefold() == "no_proxy" and all(
+                        host.strip().casefold() in {"localhost", "127.0.0.1", "::1", "[::1]"}
+                        for host in child.split(",")
+                    )
+                    if not is_loopback_url(child) and not loopback_bypass:
                         add_fingerprint(output, "private-upstream", child)
                 elif key_text == "provider":
                     if not is_public_provider_label(child):

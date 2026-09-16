@@ -272,6 +272,40 @@ class SecretGuardTests(unittest.TestCase):
             {"private-upstream"},
         )
 
+    def test_loopback_no_proxy_lists_are_not_private_upstream_fingerprints(self) -> None:
+        for key in ("NO_PROXY", "no_proxy"):
+            for value in ("localhost,127.0.0.1", " localhost , ::1 , [::1] "):
+                with self.subTest(key=key, value=value):
+                    fingerprints = set()
+                    secret_guard.walk_private_json({"env": {key: value}}, fingerprints)
+                    self.assertEqual(
+                        secret_guard.scan_bytes(
+                            "wrapper.zsh", f'export {key}="{value}"'.encode(), fingerprints
+                        ),
+                        [],
+                    )
+
+    def test_no_proxy_exemption_does_not_hide_private_or_malformed_values(self) -> None:
+        for key, value in (
+            ("NO_PROXY", "localhost,internal.example.test"),
+            ("NO_PROXY", "127.0.0.1,10.0.0.1"),
+            ("NO_PROXY", "127.evil.example.test"),
+            ("NO_PROXY", "localhost,"),
+            ("base_url", "localhost,127.0.0.1"),
+            ("HTTP_PROXY", "localhost,127.0.0.1"),
+            ("NO_PROXY_API_KEY", "localhost,127.0.0.1"),
+        ):
+            with self.subTest(key=key, value=value):
+                fingerprints = set()
+                secret_guard.walk_private_json({"env": {key: value}}, fingerprints)
+                findings = secret_guard.scan_bytes(
+                    "wrapper.zsh", f'export {key}="{value}"'.encode(), fingerprints
+                )
+                self.assertIn(
+                    "private-credential" if key.endswith("KEY") else "private-upstream",
+                    {finding.category for finding in findings},
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
