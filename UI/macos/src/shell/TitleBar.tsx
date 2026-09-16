@@ -5,6 +5,7 @@
  * 右侧放太阳/月亮一键切换深浅色：显示的是「点它会变成什么」（深色下显示太阳）。
  * 三态（跟随系统）仍在侧栏底部的 SegmentedControl 里，这里只做最常用的二态快切。
  */
+import { t } from '../i18n';
 import { useEffect, useState } from 'react';
 import { IconButton } from '../components';
 import { VIEW_META } from './views';
@@ -44,13 +45,13 @@ export default function TitleBar() {
   return (
     <header className={styles.bar} data-tauri-drag-region>
       <span className={styles.title} data-tauri-drag-region>
-        Agent Hub · {VIEW_META[view].title}
+        Agent Hub · {t(VIEW_META[view].title)}
       </span>
       <div className={styles.actions}>
         <IconButton
           icon={mode === 'dark' ? 'sun' : 'moon'}
-          aria-label={target === 'light' ? '切换到浅色模式' : '切换到深色模式'}
-          tooltip={target === 'light' ? '切换到浅色模式' : '切换到深色模式'}
+          aria-label={target === 'light' ? t("切换到浅色模式") : t("切换到深色模式")}
+          tooltip={target === 'light' ? t("切换到浅色模式") : t("切换到深色模式")}
           tooltipSide="left"
           onClick={() => setTheme(target)}
         />

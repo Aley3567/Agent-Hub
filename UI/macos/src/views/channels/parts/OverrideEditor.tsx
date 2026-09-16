@@ -5,6 +5,7 @@
  * 会让「只改了 effort」变成「顺手把模型清空」。写入目标只有 claude1-config.json，
  * 绝不碰 CC Switch 数据库（CONTRACT.md 第 3 节）。
  */
+import { t } from '../../../i18n';
 import { useEffect, useId, useState } from 'react';
 import { Button, Field, Input, SegmentedControl } from '../../../components';
 import { errorText } from '../../../store';
@@ -47,8 +48,8 @@ export default function OverrideEditor({ channel, onSave }: OverrideEditorProps)
       await onSave(model, effort);
       setStatus(
         model === null && effort === null
-          ? '已清除覆盖，写入 claude1-config.json'
-          : '已保存覆盖，写入 claude1-config.json',
+          ? t("已清除覆盖，写入 claude1-config.json")
+          : t("已保存覆盖，写入 claude1-config.json"),
       );
     } catch (cause) {
       setError(errorText(cause));
@@ -67,12 +68,12 @@ export default function OverrideEditor({ channel, onSave }: OverrideEditorProps)
       }}
     >
       <Field
-        label="覆盖模型"
+        label={t("覆盖模型")}
         htmlFor={inputId}
         hint={
           channel.declaredModel === null
-            ? '留空表示不覆盖；这个渠道自己也没声明模型。'
-            : `留空表示不覆盖，启动时用渠道声明的 ${channel.declaredModel}。`
+            ? t("留空表示不覆盖；这个渠道自己也没声明模型。")
+            : t("留空表示不覆盖，启动时用渠道声明的 {0}。", [channel.declaredModel])
         }
       >
         <Input
@@ -80,7 +81,7 @@ export default function OverrideEditor({ channel, onSave }: OverrideEditorProps)
           value={modelDraft}
           mono
           inputSize="sm"
-          placeholder="未覆盖"
+          placeholder={t("未覆盖")}
           autoComplete="off"
           spellCheck={false}
           disabled={busy}
@@ -93,11 +94,11 @@ export default function OverrideEditor({ channel, onSave }: OverrideEditorProps)
         />
       </Field>
 
-      <Field label="effort 档位" hint="覆盖 settings_config 的 effortLevel；未设置就不写这个环境变量。">
+      <Field label={t("effort 档位")} hint={t("覆盖 settings_config 的 effortLevel；未设置就不写这个环境变量。")}>
         <SegmentedControl
-          options={EFFORT_CHOICES}
+          options={EFFORT_CHOICES.map((option) => ({...option, label: t(option.label), title: 'title' in option ? t(String(option.title)) : undefined}))}
           value={effortDraft}
-          aria-label="effort 档位"
+          aria-label={t("effort 档位")}
           disabled={busy}
           onChange={(value) => {
             setEffortDraft(value);
@@ -107,13 +108,9 @@ export default function OverrideEditor({ channel, onSave }: OverrideEditorProps)
       </Field>
 
       <div className={styles.row}>
-        <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!dirty}>
-          保存覆盖
-        </Button>
+        <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!dirty}>{t("保存覆盖")}</Button>
         {hasOverride ? (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void submit(null, null)}>
-            清除覆盖
-          </Button>
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => void submit(null, null)}>{t("清除覆盖")}</Button>
         ) : null}
       </div>
 

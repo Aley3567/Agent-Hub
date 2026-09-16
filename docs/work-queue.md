@@ -31,7 +31,9 @@
 **接手续办（2026-09-16）**：已按 handoff current 校准 `edd0522`，无 upstream，相对本地 main ahead 20；保留并接续全部 macOS 草稿。当前行为账本：
 - 共享层 Linux 兼容写入：旧格式仍保留，统一 writer lock、事务内版本复核、来源再检查、编辑 omitted/clear 与 revision，删除关联阻断；禁止 referenced 记录降级。legacy revision 回归已先失败后通过，根 workspace 55 passed + 4 CLI，1 Keychain ignored；这是跨平台运行的共享实现测试，Linux 原生执行仍未验收。
 - macOS 草稿：StrictMode 重挂、重复提交、账号池/槽位 Claude 身份、任务 appType、历史归属已收口；Chrome 中真实 React StrictMode 回归先复现扫描被取消，修正后取消/失败/重复点击/刷新/历史同 ID 测试通过。Tauri Rust 76 项、typecheck/build 通过；尚未等同于真实 Tauri/Keychain/CLI 整链验收。
-- 后续独立 owner：Windows 对应接入；用户本轮新增双语设置与参考 Codex 设置导航的需求，作为独立 UI 检查点。默认中文，可选 English，持久化本机偏好；参考分组导航、搜索、选中态，不引入无对应能力的设置项。
+- 已提交：Linux `ae00775`、macOS `f78f8c5`（Rust 77 passed）、Windows `41650e7`。Windows renderer typecheck/build/交互测试通过；MSVC cross-check 因缺 Windows SDK `stdlib.h` 未通过，原生凭证写入继续 gated。
+- 双语设置/导航/渠道管理：默认中文，可选 English，持久化本机偏好；分组、搜索、选中态已落地。双端 typecheck/build 与 StrictMode/语言持久化 renderer 测试通过，真实 Tauri 窗口仍另列验收。
+- 用户新增工作：主页突出 Pull Request 与定时任务入口；PR 只读列表、搜索和打开；定时任务明确要求应用运行期间自动执行，需先验证到点、暂停、重启不补跑、防重复，再启用循环。退出应用不执行；Windows 独立提交，真实平台缺项保持未验收。
 
 **实施层次与检查点**：
 1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价 → B2d 安装器新库初始化边界。每步独立检查；B2 完成前不开放桌面写入。

@@ -21,6 +21,10 @@ const { default: ManagementDialog } = await import('../src/views/channels/parts/
 const { channelWindow } = await import('../src/views/channels/model');
 const { MOCK_CHANNELS } = await import('../src/api/mock');
 const { useApp } = await import('../src/store');
+const { useLocale, readLanguage, LANGUAGE_STORAGE_KEY, t } = await import('../src/i18n');
+const { default: SettingsView } = await import('../src/views/settings');
+const previousLanguage = readLanguage();
+useLocale.getState().setLanguage('zh-CN');
 const refreshed: string[] = [];
 useApp.setState({ refresh: async (key) => { refreshed.push(key); } });
 let root = createRoot(document.getElementById('root')!);
@@ -69,7 +73,17 @@ try {
   ];
   assert(channelWindow(rows, {...base, appType: 'claude'}, now).inTokens === 50, 'Claude window must exclude Codex identity and unknown Codex history');
   assert(channelWindow(rows, {...base, appType: 'codex'}, now).inTokens === 20, 'Codex history needs explicit provider identity');
-  document.getElementById('result')!.textContent = 'PASS: StrictMode, cancel, failure, duplicate click, refresh, application history';
+  await act(async () => root.unmount());
+  root = createRoot(document.getElementById('root')!);
+  await act(async () => root.render(<SettingsView />));
+  const english = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'English')!;
+  await act(async () => english.click());
+  assert(readLanguage() === 'en' && document.documentElement.lang === 'en', 'language must persist and update document');
+  assert(document.body.textContent?.includes('Display language'), 'settings must switch immediately');
+  assert(t('新增 {0}，更新 {1}，保留 {2}{3}', [1, 2, 3, '']) === 'Added 1, updated 2, kept 3', 'placeholder counts must survive translation');
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, 'invalid');
+  assert(readLanguage() === 'zh-CN', 'invalid persisted preference falls back to Chinese');
+  document.getElementById('result')!.textContent = 'PASS: StrictMode, cancel, failure, duplicate click, refresh, application history, language persistence';
 } catch (error) {
   document.getElementById('result')!.textContent = `FAIL: ${error}`;
-} finally { await act(async () => root.unmount()); }
+} finally { await act(async () => { root.unmount(); useLocale.getState().setLanguage(previousLanguage); }); }

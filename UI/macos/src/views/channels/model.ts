@@ -13,6 +13,7 @@
  *   3. 凭证只表达「已配置 / 未配置」。任何可能夹带凭证的自由文本（端点、备注）
  *      在渲染前再过一遍 redactSecrets，这是 fail-closed 的第二道闸。
  */
+import { t } from '../../i18n';
 import type { BadgeTone, StatusTone } from '../../components';
 import { compareDegrade } from '../../data/degradeCatalog';
 import { redactSecrets } from '../../lib';
@@ -110,7 +111,7 @@ export const UNASSESSED_EXPLAINER =
   '尚未做 Claude Code 语义验收：长 system prompt、工具调用、多轮终态这三项还没跑过用例。含义是「没人验过」，不是「不能用」。';
 
 export function unassessedSummary(count: number): string {
-  return `列出的渠道里有 ${count} 个尚未做 Claude Code 语义验收（长 system prompt、工具调用、多轮终态），它们在「语义兼容性」列显示灰点「未评估」。`;
+  return t("列出的渠道里有 {0} 个尚未做 Claude Code 语义验收（长 system prompt、工具调用、多轮终态），它们在「语义兼容性」列显示灰点「未评估」。", [count]);
 }
 
 export const INCOMPATIBLE_LAUNCH_NOTE =
@@ -135,8 +136,8 @@ export function channelStatuses(channel: Channel): ChannelStatus[] {
   if (channel.isCurrent) {
     out.push({
       tone: 'current',
-      text: '当前',
-      title: '当前默认渠道：不指定选择器时 claude1 用它',
+      text: t("当前"),
+      title: t("当前默认渠道：不指定选择器时 claude1 用它"),
     });
   }
   const problem = channelProblem(channel);
@@ -145,8 +146,8 @@ export function channelStatuses(channel: Channel): ChannelStatus[] {
   } else if (!channel.isCurrent) {
     out.push({
       tone: 'off',
-      text: '已配置',
-      title: '凭证已配置；尚未验证当前连接是否可用',
+      text: t("已配置"),
+      title: t("凭证已配置；尚未验证当前连接是否可用"),
     });
   }
   return out;
@@ -156,22 +157,22 @@ function channelProblem(channel: Channel): ChannelStatus | null {
   if (channel.credential === 'missing') {
     return {
       tone: 'fail',
-      text: '凭证未配置',
-      title: 'settings_config 的 env 里没有可用的 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN，启动后会被上游拒绝',
+      text: t("凭证未配置"),
+      title: t("settings_config 的 env 里没有可用的 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN，启动后会被上游拒绝"),
     };
   }
   if (channel.compatibility === 'incompatible') {
     return {
       tone: 'fail',
-      text: '不建议使用',
-      title: 'Claude Code 语义闸门判为不兼容，原因见「语义兼容性」列',
+      text: t("不建议使用"),
+      title: t("Claude Code 语义闸门判为不兼容，原因见「语义兼容性」列"),
     };
   }
   if (channel.hidden) {
     return {
       tone: 'off',
-      text: '已隐藏',
-      title: '已隐藏：claude1 的普通选择器不列出它，别名与 id 仍然能启动',
+      text: t("已隐藏"),
+      title: t("已隐藏：claude1 的普通选择器不列出它，别名与 id 仍然能启动"),
     };
   }
   return null;
@@ -198,12 +199,12 @@ export interface ModelCell {
 export function channelModel(channel: Channel): ModelCell {
   if (channel.modelOverride !== null) {
     const declared =
-      channel.declaredModel === null ? '渠道自己没声明模型' : `渠道声明的是 ${channel.declaredModel}`;
+      channel.declaredModel === null ? t("渠道自己没声明模型") : t("渠道声明的是 {0}", [channel.declaredModel]);
     return {
       text: channel.modelOverride,
       isIdentifier: true,
       overridden: true,
-      title: `本地覆盖：claude1-config.json 把模型改成了 ${channel.modelOverride}（${declared}）`,
+      title: t("本地覆盖：claude1-config.json 把模型改成了 {0}（{1}）", [channel.modelOverride, declared]),
     };
   }
   if (channel.declaredModel !== null) {
@@ -211,14 +212,14 @@ export function channelModel(channel: Channel): ModelCell {
       text: channel.declaredModel,
       isIdentifier: true,
       overridden: false,
-      title: '渠道 settings_config 里的 env.ANTHROPIC_MODEL',
+      title: t("渠道 settings_config 里的 env.ANTHROPIC_MODEL"),
     };
   }
   return {
-    text: '未指定',
+    text: t("未指定"),
     isIdentifier: false,
     overridden: false,
-    title: '渠道没声明 env.ANTHROPIC_MODEL，也没有本地覆盖：启动后用 Claude Code 自己的默认模型',
+    title: t("渠道没声明 env.ANTHROPIC_MODEL，也没有本地覆盖：启动后用 Claude Code 自己的默认模型"),
   };
 }
 
@@ -226,7 +227,7 @@ export const CONTEXT_WINDOW_UNKNOWN_TITLE =
   '渠道没声明 claude1_capabilities.context_window，这里不猜一个数字充数';
 
 export function contextWindowTitle(tokens: number): string {
-  return `${tokens} token，来自 settings_config 的 claude1_capabilities.context_window`;
+  return t("{0} token，来自 settings_config 的 claude1_capabilities.context_window", [tokens]);
 }
 
 export type EffortChoice = Effort | 'none';

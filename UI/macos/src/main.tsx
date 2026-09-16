@@ -7,9 +7,11 @@ import { createRoot } from 'react-dom/client';
 import './styles/tokens.css';
 import './styles/global.css';
 import App from './App';
+import { readLanguage } from './i18n';
 import { applyTheme, readStoredTheme } from './store/nav';
 import { applyDensity, readStoredDensity } from './store/ui';
 
+document.documentElement.lang = readLanguage();
 applyTheme(readStoredTheme());
 applyDensity(readStoredDensity());
 

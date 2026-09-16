@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import ManagementDialog, { type ManagementMode } from './parts/ManagementDialog';
 import { channelKey } from '../../types/contract';
 /** 渠道选择：名称、模型、历史记录与启动入口。配置放在展开详情。 */
@@ -103,38 +104,38 @@ export default function ChannelsView() {
 
   return (
     <div className={styles.view}>
-      {loading ? <div className="app-progress" role="progressbar" aria-label="正在读取渠道" /> : null}
+      {loading ? <div className="app-progress" role="progressbar" aria-label={t("正在读取渠道")} /> : null}
 
       <Toolbar
         className={styles.toolbar}
         divider
         wrap={false}
-        aria-label="渠道筛选"
+        aria-label={t("渠道筛选")}
       >
         <SearchInput
           value={query}
           onChange={setQuery}
-          placeholder="搜索渠道名、别名或模型"
-          aria-label="按渠道名、别名或模型搜索"
+          placeholder={t("搜索渠道名、别名或模型")}
+          aria-label={t("按渠道名、别名或模型搜索")}
         />
         <Select
           wrapperClassName={styles.protocolSelect}
           selectSize="sm"
           mono
-          aria-label="按协议格式筛选"
+          aria-label={t("按协议格式筛选")}
           value={formatFilter}
-          options={FORMAT_FILTER_OPTIONS}
+          options={FORMAT_FILTER_OPTIONS.map((option) => ({...option, label: t(option.label), title: 'title' in option ? t(String(option.title)) : undefined}))}
           onChange={(event) => setFormatFilter(asFormatFilter(event.target.value))}
         />
         <Switch
           checked={onlyUsable}
           onChange={setOnlyUsable}
-          label="只看配置就绪"
-          aria-label="凭证已配置、未隐藏、未判为不兼容；不代表已通过网络测试"
+          label={t("只看配置就绪")}
+          aria-label={t("凭证已配置、未隐藏、未判为不兼容；不代表已通过网络测试")}
         />
-        <Button size="sm" onClick={() => setDialog({ mode: 'create' })}>新增</Button>
-        <Button size="sm" onClick={() => setDialog({ mode: 'import' })}>导入</Button>
-        <Button size="sm" onClick={() => setDialog({ mode: 'migrate' })}>迁移凭证</Button>
+        <Button size="sm" onClick={() => setDialog({ mode: 'create' })}>{t("新增")}</Button>
+        <Button size="sm" onClick={() => setDialog({ mode: 'import' })}>{t("导入")}</Button>
+        <Button size="sm" onClick={() => setDialog({ mode: 'migrate' })}>{t("迁移凭证")}</Button>
       </Toolbar>
       {notice ? <p role="status">{notice}</p> : null}
       {dialog ? <ManagementDialog mode={dialog.mode} channel={dialog.channel} onClose={() => setDialog(null)} onComplete={setNotice} /> : null}
@@ -156,12 +157,12 @@ export default function ChannelsView() {
       ) : listed.length === 0 ? (
         <EmptyState
           icon="filter"
-          title={`筛选条件排除了全部 ${channels.length} 个渠道`}
-          description={`当前条件：${filterText}。放宽条件或清空筛选就能看到它们。`}
-          action={{ label: '清空筛选', icon: 'close', onClick: clearFilters }}
+          title={t("筛选条件排除了全部 {0} 个渠道", [channels.length])}
+          description={t("当前条件：{0}。放宽条件或清空筛选就能看到它们。", [filterText])}
+          action={{ label: t("清空筛选"), icon: 'close', onClick: clearFilters }}
         />
       ) : (
-        <Table className={styles.channelTable} stickyHeader aria-label="渠道列表">
+        <Table className={styles.channelTable} stickyHeader aria-label={t("渠道列表")}>
           <colgroup>
             <col />
             <col className={styles.colModel} />
@@ -170,10 +171,10 @@ export default function ChannelsView() {
           </colgroup>
           <thead>
             <tr>
-              <Th>渠道</Th>
-              <Th>模型</Th>
-              <Th>最近记录</Th>
-              <Th stickyAction>操作</Th>
+              <Th>{t("渠道")}</Th>
+              <Th>{t("模型")}</Th>
+              <Th>{t("最近记录")}</Th>
+              <Th stickyAction>{t("操作")}</Th>
             </tr>
           </thead>
           <tbody>
@@ -199,20 +200,16 @@ export default function ChannelsView() {
                     className={styles.groupToggle}
                     aria-expanded={hiddenExpanded}
                     disabled={forcedOpen}
-                    title={forcedOpen ? '其余渠道都被筛选条件排除了，隐藏分区保持展开' : undefined}
+                    title={forcedOpen ? t("其余渠道都被筛选条件排除了，隐藏分区保持展开") : undefined}
                     onClick={() => setHiddenOpen(!hiddenExpanded)}
                   >
                     {/* 方向靠 CSS 旋转而不是换图标名：图标名互换是硬切，拿不到 --dur-fast
                         那一档「图标旋转翻转」的过渡（DESIGN.md 2.5 时长语义表）。
                         chevron-right 转 90° 与 chevron-down 逐点相同，静态形态不变。 */}
                     <Icon name="chevron-right" size={16} className={styles.groupChevron} />
-                    <span>
-                      已隐藏（<span className={styles.groupCount}>{hiddenMatches.length}</span>）
-                    </span>
+                    <span>{t("已隐藏（{0}）", [hiddenMatches.length])}</span>
                   </button>
-                  <span className={styles.groupNote}>
-                    隐藏只是让 claude1 的普通列表不列出它们，别名与 id 仍然能启动。
-                  </span>
+                  <span className={styles.groupNote}>{t("隐藏只是让 claude1 的普通列表不列出它们，别名与 id 仍然能启动。")}</span>
                 </td>
                 {/* 末列补一个空的 sticky 单元格：这一行原来 colSpan 铺满七列，横滚时分区
                     文字会从 sticky 操作列底下穿过去 */}
@@ -238,7 +235,7 @@ export default function ChannelsView() {
       )}
 
       {listed.length === 0 ? null : (
-        <p className={styles.note}>启动会话将在新终端中打开。最近记录仅反映历史调用，未进行主动测活。</p>
+        <p className={styles.note}>{t("启动会话将在新终端中打开。最近记录仅反映历史调用，未进行主动测活。")}</p>
       )}
     </div>
   );
@@ -259,7 +256,7 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
   if (loading || !loaded) {
     return (
       <p className={styles.pending}>
-        <Spinner label="正在读取 Hub 渠道列表" />
+        <Spinner label={t("正在读取 Hub 渠道列表")} />
       </p>
     );
   }
@@ -267,12 +264,12 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
     return (
       <EmptyState
         icon="error"
-        title="没能读到渠道列表"
+        title={t("没能读到渠道列表")}
         description={loadError}
-        action={{ label: '重试', icon: 'refresh', onClick: onRetry }}
+        action={{ label: t("重试"), icon: 'refresh', onClick: onRetry }}
         hint={
           dbPath === null ? (
-            <span>数据库路径没有检测到，无法确认读的是哪个文件</span>
+            <span>{t("数据库路径没有检测到，无法确认读的是哪个文件")}</span>
           ) : (
             <span className={styles.mono}>{dbPath}</span>
           )
@@ -283,15 +280,14 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
   return (
     <EmptyState
       hero
-      title="还没有 Claude 渠道"
-      description="还没有可用的 Claude 渠道。请运行 agent-hub 添加或导入渠道，然后回到这里刷新。"
-      action={{ label: '刷新', icon: 'refresh', onClick: onRetry }}
+      title={t("还没有渠道")}
+      description={t("点击新增或导入渠道，开始配置。")}
+      action={{ label: t("刷新"), icon: 'refresh', onClick: onRetry }}
       hint={
         dbPath === null ? (
-          <span>未检测到渠道库路径，请检查 Agent Hub 配置</span>
+          <span>{t("未检测到渠道库路径，请检查 Agent Hub 配置")}</span>
         ) : (
-          <span>
-            只读打开：<span className={styles.mono}>{dbPath}</span>
+          <span>{t("只读打开：")}<span className={styles.mono}>{dbPath}</span>
           </span>
         )
       }
@@ -302,8 +298,8 @@ function EmptyPlaceholder({ loading, loaded, loadError, dbPath, onRetry }: Empty
 function describeFilters(query: string, formatFilter: FormatFilter, onlyUsable: boolean): string {
   const parts: string[] = [];
   const trimmed = query.trim();
-  if (trimmed !== '') parts.push(`搜索「${trimmed}」`);
-  if (formatFilter !== 'all') parts.push(`协议格式 ${formatFilter}`);
-  if (onlyUsable) parts.push('只看配置就绪');
-  return parts.length === 0 ? '没有任何筛选' : parts.join('、');
+  if (trimmed !== '') parts.push(t("搜索「{0}」", [trimmed]));
+  if (formatFilter !== 'all') parts.push(t("协议格式 {0}", [formatFilter]));
+  if (onlyUsable) parts.push(t("只看配置就绪"));
+  return parts.length === 0 ? t("没有任何筛选") : parts.join('、');
 }

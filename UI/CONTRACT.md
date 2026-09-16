@@ -634,3 +634,7 @@ macOS 已实现下列命令；Windows 接入同一合同后独立验证。无 Ta
 候选只有 `candidateId,id,appType,name,endpoint,protocol,credential,conflict,blockedReason`，endpoint 仅保留 scheme/authority。原始 settings 与凭证留在后端短期计划中；手填 secret 只出现在一次写请求，禁止进共享状态、响应、事件和日志。omitted secret 保留、clearSecret 显式清除，不能同时替换与清除；编辑复核 revision。错误留在弹窗，不重复 error toast，提交期间关闭与重复提交被阻止；成功刷新 channels/hubs/pools，取消和卸载清理计划与输入。
 
 `LaunchTarget.appType` 可为 claude/codex，缺失时兼容旧任务默认 claude；channel 目标按复合身份查找并分派 claude1/codex1。hub/slot 仅 Claude。`set_channel_hidden/alias/override` 请求显式携带 appType，并在后端拒绝非 Claude。
+
+### 桌面语言偏好（2026-09-16）
+
+设置、主导航和渠道管理支持简体中文 / English，即时切换并保存到本机 localStorage 的 `agent-hub.desktop.language`。默认中文，非法值回退中文；存储不可用时本次会话仍可切换。用户命名、模型、诊断目录与后端错误保留原文；其余既有视图不宣称完整双语。设置按常规、外观、路径、环境、关于分组，搜索只过滤现有设置。macOS / Windows 保留各自窗口行为与快捷键。

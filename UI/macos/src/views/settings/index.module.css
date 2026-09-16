@@ -1,87 +1,16 @@
-/* 设置视图。数值全部取 tokens.css。 */
-
-.view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  min-width: 0;
-}
-
-/* Card 的头部插槽是 flex 容器，分区标题要能撑满，否则副标题会被挤成窄柱 */
-.sectionHeader {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.fields {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-}
-
-.rows {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  min-width: 0;
-}
-
-.loading {
-  display: flex;
-  justify-content: center;
-  padding: var(--sp-6) 0;
-}
-
-.fallback {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--sp-3);
-}
-
-.note {
-  color: var(--text-tertiary);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
-}
-
-/* IPC 的中文原因原样显示（AGENTS.md：错误原样暴露） */
-.error {
-  padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-md);
-  background: var(--danger-muted);
-  color: var(--text-primary);
-  font-size: var(--fs-13);
-  line-height: var(--lh-13);
-  overflow-wrap: anywhere;
-}
-
-.aboutLead {
-  color: var(--text-primary);
-  font-size: var(--fs-13);
-  line-height: var(--lh-13);
-}
-
-.aboutList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  margin-top: var(--sp-3);
-}
-
-/* 边界清单用短横线起头：不引图标依赖，也不靠 emoji（工程约束：全中文、无 emoji） */
-.aboutItem {
-  position: relative;
-  padding-left: var(--sp-4);
-  color: var(--text-secondary);
-  font-size: var(--fs-12);
-  line-height: var(--lh-12);
-}
-
-.aboutItem::before {
-  content: "—";
-  position: absolute;
-  left: 0;
-  color: var(--text-tertiary);
-}
+.view { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: var(--sp-6); min-width: 0; }
+.sidebar { align-self: start; position: sticky; top: 0; }
+.groupLabel { color: var(--text-tertiary); font-size: var(--fs-12); margin: var(--sp-5) var(--sp-3) var(--sp-2); }
+.navItem { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: var(--sp-3); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
+.navItem:hover { background: var(--bg-hover); }
+.navItem[aria-current='page'] { background: var(--bg-active); color: var(--text-primary); }
+.navItem:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.content { min-width: 0; }
+.section { padding: var(--sp-4) var(--sp-5) var(--sp-6); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); margin-bottom: var(--sp-4); }
+.section h2 { font-size: var(--fs-16); line-height: 1.4; margin: 0 0 var(--sp-6); font-weight: 600; }
+.fields, .fallback { display: flex; flex-direction: column; gap: var(--sp-5); }
+.rows { margin: 0; min-width: 0; }
+.fallback { align-items: flex-start; color: var(--text-secondary); }
+.about { color: var(--text-secondary); line-height: 1.7; display: grid; gap: var(--sp-4); }
+.brand { font-size: var(--fs-16); color: var(--text-primary); font-weight: 600; }
+@media (max-width: 900px) { .view { grid-template-columns: 1fr; gap: var(--sp-4); } .sidebar { position: static; } .sidebar nav { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-3); } .groupLabel { display: none; } }

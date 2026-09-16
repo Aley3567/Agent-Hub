@@ -6,6 +6,7 @@
  * 离线徽章不是装饰：api 层回退到内置示例数据时必须显示它，绝不让假数据冒充真实数据
  * （CONTRACT.md 第 4 节）。
  */
+import { t } from '../i18n';
 import { Badge, StatusDot, Tooltip } from '../components';
 import { MISSING, formatTokens } from '../lib';
 import { pickDefaultHub, startOfTodaySeconds, useApp } from '../store';
@@ -42,17 +43,17 @@ export default function StatusBar() {
 
   const current = channels.find((channel) => channel.isCurrent) ?? null;
   const hub = pickDefaultHub(hubs);
-  const portText = hub === null || hub.port === null ? '未配置' : String(hub.port);
+  const portText = hub === null || hub.port === null ? t("未配置") : String(hub.port);
   const today = todayTokens(usage);
   const degraded = degradeTotal(usage);
 
   return (
     <footer className={styles.bar}>
       <div className={styles.left}>
-        <Tooltip content="CC Switch 当前选中的渠道" side="top">
+        <Tooltip content={t("当前默认渠道")} side="top">
           <span className={styles.cell}>
-            <span className={styles.label}>渠道</span>
-            <span className={styles.value}>{current ? current.name : '未选定'}</span>
+            <span className={styles.label}>{t("渠道")}</span>
+            <span className={styles.value}>{current ? current.name : t("未选定")}</span>
           </span>
         </Tooltip>
 
@@ -60,10 +61,10 @@ export default function StatusBar() {
           ·
         </span>
 
-        <Tooltip content="默认 hub 的启动槽位" side="top">
+        <Tooltip content={t("默认 hub 的启动槽位")} side="top">
           <span className={styles.cell}>
-            <span className={styles.label}>槽位</span>
-            <span className={styles.value}>{hub?.launchSlot ?? '未设置'}</span>
+            <span className={styles.label}>{t("槽位")}</span>
+            <span className={styles.value}>{hub?.launchSlot ?? t("未设置")}</span>
           </span>
         </Tooltip>
 
@@ -71,12 +72,12 @@ export default function StatusBar() {
           ·
         </span>
 
-        <Tooltip content={hub ? `hub ${hub.name} 的监听端口` : '还没有 hub 配置'} side="top">
+        <Tooltip content={hub ? t("hub {0} 的监听端口", [hub.name]) : t("还没有 hub 配置")} side="top">
           <span className={styles.cell}>
             <span className={styles.label}>hub</span>
             <span className={styles.value}>{portText}</span>
             {hub ? (
-              <StatusDot tone={hub.running ? 'ok' : 'off'}>{hub.running ? '运行中' : '未运行'}</StatusDot>
+              <StatusDot tone={hub.running ? 'ok' : 'off'}>{hub.running ? t("运行中") : t("未运行")}</StatusDot>
             ) : null}
           </span>
         </Tooltip>
@@ -85,9 +86,9 @@ export default function StatusBar() {
           ·
         </span>
 
-        <Tooltip content="今天的 input + output token，取自用量视图的时间窗" side="top">
+        <Tooltip content={t("今天的 input + output token，取自用量视图的时间窗")} side="top">
           <span className={styles.cell}>
-            <span className={styles.label}>今日</span>
+            <span className={styles.label}>{t("今日")}</span>
             <span className={styles.value}>{today === null ? MISSING : formatTokens(today)}</span>
           </span>
         </Tooltip>
@@ -96,9 +97,9 @@ export default function StatusBar() {
           ·
         </span>
 
-        <Tooltip content="时间窗内记到的降级次数，明细看诊断视图" side="top">
+        <Tooltip content={t("时间窗内记到的降级次数，明细看诊断视图")} side="top">
           <span className={styles.cell}>
-            <span className={styles.label}>降级</span>
+            <span className={styles.label}>{t("降级")}</span>
             <span className={degraded !== null && degraded > 0 ? styles.valueWarn : styles.value}>
               {degraded === null ? MISSING : degraded}
             </span>
@@ -112,8 +113,8 @@ export default function StatusBar() {
       </p>
 
       {offline ? (
-        <Tooltip content="Rust 侧不可用，界面显示的是内置示例数据，不是本机真实数据" side="left">
-          <Badge tone="warn">离线示例数据</Badge>
+        <Tooltip content={t("Rust 侧不可用，界面显示的是内置示例数据，不是本机真实数据")} side="left">
+          <Badge tone="warn">{t("离线示例数据")}</Badge>
         </Tooltip>
       ) : null}
     </footer>

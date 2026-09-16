@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
@@ -133,7 +134,7 @@ export function Dialog({
               </p>
             )}
           </div>
-          <IconButton icon="close" aria-label="关闭" onClick={onClose} />
+          <IconButton icon="close" aria-label={t("关闭")} onClick={onClose} />
         </div>
         {children === undefined ? null : <div className={styles.body}>{children}</div>}
         {footer === undefined ? null : <div className={styles.footer}>{footer}</div>}

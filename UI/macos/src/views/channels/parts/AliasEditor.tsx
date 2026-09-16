@@ -5,6 +5,7 @@
  * 同一份清单），所以这里不做本地校验去猜它的规则——直接把 IPC 返回的中文错误显示在
  * 编辑框下方，一个字都不改写（AGENTS.md：错误原样暴露）。
  */
+import { t } from '../../../i18n';
 import { useEffect, useId, useState } from 'react';
 import { Button, Field, Input } from '../../../components';
 import { errorText } from '../../../store';
@@ -40,7 +41,7 @@ export default function AliasEditor({ channel, onSave }: AliasEditorProps) {
     setStatus(null);
     try {
       await onSave(next);
-      setStatus(next === null ? '已清除别名，写入 claude1-config.json' : '已保存别名，写入 claude1-config.json');
+      setStatus(next === null ? t("已清除别名，写入 claude1-config.json") : t("已保存别名，写入 claude1-config.json"));
     } catch (cause) {
       setError(errorText(cause));
     } finally {
@@ -58,10 +59,10 @@ export default function AliasEditor({ channel, onSave }: AliasEditorProps) {
       }}
     >
       <Field
-        label="别名"
+        label={t("别名")}
         htmlFor={inputId}
         error={error}
-        hint="设了别名就能直接 claude1 <别名> 启动。不能以「-」开头，也不能用 claude1 的保留命令。"
+        hint={t("设了别名就能直接 claude1 <别名> 启动。不能以「-」开头，也不能用 claude1 的保留命令。")}
       >
         <div className={styles.row}>
           <Input
@@ -69,7 +70,7 @@ export default function AliasEditor({ channel, onSave }: AliasEditorProps) {
             value={draft}
             mono
             inputSize="sm"
-            placeholder="未设置"
+            placeholder={t("未设置")}
             autoComplete="off"
             spellCheck={false}
             disabled={busy}
@@ -80,13 +81,9 @@ export default function AliasEditor({ channel, onSave }: AliasEditorProps) {
               setStatus(null);
             }}
           />
-          <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!dirty}>
-            保存
-          </Button>
+          <Button type="submit" size="sm" variant="primary" loading={busy} disabled={!dirty}>{t("保存")}</Button>
           {current === '' ? null : (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void submit(null)}>
-              清除
-            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => void submit(null)}>{t("清除")}</Button>
           )}
         </div>
       </Field>

@@ -4,6 +4,7 @@
  * 底部固定「设置」入口与主题三态切换。
  * 折叠态每一项都靠 Tooltip 说明自己是谁，否则只剩一排看不懂的图标。
  */
+import { t } from '../i18n';
 import { BrandMark, Icon, IconButton, SegmentedControl, Tooltip } from '../components';
 import { cx } from '../lib';
 import { THEME_LABEL, nextTheme, useNav } from '../store/nav';
@@ -37,7 +38,7 @@ function NavItem({ meta, active, collapsed, onSelect }: NavItemProps) {
       {/* 折叠态用 Tooltip 补名称（展开态 disabled，连包裹层都不生成）；
           className 只做一件事：把包裹层拉到 100% 宽，否则条目会塌成 16px，见 .itemTip 的注释 */}
       <Tooltip
-        content={`${meta.navLabel} ${viewShortcut(meta.id)}`}
+        content={`${t(meta.navLabel)} ${viewShortcut(meta.id)}`}
         side="right"
         disabled={!collapsed}
         className={styles.itemTip}
@@ -47,12 +48,12 @@ function NavItem({ meta, active, collapsed, onSelect }: NavItemProps) {
           className={cx(styles.item, active && styles.itemActive)}
           onClick={onSelect}
           aria-current={active ? 'page' : undefined}
-          aria-label={collapsed ? meta.navLabel : undefined}
+          aria-label={collapsed ? t(meta.navLabel) : undefined}
         >
           <span className={styles.itemIcon}>
             <Icon name={meta.icon} />
           </span>
-          {collapsed ? null : <span className={styles.itemLabel}>{meta.navLabel}</span>}
+          {collapsed ? null : <span className={styles.itemLabel}>{t(meta.navLabel)}</span>}
         </button>
       </Tooltip>
     </li>
@@ -70,7 +71,7 @@ export default function Sidebar() {
   const upcoming = nextTheme(theme);
 
   return (
-    <nav aria-label="主导航" className={cx(styles.sidebar, collapsed && styles.collapsed)}>
+    <nav aria-label={t("主导航")} className={cx(styles.sidebar, collapsed && styles.collapsed)}>
       <div className={styles.brand}>
         <BrandMark collapsed={collapsed} />
       </div>
@@ -81,7 +82,7 @@ export default function Sidebar() {
             {collapsed ? (
               <span className={styles.groupDivider} aria-hidden="true" />
             ) : (
-              <h2 className={styles.groupLabel}>{GROUP_LABEL[group]}</h2>
+              <h2 className={styles.groupLabel}>{t(GROUP_LABEL[group])}</h2>
             )}
             <ul className={styles.list}>
               {VIEW_LIST.filter((meta) => meta.group === group).map((meta) => (
@@ -112,15 +113,15 @@ export default function Sidebar() {
           <div className={styles.footerActions}>
             <IconButton
               icon={THEME_ICON[theme]}
-              aria-label={`主题：${THEME_LABEL[theme]}，切换为${THEME_LABEL[upcoming]}`}
-              tooltip={`主题：${THEME_LABEL[theme]} → ${THEME_LABEL[upcoming]}`}
+              aria-label={t("主题：{0}，切换为{1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
+              tooltip={t("主题：{0} → {1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
               tooltipSide="right"
               onClick={() => setTheme(upcoming)}
             />
             <IconButton
               icon="sidebar"
-              aria-label="展开侧栏"
-              tooltip="展开侧栏 ⌘B"
+              aria-label={t("展开侧栏")}
+              tooltip={t("展开侧栏 ⌘B")}
               tooltipSide="right"
               onClick={toggleSidebar}
             />
@@ -128,16 +129,16 @@ export default function Sidebar() {
         ) : (
           <div className={styles.footerActions}>
             <SegmentedControl
-              options={THEME_OPTIONS}
+              options={THEME_OPTIONS.map((option) => ({...option, label: t(option.label)}))}
               value={theme}
               onChange={(value) => setTheme(value)}
-              aria-label="主题"
+              aria-label={t("主题")}
               size="sm"
             />
             <IconButton
               icon="sidebar"
-              aria-label="折叠侧栏"
-              tooltip="折叠侧栏 ⌘B"
+              aria-label={t("折叠侧栏")}
+              tooltip={t("折叠侧栏 ⌘B")}
               tooltipSide="top"
               onClick={toggleSidebar}
             />

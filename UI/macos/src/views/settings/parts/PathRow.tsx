@@ -12,6 +12,7 @@
  * 失败不加 error toast——行内 role="alert" 已经原样播报了原因，再推一条 toast
  * 会让读屏器把同一句错误念两遍。
  */
+import { t } from '../../../i18n';
 import { useState } from 'react';
 import { Button } from '../../../components';
 import { errorText, useApp } from '../../../store';
@@ -41,10 +42,10 @@ export default function PathRow({ label, hint, path }: PathRowProps) {
     try {
       if (kind === 'open') {
         await openPath(path);
-        toastSuccess(`${label}：已用系统默认程序打开`);
+        toastSuccess(t("{0}：已用系统默认程序打开", [label]));
       } else {
         await revealInFolder(path);
-        toastSuccess(`${label}：已在 Finder 中显示`);
+        toastSuccess(t("{0}：已在 Finder 中显示", [label]));
       }
     } catch (cause) {
       setReason(errorText(cause));
@@ -64,18 +65,14 @@ export default function PathRow({ label, hint, path }: PathRowProps) {
             loading={busy === 'open'}
             disabled={busy !== null}
             onClick={() => void run('open')}
-          >
-            打开
-          </Button>
+          >{t("打开")}</Button>
           <Button
             size="sm"
             icon="reveal"
             loading={busy === 'reveal'}
             disabled={busy !== null}
             onClick={() => void run('reveal')}
-          >
-            在 Finder 中显示
-          </Button>
+          >{t("在 Finder 中显示")}</Button>
         </div>
       </div>
       <code className={styles.path}>{path}</code>

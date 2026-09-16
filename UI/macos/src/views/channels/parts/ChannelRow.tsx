@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 import { channelKey } from '../../../types/contract';
 /**
  * 渠道表格的一行，外加它展开后的详情行。
@@ -69,7 +70,7 @@ export default function ChannelRow({
       setLaunchResult(result);
       // ok 为 false 也要留痕：失败绝不伪装成成功
       if (result.ok) {
-        toastSuccess(`已启动 ${channel.name} 的会话`);
+        toastSuccess(t("已启动 {0} 的会话", [channel.name]));
       } else {
         setRowError(result.message);
         toastError(result.message);
@@ -106,7 +107,7 @@ export default function ChannelRow({
               className={styles.nameButton}
               aria-expanded={expanded}
               aria-controls={detailId}
-              title={expanded ? '收起渠道详情' : '展开渠道详情'}
+              title={expanded ? t("收起渠道详情") : t("展开渠道详情")}
               onClick={() => onSetExpanded(channelKey(channel), !expanded)}
             >
               {/* 方向靠 CSS 旋转而不是换图标名：图标名互换是硬切，拿不到 --dur-fast
@@ -121,7 +122,7 @@ export default function ChannelRow({
               <Badge
                 className={styles.cellBadge}
                 tone="accent"
-                title={`别名：可以直接 claude1 ${channel.alias} 启动`}
+                title={t("别名：可以直接 claude1 {0} 启动", [channel.alias])}
               >
                 {channel.alias}
               </Badge>
@@ -156,16 +157,14 @@ export default function ChannelRow({
                 className={styles.cellBadge}
                 tone="violet"
                 mono={false}
-                title="本地覆盖，写在 claude1-config.json，不动数据库"
-              >
-                覆盖
-              </Badge>
+                title={t("本地覆盖，写在 claude1-config.json，不动数据库")}
+              >{t("覆盖")}</Badge>
             ) : null}
             {channel.effortOverride === null ? null : (
               <Badge
                 className={styles.cellBadge}
                 tone="violet"
-                title={`本地覆盖 effortLevel 为 ${channel.effortOverride}`}
+                title={t("本地覆盖 effortLevel 为 {0}", [channel.effortOverride])}
               >
                 {channel.effortOverride}
               </Badge>
@@ -174,8 +173,8 @@ export default function ChannelRow({
         </Td>
 
         <Td>
-          <span className={styles.recent} title={usageError ?? '当前载入记录中最近的一条；不代表当前配置可用或请求完整成功'}>
-            {usageError !== null ? '记录读取失败' : latest === null ? '暂无记录' : formatTime(latest.ts)}
+          <span className={styles.recent} title={usageError ?? t("当前载入记录中最近的一条；不代表当前配置可用或请求完整成功")}>
+            {usageError !== null ? t("记录读取失败") : latest === null ? t("暂无记录") : formatTime(latest.ts)}
             {latest === null ? null : <span className={styles.muted}>{latest.model}</span>}
           </span>
         </Td>
@@ -188,20 +187,20 @@ export default function ChannelRow({
               loading={busy === 'launch'}
               disabled={busy === 'hidden'}
               onClick={() => void runLaunch()}
-              aria-label={`启动 ${channel.name} 的会话`}
+              aria-label={t("启动 {0} 的会话", [channel.name])}
               title={
                 incompatible
-                  ? '启动会话：新终端窗口执行 claude1 id:<渠道 id>。该渠道被判为不兼容，这条路径只用于诊断'
-                  : '启动会话：新终端窗口执行 claude1 id:<渠道 id>'
+                  ? t("启动会话：新终端窗口执行 claude1 id:<渠道 id>。该渠道被判为不兼容，这条路径只用于诊断")
+                  : t("启动会话：新终端窗口执行 claude1 id:<渠道 id>")
               }
-            >启动会话</Button>
+            >{t("启动会话")}</Button>
             <Button
               size="sm"
-              aria-label={`更多：${channel.name}`}
+              aria-label={t("更多：{0}", [channel.name])}
               aria-expanded={expanded}
               aria-controls={detailId}
               onClick={() => onSetExpanded(channelKey(channel), !expanded)}
-            >更多</Button>
+            >{t("更多")}</Button>
           </span>
         </Td>
       </tr>
@@ -215,9 +214,9 @@ export default function ChannelRow({
               loading={busy === 'hidden'}
               disabled={busy !== null || channel.appType !== 'claude'}
               onClick={() => void toggleHidden()}
-            >{channel.hidden ? '取消隐藏' : '隐藏渠道'}</Button>
-            <Button size="sm" onClick={() => actions.manage(channel, 'edit')}>编辑渠道</Button>
-            <Button size="sm" onClick={() => actions.manage(channel, 'delete')}>删除渠道</Button>
+            >{channel.hidden ? t("取消隐藏") : t("隐藏渠道")}</Button>
+            <Button size="sm" onClick={() => actions.manage(channel, 'edit')}>{t("编辑渠道")}</Button>
+            <Button size="sm" onClick={() => actions.manage(channel, 'delete')}>{t("删除渠道")}</Button>
             <ChannelDetail
               channel={channel}
               actions={actions}
