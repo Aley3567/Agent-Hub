@@ -7,7 +7,7 @@ import { createRoot } from 'react-dom/client';
 import './styles/tokens.css';
 import './styles/global.css';
 import App from './App';
-import { readLanguage } from './i18n';
+import { t, readLanguage  } from './i18n';
 import { applyTheme, readStoredTheme } from './store/nav';
 import { applyDensity, readStoredDensity } from './store/ui';
 
@@ -18,7 +18,7 @@ applyDensity(readStoredDensity());
 const container = document.getElementById('root');
 if (!container) {
   // 挂载点没了说明 index.html 被改坏了，直接把原因说清楚，不静默留白屏
-  throw new Error('找不到挂载点 #root，index.html 可能被改动');
+  throw new Error(t("找不到挂载点 #root，index.html 可能被改动"));
 }
 
 createRoot(container).render(

@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 降级记录的聚合。纯函数，不碰 React。
  *
@@ -25,8 +26,8 @@ export const SEVERITY_KEYS: DegradeSeverity[] = (['lossy', 'degraded', 'notice',
 export type DegradeOrigin = 'usage' | 'error';
 
 export const ORIGIN_LABEL: Record<DegradeOrigin, string> = {
-  usage: '用量流水',
-  error: '错误流水',
+  get usage() { return t("用量流水"); },
+  get error() { return t("错误流水"); },
 };
 
 /** 一条降级记录 = 一个回合在某份 journal 里留下的那一组降级码 */

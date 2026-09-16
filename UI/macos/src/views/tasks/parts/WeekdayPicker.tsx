@@ -54,7 +54,7 @@ export default function WeekdayPicker({ value, onChange, disabled = false }: Wee
             disabled={disabled}
             onClick={() => toggle(index, selected)}
           >
-            {day.short}
+            {b(day.short, enName.slice(0, 3))}
           </Button>
         );
       })}

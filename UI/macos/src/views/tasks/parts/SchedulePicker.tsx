@@ -23,10 +23,10 @@ const DEFAULT_HOUR = 9;
 const DEFAULT_WORKDAYS: readonly number[] = [1, 2, 3, 4, 5];
 
 const TIER_OPTIONS: ReadonlyArray<{ value: Tier; label: string }> = [
-  { value: 'hourly', label: '每小时' },
-  { value: 'daily', label: '每天' },
-  { value: 'weekly', label: '每周' },
-  { value: 'custom', label: '自定义' },
+  { value: 'hourly', get label() { return t("每小时"); } },
+  { value: 'daily', get label() { return t("每天"); } },
+  { value: 'weekly', get label() { return t("每周"); } },
+  { value: 'custom', get label() { return t("自定义"); } },
 ];
 
 interface SchedulePickerProps {

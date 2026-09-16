@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { cx, redactSecrets } from '../lib';
@@ -68,13 +69,13 @@ export function CodeBlock({
         <div className={styles.bar}>
           <span className={styles.label}>{label}</span>
           <span className={styles.status} aria-live="polite">
-            {state === 'done' ? '已复制（凭证已脱敏）' : state === 'fail' ? '复制失败，系统剪贴板不可用' : ''}
+            {state === 'done' ? t("已复制（凭证已脱敏）") : state === 'fail' ? t("复制失败，系统剪贴板不可用") : ''}
           </span>
           {copyable ? (
             <IconButton
               icon="copy"
-              aria-label="复制"
-              tooltip="复制（复制出去的是脱敏后的文本）"
+              aria-label={t("复制")}
+              tooltip={t("复制（复制出去的是脱敏后的文本）")}
               onClick={copy}
             />
           ) : null}

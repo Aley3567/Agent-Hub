@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 本机体检视图，回答「本机配置有没有问题，只读不联网」（CONTRACT.md 6.5 的文案锚点）。
  *
@@ -30,9 +31,9 @@ const FIX_SUBAGENT_PINS = 'doctor_fix_subagent_pins';
 const GROUP_ORDER: DoctorLevel[] = ['fail', 'info', 'ok'];
 
 const GROUP_CAPTION: Record<DoctorLevel, string> = {
-  fail: '这几项现在就会影响会话，先处理它们',
-  info: '不算失败，但会改变行为或者让数据缺一块',
-  ok: '本机这部分配置没有问题',
+  get fail() { return t("这几项现在就会影响会话，先处理它们"); },
+  get info() { return t("不算失败，但会改变行为或者让数据缺一块"); },
+  get ok() { return t("本机这部分配置没有问题"); },
 };
 
 export default function DoctorView() {
@@ -67,13 +68,13 @@ export default function DoctorView() {
   // 计数为零的档不进结论文本：「失败 0 项」是没有信息量的噪声
   const conclusion =
     total === 0
-      ? '还没有体检结果'
+      ? t("还没有体检结果")
       : failCount === 0 && warnCount === 0
-        ? `${total} 项全部通过`
+        ? t("{0} 项全部通过", [total])
         : [
-            `共 ${total} 项`,
-            warnCount > 0 ? `警告 ${warnCount} 项` : null,
-            failCount > 0 ? `失败 ${failCount} 项` : null,
+            t("共 {0} 项", [total]),
+            warnCount > 0 ? t("警告 {0} 项", [warnCount]) : null,
+            failCount > 0 ? t("失败 {0} 项", [failCount]) : null,
           ]
             .filter((part): part is string => part !== null)
             .join('，');
@@ -95,15 +96,15 @@ export default function DoctorView() {
       const fresh = await fixSubagentPins();
       const after = fresh.find((item) => item.id === target.id) ?? null;
       if (after === null) {
-        reportFix('清理跑完了：重跑的体检里已经没有这一项。', true);
+        reportFix(t("清理跑完了：重跑的体检里已经没有这一项。"), true);
       } else if (after.level === 'fail') {
-        reportFix(`清理跑完了，但「${after.title}」仍然是失败，展开这一项看原因。`, false);
+        reportFix(t("清理跑完了，但「{0}」仍然是失败，展开这一项看原因。", [after.title]), false);
       } else {
-        reportFix(`清理跑完了，「${after.title}」现在是${LEVEL_LABEL[after.level]}。`, true);
+        reportFix(t("清理跑完了，「{0}」现在是{1}。", [after.title, LEVEL_LABEL[after.level]]), true);
       }
     } catch (cause) {
       // 原因原文不包装成「操作失败」；持久的一份由对应行读 error.doctorFixSubagentPins 就地呈现
-      reportFix(`清理未成功：${errorText(cause)}`, false);
+      reportFix(t("清理未成功：{0}", [errorText(cause)]), false);
     } finally {
       setFixingId(null);
     }
@@ -112,10 +113,7 @@ export default function DoctorView() {
   return (
     <div className={styles.view}>
       <p className={styles.scope}>
-        <Icon name="lock" size={14} className={styles.scopeIcon} />
-        检查只读本机配置，不连任何上游：每条结论都从本机文件推出来，不发一个请求。唯一的修复动作会先备份、
-        再改本机文件，且确认后才执行。
-      </p>
+        <Icon name="lock" size={14} className={styles.scopeIcon} />{t(" 检查只读本机配置，不连任何上游：每条结论都从本机文件推出来，不发一个请求。唯一的修复动作会先备份、 再改本机文件，且确认后才执行。 ")}</p>
 
       <section className={styles.summary}>
         {/* 播报区只圈住结论文本：把按钮圈进 aria-live 会让读屏器反复念按钮名 */}
@@ -131,13 +129,13 @@ export default function DoctorView() {
           {total === 0 ? null : (
             <ul className={styles.counters}>
               <li>
-                <StatusDot tone={LEVEL_TONE.ok}>通过 {okCount} 项</StatusDot>
+                <StatusDot tone={LEVEL_TONE.ok}>{t("通过 ")}{okCount}{t(" 项")}</StatusDot>
               </li>
               <li>
-                <StatusDot tone={LEVEL_TONE.info}>警告 {warnCount} 项</StatusDot>
+                <StatusDot tone={LEVEL_TONE.info}>{t("警告 ")}{warnCount}{t(" 项")}</StatusDot>
               </li>
               <li>
-                <StatusDot tone={LEVEL_TONE.fail}>失败 {failCount} 项</StatusDot>
+                <StatusDot tone={LEVEL_TONE.fail}>{t("失败 ")}{failCount}{t(" 项")}</StatusDot>
               </li>
             </ul>
           )}
@@ -151,9 +149,7 @@ export default function DoctorView() {
           icon="refresh"
           loading={loading}
           onClick={() => void refresh('doctor')}
-        >
-          重新体检
-        </Button>
+        >{t(" 重新体检 ")}</Button>
       </section>
 
       {reason === null ? null : (
@@ -164,7 +160,7 @@ export default function DoctorView() {
 
       {total === 0 && loading ? (
         <div className={styles.loading}>
-          <Spinner label="正在体检本机配置" />
+          <Spinner label={t("正在体检本机配置")} />
         </div>
       ) : null}
 
@@ -172,13 +168,11 @@ export default function DoctorView() {
       {total === 0 && loaded && !loading && reason === null ? (
         <EmptyState
           icon="doctor"
-          title="还没有体检结果"
-          description="体检是按需运行的本地检查，现在还没有结果：应用启动时的那次体检没跑成，或者这一页从没体检过。"
-          action={{ label: '开始体检', icon: 'play', variant: 'primary', onClick: () => void refresh('doctor') }}
+          title={t("还没有体检结果")}
+          description={t("体检是按需运行的本地检查，现在还没有结果：应用启动时的那次体检没跑成，或者这一页从没体检过。")}
+          action={{ label: t("开始体检"), icon: 'play', variant: 'primary', onClick: () => void refresh('doctor') }}
           hint={
-            <>
-              等价的命令行是 <code className={styles.code}>claude1 doctor</code>，两边看到的是同一批检查。
-            </>
+            <>{t(" 等价的命令行是 ")}<code className={styles.code}>claude1 doctor</code>{t("，两边看到的是同一批检查。 ")}</>
           }
         />
       ) : null}
@@ -214,14 +208,12 @@ export default function DoctorView() {
       <Dialog
         open={pending !== null}
         onClose={() => setPending(null)}
-        title="清理子代理模型固定值"
-        description="桌面端对 CC Switch 数据库只读，所以这一步交给 CLI 做。"
+        title={t("清理子代理模型固定值")}
+        description={t("桌面端对 CC Switch 数据库只读，所以这一步交给 CLI 做。")}
         closeOnOverlay={false}
         footer={
           <>
-            <Button variant="ghost" size="sm" onClick={() => setPending(null)}>
-              取消
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setPending(null)}>{t(" 取消 ")}</Button>
             <Button
               variant="primary"
               size="sm"
@@ -229,20 +221,13 @@ export default function DoctorView() {
               onClick={() => {
                 if (pending !== null) void runFix(pending);
               }}
-            >
-              确认清理
-            </Button>
+            >{t(" 确认清理 ")}</Button>
           </>
         }
       >
-        <p className={styles.dialogText}>
-          会调用 <code className={styles.code}>claude1 doctor --fix</code>
-          ：它先备份 CC Switch 数据库，再清掉 settings_config 里的{' '}
-          <code className={styles.code}>CLAUDE_CODE_SUBAGENT_MODEL</code> 键。
-        </p>
-        <p className={styles.dialogText}>
-          清完之后子代理会跟随会话主模型，槽位设置对子代理重新生效。桌面端会自动重跑体检，上面的结论换成新结果。
-        </p>
+        <p className={styles.dialogText}>{t(" 会调用 ")}<code className={styles.code}>claude1 doctor --fix</code>{t(" ：它先备份 CC Switch 数据库，再清掉 settings_config 里的")}{' '}
+          <code className={styles.code}>CLAUDE_CODE_SUBAGENT_MODEL</code>{t(" 键。 ")}</p>
+        <p className={styles.dialogText}>{t(" 清完之后子代理会跟随会话主模型，槽位设置对子代理重新生效。桌面端会自动重跑体检，上面的结论换成新结果。 ")}</p>
       </Dialog>
     </div>
   );

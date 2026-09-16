@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import type { ReactNode } from 'react';
 import { cx } from '../../lib';
 import { approxTextWidth, truncateToWidth } from './text';
@@ -43,7 +44,7 @@ export function Sparkline({
   width = 120,
   height = 24,
   color = 'var(--accent)',
-  emptyText = '这段时间没有调用',
+  emptyText = t("这段时间没有调用"),
   ariaLabel,
   className,
 }: SparklineProps) {
@@ -102,7 +103,7 @@ export function Sparkline({
         <circle cx={last[0]} cy={last[1]} r="2" fill={color} />
       </>
     );
-    label = `趋势线，${series.length} 个点，峰值 ${max}`;
+    label = t("趋势线，{0} 个点，峰值 {1}", [series.length, max]);
   }
 
   return (

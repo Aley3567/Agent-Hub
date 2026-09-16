@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { KeyboardEvent } from 'react';
 import { cx } from '../lib';
 import { Icon } from './Icon';
@@ -22,14 +23,14 @@ export interface SearchInputProps {
 export function SearchInput({
   value,
   onChange,
-  placeholder = '搜索',
+  placeholder = t("搜索"),
   onClear,
   onKeyDown,
   disabled = false,
   autoFocus = false,
   id,
   className,
-  'aria-label': ariaLabel = '搜索',
+  'aria-label': ariaLabel = t("搜索"),
 }: SearchInputProps) {
   return (
     <span className={cx(styles.field, disabled && styles.disabled, className)}>
@@ -51,7 +52,7 @@ export function SearchInput({
         <button
           type="button"
           className={styles.clear}
-          aria-label="清空搜索"
+          aria-label={t("清空搜索")}
           onClick={() => {
             onChange('');
             onClear?.();

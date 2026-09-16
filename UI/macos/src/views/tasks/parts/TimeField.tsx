@@ -6,7 +6,7 @@
  * 的行为都跟着原生控件走，少一批自造轮子的可达性 bug。
  */
 import { Select } from '../../../components';
-import { bilingual as b } from '../../../i18n';
+import { t, bilingual as b  } from '../../../i18n';
 import styles from './TimeField.module.css';
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => ({
@@ -44,7 +44,7 @@ export default function TimeField({
             mono
             options={HOURS}
             value={String(hour)}
-            aria-label={b('小时', 'Hour')}
+            aria-label={b(t("小时"), 'Hour')}
             disabled={disabled}
             onChange={(event) => onChange(Number(event.target.value), minute)}
           />
@@ -58,7 +58,7 @@ export default function TimeField({
         mono
         options={MINUTES}
         value={String(minute)}
-        aria-label={b('分钟', 'Minute')}
+        aria-label={b(t("分钟"), 'Minute')}
         disabled={disabled}
         onChange={(event) => onChange(hour, Number(event.target.value))}
       />

@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 用量页 KPI 区：左侧英雄大数字 + 右侧两小卡 + 下方五格汇总条。
  *
@@ -65,10 +66,10 @@ export function KpiRow({
         </div>
       </div>
 
-      <div className={styles.composition} aria-label="已记录 Token 构成">
+      <div className={styles.composition} aria-label={t("已记录 Token 构成")}>
         {bars.slice(0,4).map(item=><span key={item.label} title={`${item.label} ${item.value} · ${item.caption}`} style={{flex:item.progress??0,background:item.color}}/>)}
       </div>
-      <ul className={styles.barRow} aria-label="用量汇总">
+      <ul className={styles.barRow} aria-label={t("用量汇总")}>
         {bars.map((item) => (
           <li key={item.label} className={styles.barCell}>
             <span className={styles.barLabel}>{item.label}</span>

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * toast 渲染层（--z-toast）。数据全在 store/toast.ts，这里只负责画出来：
  * 右下角堆叠、成功/失败两种语义色（图标 + 颜色双重编码，DESIGN.md 第 6 节）、可手动关闭。
@@ -28,11 +29,11 @@ function ToastRow({ toast }: { toast: ToastItem }) {
       <span className={cx(styles.icon, toast.kind === 'success' ? styles.iconSuccess : styles.iconError)}>
         <Icon name={toast.kind === 'success' ? 'success' : 'error'} size={16} />
       </span>
-      <span className={styles.text}>{toast.text}</span>
+      <span className={styles.text}>{t(toast.text)}</span>
       <button
         type="button"
         className={styles.close}
-        aria-label="关闭这条提示"
+        aria-label={t("关闭这条提示")}
         onClick={() => dismiss(toast.id)}
       >
         <Icon name="close" size={14} />
@@ -45,7 +46,7 @@ export default function ToastLayer() {
   const toasts = useToast((state) => state.toasts);
   if (toasts.length === 0) return null;
   return (
-    <div className={styles.layer} aria-label="操作反馈">
+    <div className={styles.layer} aria-label={t("操作反馈")}>
       {toasts.map((toast) => (
         <ToastRow key={toast.id} toast={toast} />
       ))}

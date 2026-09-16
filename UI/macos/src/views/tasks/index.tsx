@@ -15,7 +15,7 @@ import TaskCard from './parts/TaskCard';
 import TaskDialog from './parts/TaskDialog';
 import { formatSchedule } from './parts/scheduleText';
 import styles from './index.module.css';
-import { bilingual as b, useLocale } from '../../i18n';
+import { t, bilingual as b, useLocale  } from '../../i18n';
 import { isOffline } from '../../api';
 
 /** 倒计时刷新周期（ms）。倒计时最小单位是分钟，30s 一刷足够跟手 */
@@ -99,7 +99,7 @@ export default function TasksView() {
     setDeleteBusy(true);
     try {
       await deleteTask(deleting.id);
-      toastSuccess(b(`已删除「${deleting.name}」。`, `Deleted “${deleting.name}”.`));
+      toastSuccess(b(t("已删除「{0}」。", [deleting.name]), `Deleted “${deleting.name}”.`));
       setDeleting(null);
     } catch (cause) {
       // IPC 的中文错误原文直接给 toast，不改写（AGENTS.md：错误原样暴露）
@@ -112,22 +112,22 @@ export default function TasksView() {
   return (
     <div className={styles.view}>
       <SectionHeader
-        title={b("任务清单", "Scheduled tasks")}
+        title={b(t("任务清单"), "Scheduled tasks")}
         count={tasksLoaded ? tasks.length : null}
         actions={
           <Button variant="primary" size="sm" icon="plus" onClick={openCreate}>
-            {b("新建任务", "New task")}
+            {b(t("新建任务"), "New task")}
           </Button>
         }
       />
 
-      <p className={styles.note}>{isOffline ? b('离线示例，不会执行任务。', 'Offline examples; tasks will not run.') : b('保持应用运行即可按本地时区执行。退出、重启或长时间休眠不补跑；启动类任务只确认终端派发。', 'Runs in your local time zone while the app is open. No catch-up after exit, restart or sleep; session tasks confirm terminal handoff only.')}</p>
-      <Input leadingIcon="search" aria-label={b('搜索定时任务', 'Search scheduled tasks')} placeholder={b('搜索已安排任务', 'Search scheduled tasks')} value={query} onChange={e => setQuery(e.target.value)} />
-      <SegmentedControl aria-label={b('任务状态', 'Task status')} value={filter} onChange={setFilter} options={[
-        { value: 'all', label: b('全部', 'All') }, { value: 'enabled', label: b('已开启', 'Enabled') },
-        { value: 'paused', label: b('已暂停', 'Paused') }, { value: 'completed', label: b('最近成功', 'Recent successes') },
+      <p className={styles.note}>{isOffline ? b(t("离线示例，不会执行任务。"), 'Offline examples; tasks will not run.') : b(t("保持应用运行即可按本地时区执行。退出、重启或长时间休眠不补跑；启动类任务只确认终端派发。"), 'Runs in your local time zone while the app is open. No catch-up after exit, restart or sleep; session tasks confirm terminal handoff only.')}</p>
+      <Input leadingIcon="search" aria-label={b(t("搜索定时任务"), 'Search scheduled tasks')} placeholder={b(t("搜索已安排任务"), 'Search scheduled tasks')} value={query} onChange={e => setQuery(e.target.value)} />
+      <SegmentedControl aria-label={b(t("任务状态"), 'Task status')} value={filter} onChange={setFilter} options={[
+        { value: 'all', label: b(t("全部"), 'All') }, { value: 'enabled', label: b(t("已开启"), 'Enabled') },
+        { value: 'paused', label: b(t("已暂停"), 'Paused') }, { value: 'completed', label: b(t("最近成功"), 'Recent successes') },
       ]} />
-      {tasksLoaded && tasks.length > 0 && sorted.length === 0 ? <p className={styles.note}>{b('没有匹配的任务', 'No matching tasks')}</p> : null}
+      {tasksLoaded && tasks.length > 0 && sorted.length === 0 ? <p className={styles.note}>{b(t("没有匹配的任务"), 'No matching tasks')}</p> : null}
       {reason === null ? null : (
         <p className={styles.error} role="alert">
           {reason}
@@ -136,17 +136,17 @@ export default function TasksView() {
 
       {(loading || !tasksLoaded) && tasks.length === 0 ? (
         <div className={styles.loading}>
-          <Spinner label={b("正在读取计划任务", "Loading scheduled tasks")} />
+          <Spinner label={b(t("正在读取计划任务"), "Loading scheduled tasks")} />
         </div>
       ) : null}
 
       {showEmpty ? (
         <EmptyState
           icon="tasks"
-          title={b("还没有定时任务", "No scheduled tasks yet")}
-          description={b("创建定时启动渠道或本机体检提醒。", "Schedule a channel session or a local diagnostic reminder.")}
-          action={{ label: b('新建一个任务', 'Create a task'), icon: 'plus', variant: 'primary', onClick: openCreate }}
-          hint={b("提醒会保留在任务的最近结果中；周期任务触发后仍按计划运行。", "Reminders remain in the task result. Recurring tasks stay scheduled after each run.")}
+          title={b(t("还没有定时任务"), "No scheduled tasks yet")}
+          description={b(t("创建定时启动渠道或本机体检提醒。"), "Schedule a channel session or a local diagnostic reminder.")}
+          action={{ label: b(t("新建一个任务"), 'Create a task'), icon: 'plus', variant: 'primary', onClick: openCreate }}
+          hint={b(t("提醒会保留在任务的最近结果中；周期任务触发后仍按计划运行。"), "Reminders remain in the task result. Recurring tasks stay scheduled after each run.")}
         />
       ) : null}
 
@@ -172,15 +172,15 @@ export default function TasksView() {
       <Dialog
         open={deleting !== null}
         onClose={() => setDeleting(null)}
-        title={b("删除计划任务", "Delete scheduled task")}
-        description={deleting === null ? undefined : b(`「${deleting.name}」将被删除，这个操作不可撤销。`, `Delete “${deleting.name}”? This cannot be undone.`)}
+        title={b(t("删除计划任务"), "Delete scheduled task")}
+        description={deleting === null ? undefined : b(t("「{0}」将被删除，这个操作不可撤销。", [deleting.name]), `Delete “${deleting.name}”? This cannot be undone.`)}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleting(null)} disabled={deleteBusy}>
-              {b("取消", "Cancel")}
+              {b(t("取消"), "Cancel")}
             </Button>
             <Button variant="danger" size="sm" icon="trash" loading={deleteBusy} onClick={() => void confirmDelete()}>
-              {b("确认删除", "Delete")}
+              {b(t("确认删除"), "Delete")}
             </Button>
           </>
         }

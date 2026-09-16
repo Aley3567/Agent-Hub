@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 一个槽位一行：槽位名、绑定渠道、目标模型、effort 档位、最近 24 小时调用量。
  *
@@ -99,7 +100,7 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
   function commitBinding(channel: string | null, model: string | null): void {
     if (channel === null || model === null) {
       if (binding === null) return;
-      void run('已清除绑定', () => setSlot(hub.name, slot, null, null));
+      void run(t("已清除绑定"), () => setSlot(hub.name, slot, null, null));
       return;
     }
     const same =
@@ -107,13 +108,13 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
       binding.channel.trim().toLowerCase() === channel.trim().toLowerCase() &&
       binding.model === model;
     if (same) return;
-    void run(`已绑定 ${channel},${model}`, () => setSlot(hub.name, slot, channel, model));
+    void run(t("已绑定 {0},{1}", [channel, model]), () => setSlot(hub.name, slot, channel, model));
   }
 
   function commitEffort(choice: EffortChoice): void {
     const next = fromEffortChoice(choice);
     if (next === effort) return;
-    void run(next === null ? '已清除 effort' : `effort 已设为 ${next}`, () =>
+    void run(next === null ? t("已清除 effort") : t("effort 已设为 {0}", [next]), () =>
       setSlotEffort(hub.name, slot, next),
     );
   }
@@ -122,13 +123,13 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
     <li className={styles.item}>
       <div className={styles.line}>
         <div className={styles.cell}>
-          <span className={styles.label}>槽位</span>
+          <span className={styles.label}>{t("槽位")}</span>
           <Tooltip content={slotHitText(slot)}>
             <span className={styles.slotName}>{slot}</span>
           </Tooltip>
-          {isLaunchSlot ? <Badge tone="accent">启动槽位</Badge> : null}
+          {isLaunchSlot ? <Badge tone="accent">{t("启动槽位")}</Badge> : null}
           <span className={styles.status} aria-live="polite">
-            {saving ? <Spinner size="sm" label="写入中" /> : null}
+            {saving ? <Spinner size="sm" label={t("写入中")} /> : null}
             {!saving && saved !== null ? <StatusDot tone="ok">{saved}</StatusDot> : null}
           </span>
         </div>
@@ -144,7 +145,7 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
         />
 
         <div className={styles.cell}>
-          <span className={styles.label}>effort 档位</span>
+          <span className={styles.label}>{t("effort 档位")}</span>
           <SegmentedControl
             options={effortChoices(slot)}
             value={toEffortChoice(effort)}
@@ -152,28 +153,28 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
             disabled={saving}
             fullWidth
             truncate={false}
-            aria-label={`${slot} 槽位的 effort 档位`}
+            aria-label={t("{0} 槽位的 effort 档位", [slot])}
           />
         </div>
 
         <div className={styles.cell}>
-          <span className={styles.label}>最近 24 小时</span>
+          <span className={styles.label}>{t("最近 24 小时")}</span>
           {usageGap !== null ? (
             <Tooltip content={usageGap}>
-              <span className={styles.usageNote}>口径不覆盖本 hub</span>
+              <span className={styles.usageNote}>{t("口径不覆盖本 hub")}</span>
             </Tooltip>
           ) : binding === null ? (
-            <span className={styles.usageNote}>未绑定，没有可统计的调用</span>
+            <span className={styles.usageNote}>{t("未绑定，没有可统计的调用")}</span>
           ) : (
             <>
               <Sparkline
                 data={usage.turns === 0 ? [] : usage.buckets}
-                emptyText="24 小时无调用"
-                ariaLabel={`${slot} 槽位最近 24 小时每小时的调用回合数，合计 ${usage.turns} 回合`}
+                emptyText={t("24 小时无调用")}
+                ariaLabel={t("{0} 槽位最近 24 小时每小时的调用回合数，合计 {1} 回合", [slot, usage.turns])}
                 height={24}
               />
-              <span className={styles.usageMeta} title="未配置价格表，不估算成本">
-                {`${formatCount(usage.turns)} 回合 · ${formatTokens(usage.tokens)} tokens`}
+              <span className={styles.usageMeta} title={t("未配置价格表，不估算成本")}>
+                {t("{0} 回合 · {1} tokens", [formatCount(usage.turns), formatTokens(usage.tokens)])}
               </span>
             </>
           )}
@@ -189,42 +190,36 @@ export function SlotRow({ hub, slot, channelsById, undeclared, usage, usageGap, 
 
         {binding === null ? (
           <p className={fallback.ok ? styles.note : styles.noteDanger}>
-            <StatusDot tone="off">未绑定，将走 fallback</StatusDot>
+            <StatusDot tone="off">{t("未绑定，将走 fallback")}</StatusDot>
             <span className={styles.noteText}>{fallback.text}</span>
           </p>
         ) : null}
 
         {binding !== null && hubChannel === null ? (
           <p className={styles.noteDanger}>
-            {`本行绑定的渠道 ${binding.channel} 不在本 hub 的 channels 里。claude1 启动这个 hub 时会报「model_slots.${slot} 必须引用已声明的渠道模型」，先换成已声明的渠道。`}
+            {t("本行绑定的渠道 {0} 不在本 hub 的 channels 里。claude1 启动这个 hub 时会报「model_slots.{1} 必须引用已声明的渠道模型」，先换成已声明的渠道。", [binding.channel, slot])}
           </p>
         ) : null}
 
         {binding !== null && hubChannel !== null && !hubChannel.models.includes(binding.model) ? (
           <p className={styles.noteDanger}>
-            {`hub 渠道 ${hubChannel.name} 没有声明模型 ${binding.model}${
-              hubChannel.models.length === 0 ? '（它一个模型都没声明）' : `（它声明的是 ${hubChannel.models.join('、')}）`
-            }。claude1 启动这个 hub 时会报「model_slots.${slot} 必须引用已声明的渠道模型」。`}
+            {t("hub 渠道 {0} 没有声明模型 {1}{2}。claude1 启动这个 hub 时会报「model_slots.{3} 必须引用已声明的渠道模型」。", [hubChannel.name, binding.model, hubChannel.models.length === 0 ? t("（它一个模型都没声明）") : t("（它声明的是 {0}）", [hubChannel.models.join('、')]), slot])}
           </p>
         ) : null}
 
         {real !== null && real.compatibility === 'incompatible' ? (
           <p className={styles.noteWarn}>
-            <StatusDot tone="degraded">不兼容</StatusDot>
+            <StatusDot tone="degraded">{t("不兼容")}</StatusDot>
             <span className={styles.noteText}>
-              {`渠道 ${real.name} 的 Claude Code 语义兼容性结论是 incompatible${
-                real.compatibilityReason === null ? '' : `：${real.compatibilityReason}`
-              }`}
+              {t("渠道 {0} 的 Claude Code 语义兼容性结论是 incompatible{1}", [real.name, real.compatibilityReason === null ? '' : `：${real.compatibilityReason}`])}
             </span>
-            <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>
-              去诊断视图
-            </Button>
+            <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>{t(" 去诊断视图 ")}</Button>
           </p>
         ) : null}
 
         {hubChannel !== null && hubChannel.resolvedChannelId === null ? (
           <p className={styles.note}>
-            {`hub 渠道 ${hubChannel.name} 的 provider 选择器「${hubChannel.provider}」没解析到本机渠道，凭证与端点都得看 hub 配置自己怎么写。`}
+            {t("hub 渠道 {0} 的 provider 选择器「{1}」没解析到本机渠道，凭证与端点都得看 hub 配置自己怎么写。", [hubChannel.name, hubChannel.provider])}
           </p>
         ) : null}
       </div>

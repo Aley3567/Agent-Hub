@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { ReactNode } from 'react';
 import { cx } from '../lib';
 import styles from './StatusDot.module.css';
@@ -43,11 +44,11 @@ const CANONICAL: Record<StatusToneInput, StatusTone> = {
 };
 
 const FALLBACK_TEXT: Record<StatusTone, string> = {
-  ok: '正常',
-  degraded: '降级',
-  fail: '失败',
-  off: '未启用',
-  current: '当前',
+  get ok() { return t("正常"); },
+  get degraded() { return t("降级"); },
+  get fail() { return t("失败"); },
+  get off() { return t("未启用"); },
+  get current() { return t("当前"); },
 };
 
 interface StatusDotBase {

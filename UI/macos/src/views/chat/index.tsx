@@ -177,7 +177,7 @@ export default function ChatView() {
     try {
       await deleteChatSession(deleting.id);
       if (selectedId === deleting.id) setSelectedId(null);
-      toastSuccess(b(`已删除会话「${deleting.title}」。`, `Deleted session “${deleting.title}”.`));
+      toastSuccess(b(t("已删除会话「{0}」。", [deleting.title]), `Deleted session “${deleting.title}”.`));
       setDeleting(null);
     } catch (cause) {
       // IPC 的中文错误原文直接给 toast，不改写（AGENTS.md：错误原样暴露）
@@ -323,7 +323,7 @@ export default function ChatView() {
         open={deleting !== null}
         onClose={() => setDeleting(null)}
         title={t('删除会话')}
-        description={deleting === null ? undefined : b(`「${deleting.title}」会被删除，这个操作不可撤销。历史会话只读，删不掉。`, `Delete “${deleting.title}”? This cannot be undone. History sessions are read-only.`)}
+        description={deleting === null ? undefined : b(t("「{0}」会被删除，这个操作不可撤销。历史会话只读，删不掉。", [deleting.title]), `Delete “${deleting.title}”? This cannot be undone. History sessions are read-only.`)}
         footer={
           <>
             <Button variant="secondary" size="sm" onClick={() => setDeleting(null)} disabled={deleteBusy}>

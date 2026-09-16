@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 插件视图，回答「hooks、输出风格、状态栏、权限这些扩展点各自是什么状态」
  * （CONTRACT.md 6.5 的文案锚点）。形态按 DESIGN.md 4.6：按 kind 五类分组的分组列表，
@@ -24,11 +25,11 @@ type PluginKind = PluginItem['kind'];
 const KIND_ORDER: PluginKind[] = ['hook', 'outputStyle', 'statusLine', 'permissions', 'mcp'];
 
 const KIND_LABEL: Record<PluginKind, string> = {
-  hook: '钩子',
-  outputStyle: '输出风格',
-  statusLine: '状态栏',
-  permissions: '权限',
-  mcp: 'MCP 服务器',
+  get hook() { return t("钩子"); },
+  get outputStyle() { return t("输出风格"); },
+  get statusLine() { return t("状态栏"); },
+  get permissions() { return t("权限"); },
+  get mcp() { return t("MCP 服务器"); },
 };
 
 export default function PluginsView() {
@@ -69,18 +70,14 @@ export default function PluginsView() {
       <div className={styles.head}>
         {/* 正文说明就这一行（DESIGN.md 3：每视图正文说明 ≤1 行） */}
         <p className={styles.scope}>
-          <Icon name="lock" size={14} className={styles.scopeIcon} />
-          全局项的开关写入 claude1-config.json；渠道级项来自 settings_config，数据库只读。
-        </p>
+          <Icon name="lock" size={14} className={styles.scopeIcon} />{t(" 全局项的开关写入 claude1-config.json；渠道级项来自 settings_config，数据库只读。 ")}</p>
         <Button
           variant="secondary"
           size="sm"
           icon="refresh"
           loading={loading}
           onClick={() => void refresh('plugins')}
-        >
-          刷新
-        </Button>
+        >{t(" 刷新 ")}</Button>
       </div>
 
       {reason === null ? null : (
@@ -91,17 +88,17 @@ export default function PluginsView() {
 
       {(loading || !loaded) && plugins.length === 0 ? (
         <div className={styles.loading}>
-          <Spinner label="正在读取插件清单" />
+          <Spinner label={t("正在读取插件清单")} />
         </div>
       ) : null}
 
       {showEmpty ? (
         <EmptyState
           icon="plugins"
-          title="没有配置任何扩展点"
-          description="全局配置与所有渠道的 settings_config 里都没有 hooks、输出风格、状态栏、权限或 MCP 服务器，所以这份清单是空的。"
-          action={{ label: '重新读取', icon: 'refresh', onClick: () => void refresh('plugins') }}
-          hint="在 Claude Code 的 settings.json 或 CC Switch 的渠道配置里加上扩展点后，重新读取就能在这里看到对应条目。"
+          title={t("没有配置任何扩展点")}
+          description={t("全局配置与所有渠道的 settings_config 里都没有 hooks、输出风格、状态栏、权限或 MCP 服务器，所以这份清单是空的。")}
+          action={{ label: t("重新读取"), icon: 'refresh', onClick: () => void refresh('plugins') }}
+          hint={t("在 Claude Code 的 settings.json 或 CC Switch 的渠道配置里加上扩展点后，重新读取就能在这里看到对应条目。")}
         />
       ) : null}
 

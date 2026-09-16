@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 单个插件项的一行。行结构按 DESIGN.md 4.6：
  * StatusDot + 名称（mono --fs-14）+ kind Badge + 一行 summary + 右侧操作位。
@@ -66,7 +67,7 @@ export default function PluginRow({ item }: PluginRowProps) {
 
   // StatusDot 语义沿用 DESIGN.md 4.1 既有映射，不新增：绿=启用、灰=未启用、琥珀=只读不可改
   const tone = readOnly ? 'degraded' : item.enabled ? 'ok' : 'off';
-  const statusText = item.enabled ? '已启用' : '未启用';
+  const statusText = item.enabled ? t("已启用") : t("未启用");
 
   const main = (
     <>
@@ -78,8 +79,8 @@ export default function PluginRow({ item }: PluginRowProps) {
       </span>
       {/* Badge 装的是技术标识：组头已给中文组名，这里放机器码原值（人话在前、原码不隐藏） */}
       <Badge tone="neutral">{item.kind}</Badge>
-      <span className={styles.summary} title={item.summary}>
-        {item.summary}
+      <span className={styles.summary} title={t(item.summary)}>
+        {t(item.summary)}
       </span>
       {hasDetail ? (
         // 一枚箭头旋转到位，不换图标名：旋转能被看见，换名是硬切
@@ -108,14 +109,14 @@ export default function PluginRow({ item }: PluginRowProps) {
         <div className={styles.action}>
           {readOnly ? (
             // 只读原因由 Tooltip 承载；「只读」字样本身不藏，读屏与扫读都能拿到
-            <Tooltip content="来自渠道的 settings_config，桌面端对数据库只读；要调整到渠道视图或 CC Switch 里改">
-              <span className={styles.readOnly}>只读</span>
+            <Tooltip content={t("来自渠道的 settings_config，桌面端对数据库只读；要调整到渠道视图或 CC Switch 里改")}>
+              <span className={styles.readOnly}>{t("只读")}</span>
             </Tooltip>
           ) : (
             <Switch
               checked={item.enabled}
               disabled={busy}
-              aria-label={`${item.enabled ? '停用' : '启用'} ${item.name}`}
+              aria-label={`${item.enabled ? t("停用") : t("启用")} ${item.name}`}
               onChange={(next) => void toggle(next)}
             />
           )}
@@ -124,7 +125,7 @@ export default function PluginRow({ item }: PluginRowProps) {
 
       {hasDetail && open ? (
         <div className={cx(styles.body, !entered && styles.bodyEnter)} id={bodyId}>
-          <CodeBlock label="原始配置（渲染前已脱敏）" code={item.detail} wrap maxHeight={240} />
+          <CodeBlock label={t("原始配置（渲染前已脱敏）")} code={item.detail} wrap maxHeight={240} />
         </div>
       ) : null}
     </li>

@@ -29,8 +29,8 @@ export interface SessionListProps {
 
 /** 渠道名解析：channelId 为 null 或在渠道表里查不到，都按「未绑定渠道」显示 */
 export function resolveChannelName(channels: Channel[], channelId: string | null): string {
-  if (channelId === null) return '未绑定渠道';
-  return channels.find((channel) => channel.appType === 'claude' && channel.id === channelId)?.name ?? '未绑定渠道';
+  if (channelId === null) return t("未绑定渠道");
+  return channels.find((channel) => channel.appType === 'claude' && channel.id === channelId)?.name ?? t("未绑定渠道");
 }
 
 function SessionList({ sessions, channelName, selectedId, onSelect, onDelete }: SessionListProps) {

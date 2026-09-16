@@ -24,7 +24,7 @@ export interface NewSessionDialogProps {
 
 /** 渠道选项：别名放括号里，没有模型的置灰，隐藏的标出来源 */
 function channelLabel(name: string, alias: string | null, hidden: boolean): string {
-  const suffix = hidden ? b(' · 已隐藏', ' · hidden') : '';
+  const suffix = hidden ? b(t(" · 已隐藏"), ' · hidden') : '';
   return alias === null ? `${name}${suffix}` : `${name} (${alias})${suffix}`;
 }
 

@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 诊断长页的右侧锚点导航（REDESIGN-PROMPT 1.5 / 2.3-1）。
  *
@@ -33,7 +34,7 @@ export function SectionNav<T extends string>({
 }: SectionNavProps<T>) {
   return (
     <nav className={className} aria-label={ariaLabel}>
-      <span className={styles.label}>小节</span>
+      <span className={styles.label}>{t("小节")}</span>
       <ul className={styles.list}>
         {items.map((item) => {
           const current = item.id === active;

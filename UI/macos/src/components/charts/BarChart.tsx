@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { cx, formatTokens } from '../../lib';
 import { truncateToWidth } from './text';
 import { useChartWidth } from './useChartWidth';
@@ -35,7 +36,7 @@ export interface BarChartProps {
 }
 
 const DEFAULT_COLORS = ['var(--accent)', 'var(--violet)', 'var(--text-tertiary)'] as const;
-const DEFAULT_SERIES = ['输入', '输出', '缓存'] as const;
+const DEFAULT_SERIES = ["输入", "输出", "缓存"] as const;
 
 /* SVG 内部坐标（DESIGN.md 第 4.2 节：条高 20、圆角 2） */
 const BAR_HEIGHT = 20;
@@ -55,13 +56,13 @@ function segmentsOf(datum: BarChartDatum): number[] {
 /** 横向条形图，多序列堆叠。值标签在条右侧，等宽 */
 export function BarChart({
   data,
-  seriesLabels = DEFAULT_SERIES,
+  seriesLabels = DEFAULT_SERIES.map(label => t(label)),
   colors = DEFAULT_COLORS,
   max,
   topN,
   formatValue = formatTokens,
   legend,
-  emptyText = '这段时间没有产生任何用量',
+  emptyText = t("这段时间没有产生任何用量"),
   ariaLabel,
   className,
 }: BarChartProps) {
@@ -70,7 +71,7 @@ export function BarChart({
   const prepared = rows.map((datum) => {
     const segments = segmentsOf(datum);
     return {
-      label: datum.label ?? datum.key ?? '未标注',
+      label: datum.label ?? datum.key ?? t("未标注"),
       title: datum.title,
       segments,
       total: segments.reduce((sum, value) => sum + value, 0),
@@ -125,7 +126,7 @@ export function BarChart({
                 style={{ background: colors[index % colors.length] }}
                 aria-hidden="true"
               />
-              {seriesLabels[index] ?? `序列 ${index + 1}`}
+              {seriesLabels[index] ?? t("序列 {0}", [index + 1])}
             </li>
           ))}
         </ul>
@@ -137,7 +138,7 @@ export function BarChart({
         width={width}
         height={height}
         role="img"
-        aria-label={ariaLabel ?? `横向条形图，共 ${prepared.length} 行`}
+        aria-label={ariaLabel ?? t("横向条形图，共 {0} 行", [prepared.length])}
       >
         {prepared.map((row, rowIndex) => {
           const y = rowIndex * (BAR_HEIGHT + ROW_GAP);
@@ -188,16 +189,16 @@ export function BarChart({
 
       {/* 行明细原先只在 SVG <title> 里，键盘与读屏够不着；补一张视觉隐藏的数据表兜底（DESIGN.md 6 节） */}
       <table className="sr-only">
-        <caption>{ariaLabel ?? '横向条形图'}：各行明细</caption>
+        <caption>{ariaLabel ?? t("横向条形图")}{t("：各行明细")}</caption>
         <thead>
           <tr>
-            <th scope="col">项目</th>
+            <th scope="col">{t("项目")}</th>
             {Array.from({ length: seriesCount }, (_unused, index) => (
               <th key={index} scope="col">
-                {seriesLabels[index] ?? `序列 ${index + 1}`}
+                {seriesLabels[index] ?? t("序列 {0}", [index + 1])}
               </th>
             ))}
-            {seriesCount > 1 ? <th scope="col">合计</th> : null}
+            {seriesCount > 1 ? <th scope="col">{t("合计")}</th> : null}
           </tr>
         </thead>
         <tbody>

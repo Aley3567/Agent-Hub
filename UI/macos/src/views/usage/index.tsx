@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 用量视图 —— 回答「token 花在哪儿、缓存命中多少、成本多少」。
  *
@@ -48,19 +49,19 @@ const TOP_N = 8;
 const TABLE_PREVIEW = 5000;
 
 const GRANULARITY_OPTIONS: ReadonlyArray<SegmentedOption<'hour' | 'day'>> = [
-  { value: 'hour', label: '按小时', title: '每小时一个桶，适合看今天的分布' },
-  { value: 'day', label: '按天', title: '每天一个桶，适合看多天趋势' },
+  { value: 'hour', get label() { return t("按小时"); }, get title() { return t("每小时一个桶，适合看今天的分布"); } },
+  { value: 'day', get label() { return t("按天"); }, get title() { return t("每天一个桶，适合看多天趋势"); } },
 ];
 
-const GRANULARITY_TEXT: Record<'hour' | 'day', string> = { hour: '小时', day: '天' };
+const GRANULARITY_TEXT: Record<'hour' | 'day', string> = { get hour() { return t("小时"); }, get day() { return t("天"); } };
 
 type AutorefreshChoice = 'off' | '10' | '30' | '60';
 
 const AUTOREFRESH_OPTIONS: ReadonlyArray<SegmentedOption<AutorefreshChoice>> = [
-  { value: 'off', label: '关', title: '关闭自动刷新' },
-  { value: '10', label: '10s', title: '每 10 秒刷新一次' },
-  { value: '30', label: '30s', title: '每 30 秒刷新一次' },
-  { value: '60', label: '60s', title: '每 60 秒刷新一次' },
+  { value: 'off', get label() { return t("关"); }, get title() { return t("关闭自动刷新"); } },
+  { value: '10', label: '10s', get title() { return t("每 10 秒刷新一次"); } },
+  { value: '30', label: '30s', get title() { return t("每 30 秒刷新一次"); } },
+  { value: '60', label: '60s', get title() { return t("每 60 秒刷新一次"); } },
 ];
 
 const AUTOREFRESH_KEY = 'claude1.desktop.usageAutorefresh';
@@ -142,10 +143,10 @@ export default function UsageView() {
 
   const preset = range.preset && range.preset!=='custom' ? range.preset : matchPreset(range.fromTs);
   const rangeOptions: ReadonlyArray<SegmentedOption<RangeChoice>> = [
-    { value: 'today', label: PRESET_LABEL.today, title: '最近 24 小时' },
-    { value: 'week', label: PRESET_LABEL.week, title: '含今天的 7 个自然日' },
-    { value: 'month', label: PRESET_LABEL.month, title: '含今天的 30 个自然日' },
-    {value:'custom',label:'自定义'},
+    { value: 'today', label: PRESET_LABEL.today, title: t("最近 24 小时") },
+    { value: 'week', label: PRESET_LABEL.week, title: t("含今天的 7 个自然日") },
+    { value: 'month', label: PRESET_LABEL.month, title: t("含今天的 30 个自然日") },
+    {value:'custom',label:t("自定义")},
   ];
 
   const chooseRange = useCallback(
@@ -164,38 +165,38 @@ export default function UsageView() {
     const totals = usage.totals;
     const totalTokens = totals.in + totals.out + totals.cr + totals.cw;
     const heroItem: KpiItem = {
-      label: '已记录 Tokens',
+      label: t("已记录 Tokens"),
       value: formatCount(totalTokens),
-      caption: '输入 + 输出 + 缓存读 + 缓存写，窗口内已报告 token 合计',
+      caption: t("输入 + 输出 + 缓存读 + 缓存写，窗口内已报告 token 合计"),
       subValue: totalTokens >= 10_000 ? `≈ ${formatTokensCn(totalTokens)}` : undefined,
     };
     const sideItems: [KpiItem, KpiItem] = [
       {
-        label: '用量记录数',
+        label: t("用量记录数"),
         value: formatCount(totals.turns),
-        caption: 'Hub 请求与 Codex 用量事件，非 HTTP 请求总数',
+        caption: t("Hub 请求与 Codex 用量事件，非 HTTP 请求总数"),
       },
       {
-        label: '估算费用',
+        label: t("估算费用"),
         value: usage.estimatedCostUsd === null ? '—' : formatCostUsd(usage.estimatedCostUsd),
         caption:
           usage.costSource === null
-            ? '无可用定价，不估算费用'
+            ? t("无可用定价，不估算费用")
             : usage.costSource === 'pricing-db' || usage.costSource === 'cc-switch-db' || usage.costSource === 'hub-db'
-              ? '按指定的模型价格估算'
-              : '按 model-pricing.json 的单价估算',
+              ? t("按指定的模型价格估算")
+              : t("按 model-pricing.json 的单价估算"),
         accent: usage.estimatedCostUsd !== null,
       },
     ];
     const barItems: KpiItem[] = [
-      { label: '普通输入', value: formatTokens(totals.in), caption: `${formatPercent(totalTokens?totals.in/totalTokens:null)} · 占已记录总量，不含缓存`, progress: totalTokens?totals.in/totalTokens:0,color:'#5982c9' },
-      { label: '输出', value: formatTokens(totals.out), caption: `${formatPercent(totalTokens?totals.out/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.out/totalTokens:0,color:'#9b77d4' },
-      { label: '缓存写入', value: formatTokens(totals.cw), caption: `${formatPercent(totalTokens?totals.cw/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.cw/totalTokens:0,color:'#d69b35' },
-      { label: '缓存读取', value: formatTokens(totals.cr), caption: `${formatPercent(totalTokens?totals.cr/totalTokens:null)} · 占已记录总量`, progress:totalTokens?totals.cr/totalTokens:0,color:'#12a59a' },
+      { label: t("普通输入"), value: formatTokens(totals.in), caption: t("{0} · 占已记录总量，不含缓存", [formatPercent(totalTokens?totals.in/totalTokens:null)]), progress: totalTokens?totals.in/totalTokens:0,color:'#5982c9' },
+      { label: t("输出"), value: formatTokens(totals.out), caption: t("{0} · 占已记录总量", [formatPercent(totalTokens?totals.out/totalTokens:null)]), progress:totalTokens?totals.out/totalTokens:0,color:'#9b77d4' },
+      { label: t("缓存写入"), value: formatTokens(totals.cw), caption: t("{0} · 占已记录总量", [formatPercent(totalTokens?totals.cw/totalTokens:null)]), progress:totalTokens?totals.cw/totalTokens:0,color:'#d69b35' },
+      { label: t("缓存读取"), value: formatTokens(totals.cr), caption: t("{0} · 占已记录总量", [formatPercent(totalTokens?totals.cr/totalTokens:null)]), progress:totalTokens?totals.cr/totalTokens:0,color:'#12a59a' },
       {
-        label: '缓存读取占输入比例',
+        label: t("缓存读取占输入比例"),
         value: formatPercent(usage.cacheHitRate),
-        caption: `按输入字段完整的 ${formatCount(usage.cacheKnownTurns ?? 0)} / ${formatCount(totals.turns)} 条记录加权计算`,
+        caption: t("按输入字段完整的 {0} / {1} 条记录加权计算", [formatCount(usage.cacheKnownTurns ?? 0), formatCount(totals.turns)]),
         // 缺失时不画进度条（progress 可选）：数值侧 formatPercent(null) 显示「—」，
         // 图形侧画 0% 就是「数值说不存在、图形说零命中」的口径自相矛盾
         progress: usage.cacheHitRate ?? undefined,
@@ -217,7 +218,7 @@ export default function UsageView() {
     return usage.byChannel.map((bucket) => ({
       label: bucket.key,
       values: [bucket.in, bucket.out, bucket.cr + bucket.cw],
-      title: `${bucket.key}：输入 ${formatTokens(bucket.in)} ／ 输出 ${formatTokens(bucket.out)} ／ 缓存读写 ${formatTokens(bucket.cr + bucket.cw)}，共 ${formatCount(bucket.turns)} 个回合`,
+      title: t("{0}：输入 {1} ／ 输出 {2} ／ 缓存读写 {3}，共 {4} 个回合", [bucket.key, formatTokens(bucket.in), formatTokens(bucket.out), formatTokens(bucket.cr + bucket.cw), formatCount(bucket.turns)]),
     }));
   }, [usage]);
 
@@ -226,14 +227,14 @@ export default function UsageView() {
     return usage.byModel.map((bucket) => ({
       label: bucket.key,
       values: [bucket.in, bucket.out, bucket.cr + bucket.cw],
-      title: `${bucket.key}：输入 ${formatTokens(bucket.in)} ／ 输出 ${formatTokens(bucket.out)} ／ 缓存读写 ${formatTokens(bucket.cr + bucket.cw)}，共 ${formatCount(bucket.turns)} 个回合`,
+      title: t("{0}：输入 {1} ／ 输出 {2} ／ 缓存读写 {3}，共 {4} 个回合", [bucket.key, formatTokens(bucket.in), formatTokens(bucket.out), formatTokens(bucket.cr + bucket.cw), formatCount(bucket.turns)]),
     }));
   }, [usage]);
 
   const alert =
     failure === null ? null : (
       <p className={styles.alert} role="alert">
-        {`读取用量流水失败：${failure}`}
+        {t("读取用量流水失败：{0}", [failure])}
       </p>
     );
 
@@ -244,14 +245,14 @@ export default function UsageView() {
         {busy || !usageLoaded ? (
           // usage 一次都没加载过时（首帧 busy 还没置真）也走加载态，不闪「还没读到」空态
           <div className={styles.loading}>
-            <Spinner size="md" label="正在读取用量流水" />
+            <Spinner size="md" label={t("正在读取用量流水")} />
           </div>
         ) : failure === null ? (
           <EmptyState
             icon="usage"
-            title="还没有读到用量聚合"
-            description="用量流水读取尚未完成或未开始。这一页读的是 ~/.cc-switch/logs/ 下的 usage journal，文件不存在也会当作空。"
-            action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+            title={t("还没有读到用量聚合")}
+            description={t("用量流水读取尚未完成或未开始。这一页读的是 ~/.cc-switch/logs/ 下的 usage journal，文件不存在也会当作空。")}
+            action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
             hint={logsDir === null ? undefined : <code>{logsDir}</code>}
           />
         ) : null}
@@ -260,14 +261,14 @@ export default function UsageView() {
     );
   }
 
-  const windowNote = `统计窗口 ${formatTime(usage.windowFrom, { seconds: false })} → ${formatTime(usage.windowTo, { seconds: false })}，按${GRANULARITY_TEXT[usage.granularity]}分桶`;
+  const windowNote = t("统计窗口 {0} → {1}，按{2}分桶", [formatTime(usage.windowFrom, { seconds: false }), formatTime(usage.windowTo, { seconds: false }), GRANULARITY_TEXT[usage.granularity]]);
 
   return (
     <div className={styles.view}>
       {alert}
 
       {hero && side ? (
-        <KpiRow hero={hero} side={side} bars={bars} aria-label="用量总览" />
+        <KpiRow hero={hero} side={side} bars={bars} aria-label={t("用量总览")} />
       ) : null}
       <p className={styles.windowNote}>{windowNote}</p>
 
@@ -275,10 +276,10 @@ export default function UsageView() {
         className={styles.rangeToolbar}
         sticky
         divider
-        aria-label="时间范围"
+        aria-label={t("时间范围")}
         right={
           <>
-            {busy ? <Spinner size="sm" label="正在聚合" /> : null}
+            {busy ? <Spinner size="sm" label={t("正在聚合")} /> : null}
             <SegmentedControl
               options={AUTOREFRESH_OPTIONS}
               value={autorefresh}
@@ -286,7 +287,7 @@ export default function UsageView() {
                 setAutorefresh(next);
                 localStorage.setItem(AUTOREFRESH_KEY, next);
               }}
-              aria-label="自动刷新"
+              aria-label={t("自动刷新")}
             />
             <Button
               variant="ghost"
@@ -296,12 +297,8 @@ export default function UsageView() {
                 requestDiagnostics('degrade');
                 setView('diagnostics');
               }}
-            >
-              看降级明细
-            </Button>
-            <Button variant="secondary" size="sm" icon="refresh" loading={busy} onClick={reload}>
-              刷新
-            </Button>
+            >{t(" 看降级明细 ")}</Button>
+            <Button variant="secondary" size="sm" icon="refresh" loading={busy} onClick={reload}>{t(" 刷新 ")}</Button>
           </>
         }
       >
@@ -309,37 +306,37 @@ export default function UsageView() {
           options={rangeOptions}
           value={custom ? 'custom' : preset ?? 'custom'}
           onChange={chooseRange}
-          aria-label="时间范围"
+          aria-label={t("时间范围")}
         />
         <SegmentedControl
           options={GRANULARITY_OPTIONS}
           value={range.granularity}
           onChange={(next) => setUsageRange({ granularity: next })}
-          aria-label="分桶粒度"
+          aria-label={t("分桶粒度")}
         />
       </Toolbar>
-      {custom&&<form className={styles.customRange} onSubmit={e=>{e.preventDefault();const f=Date.parse(from)/1000,t=Date.parse(to)/1000;if(!Number.isFinite(f)||!Number.isFinite(t)||f>=t){setRangeError('结束时间须晚于开始时间');return;}setRangeError('');setUsageRange({fromTs:f,toTs:t,granularity:t-f>3*86400?'day':'hour',preset:'custom'});}}>
-        <label>开始 <input aria-label="开始时间" type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} required/></label>
-        <label>结束 <input aria-label="结束时间" type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} required/></label>
-        <button type="submit">应用范围</button><span role="alert">{rangeError}</span>
+      {custom&&<form className={styles.customRange} onSubmit={e=>{e.preventDefault();const f=Date.parse(from)/1000,end=Date.parse(to)/1000;if(!Number.isFinite(f)||!Number.isFinite(end)||f>=end){setRangeError(t("结束时间须晚于开始时间"));return;}setRangeError('');setUsageRange({fromTs:f,toTs:end,granularity:end-f>3*86400?'day':'hour',preset:'custom'});}}>
+        <label>{t("开始 ")}<input aria-label={t("开始时间")} type="datetime-local" value={from} onChange={e=>setFrom(e.target.value)} required/></label>
+        <label>{t("结束 ")}<input aria-label={t("结束时间")} type="datetime-local" value={to} onChange={e=>setTo(e.target.value)} required/></label>
+        <button type="submit">{t("应用范围")}</button><span role="alert">{rangeError}</span>
       </form>}
 
       {usage.totals.turns === 0 ? (
         rows.length === 0 ? (
           <EmptyState
             icon="database"
-            title="本机还没有产生流水"
-            description="usage journal 是空的（文件不存在也算空）。跑一次会话后回来看，这一页读的就是那个文件。"
-            action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+            title={t("本机还没有产生流水")}
+            description={t("usage journal 是空的（文件不存在也算空）。跑一次会话后回来看，这一页读的就是那个文件。")}
+            action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
             hint={logsDir === null ? undefined : <code>{logsDir}</code>}
           />
         ) : (
           <EmptyState
             icon="clock"
-            title="这个时间窗里没有记账"
-            description={`${windowNote}——窗口内一个回合都没有，但流水里还有更早的 ${formatCount(rows.length)} 条。把范围放宽就能看到它们。`}
-            action={{ label: '看最近 30 天', icon: 'clock', onClick: () => chooseRange('month') }}
-            secondaryAction={{ label: '刷新', icon: 'refresh', onClick: reload }}
+            title={t("这个时间窗里没有记账")}
+            description={t("{0}——窗口内一个回合都没有，但流水里还有更早的 {1} 条。把范围放宽就能看到它们。", [windowNote, formatCount(rows.length)])}
+            action={{ label: t("看最近 30 天"), icon: 'clock', onClick: () => chooseRange('month') }}
+            secondaryAction={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
           />
         )
       ) : (
@@ -348,27 +345,27 @@ export default function UsageView() {
 
           <div className={styles.grid2}>
             <Card
-              title="按渠道"
-              subtitle={`前 ${Math.min(TOP_N, channelBars.length)} 名，共 ${formatCount(channelBars.length)} 个渠道；堆叠是输入 ／ 输出 ／ 缓存读写`}
+              title={t("按渠道")}
+              subtitle={t("前 {0} 名，共 {1} 个渠道；堆叠是输入 ／ 输出 ／ 缓存读写", [Math.min(TOP_N, channelBars.length), formatCount(channelBars.length)])}
             >
               <BarChart
                 data={channelBars}
                 topN={TOP_N}
-                seriesLabels={['输入', '输出', '缓存读写']}
-                emptyText="这个窗口里没有任何渠道产生用量"
-                ariaLabel="按渠道的 token 用量"
+                seriesLabels={[t("输入"), t("输出"), t("缓存读写")]}
+                emptyText={t("这个窗口里没有任何渠道产生用量")}
+                ariaLabel={t("按渠道的 token 用量")}
               />
             </Card>
             <Card
-              title="按模型"
-              subtitle={`前 ${Math.min(TOP_N, modelBars.length)} 名，共 ${formatCount(modelBars.length)} 个模型；堆叠是输入 ／ 输出 ／ 缓存读写`}
+              title={t("按模型")}
+              subtitle={t("前 {0} 名，共 {1} 个模型；堆叠是输入 ／ 输出 ／ 缓存读写", [Math.min(TOP_N, modelBars.length), formatCount(modelBars.length)])}
             >
               <BarChart
                 data={modelBars}
                 topN={TOP_N}
-                seriesLabels={['输入', '输出', '缓存读写']}
-                emptyText="这个窗口里没有任何模型产生用量"
-                ariaLabel="按模型的 token 用量"
+                seriesLabels={[t("输入"), t("输出"), t("缓存读写")]}
+                emptyText={t("这个窗口里没有任何模型产生用量")}
+                ariaLabel={t("按模型的 token 用量")}
               />
             </Card>
           </div>
@@ -377,22 +374,22 @@ export default function UsageView() {
 
       <Card
         flush
-        title="调用用量明细"
-        subtitle={`当前时间范围内的 Claude Code 与 Codex 用量，最新在前；最多读取 5,000 条`}
+        title={t("调用用量明细")}
+        subtitle={t("当前时间范围内的 Claude Code 与 Codex 用量，最新在前；最多读取 5,000 条")}
         actions={
           <SearchInput
             value={query}
             onChange={setQuery}
-            aria-label="过滤用量明细"
-            placeholder="搜渠道、模型、协议格式、降级码"
+            aria-label={t("过滤用量明细")}
+            placeholder={t("搜渠道、模型、协议格式、降级码")}
           />
         }
         footer={
           <>
             <span className={styles.footNote}>
               {query.trim() === ''
-                ? `显示 ${formatCount(visible.length)} / ${formatCount(rows.length)} 条`
-                : `显示 ${formatCount(visible.length)} 条，命中 ${formatCount(filtered.length)} 条，流水共 ${formatCount(rows.length)} 条`}
+                ? t("显示 {0} / {1} 条", [formatCount(visible.length), formatCount(rows.length)])
+                : t("显示 {0} 条，命中 {1} 条，流水共 {2} 条", [formatCount(visible.length), formatCount(filtered.length), formatCount(rows.length)])}
             </span>
             {filtered.length > TABLE_PREVIEW ? (
               <Button
@@ -401,7 +398,7 @@ export default function UsageView() {
                 icon={showAll ? 'chevron-up' : 'chevron-down'}
                 onClick={() => setShowAll(!showAll)}
               >
-                {showAll ? `只看前 ${TABLE_PREVIEW} 条` : `展开全部 ${formatCount(filtered.length)} 条`}
+                {showAll ? t("只看前 {0} 条", [TABLE_PREVIEW]) : t("展开全部 {0} 条", [formatCount(filtered.length)])}
               </Button>
             ) : null}
           </>
@@ -411,9 +408,9 @@ export default function UsageView() {
           <div className={styles.tableEmpty}>
             <EmptyState
               icon="database"
-              title="本机还没有产生流水"
-              description="usage journal 里一条记录都没有。跑一次会话后回来看，这张表就是那个文件的尾部。"
-              action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+              title={t("本机还没有产生流水")}
+              description={t("usage journal 里一条记录都没有。跑一次会话后回来看，这张表就是那个文件的尾部。")}
+              action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
               hint={logsDir === null ? undefined : <code>{logsDir}</code>}
             />
           </div>
@@ -421,9 +418,9 @@ export default function UsageView() {
           <div className={styles.tableEmpty}>
             <EmptyState
               icon="filter"
-              title="没有匹配的明细"
-              description={`「${query.trim()}」在最近 ${formatCount(rows.length)} 条流水的渠道、模型、协议格式与降级码里都没有出现。`}
-              action={{ label: '清空搜索', icon: 'close', onClick: () => setQuery('') }}
+              title={t("没有匹配的明细")}
+              description={t("「{0}」在最近 {1} 条流水的渠道、模型、协议格式与降级码里都没有出现。", [query.trim(), formatCount(rows.length)])}
+              action={{ label: t("清空搜索"), icon: 'close', onClick: () => setQuery('') }}
             />
           </div>
         ) : (

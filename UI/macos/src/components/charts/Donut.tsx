@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import type { ReactNode } from 'react';
 import { cx, formatPercent } from '../../lib';
 import styles from './Donut.module.css';
@@ -32,7 +33,7 @@ export function Donut({
   caption,
   size = 120,
   color = 'var(--accent)',
-  emptyText = '没有输入 token，算不出命中率',
+  emptyText = t("没有输入 token，算不出命中率"),
   ariaLabel,
   className,
 }: DonutProps) {
@@ -54,7 +55,7 @@ export function Donut({
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={ariaLabel ?? (known ? `占比 ${text}` : emptyText)}
+        aria-label={ariaLabel ?? (known ? t("占比 {0}", [text]) : emptyText)}
       >
         <circle
           cx={center}

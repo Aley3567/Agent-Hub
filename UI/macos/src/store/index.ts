@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * 应用数据 store。AppState 的字段与方法签名逐字取自 CONTRACT.md 第 6.2 节，
  * 四个视图代理直接消费，任何增删都会破坏契约。
@@ -229,9 +230,9 @@ function rollUsageRange(range: AppState['usageRange']): AppState['usageRange'] {
  * 其余情况尽量不丢信息，但不编造「未知错误」之外的解释。
  */
 export function errorText(cause: unknown): string {
-  if (typeof cause === 'string' && cause !== '') return cause;
-  if (cause instanceof Error && cause.message !== '') return cause.message;
-  if (cause === null || cause === undefined) return '调用没有返回原因，请查看应用日志';
+  if (typeof cause === 'string' && cause !== '') return t(cause);
+  if (cause instanceof Error && cause.message !== '') return t(cause.message);
+  if (cause === null || cause === undefined) return t("调用没有返回原因，请查看应用日志");
   return String(cause);
 }
 

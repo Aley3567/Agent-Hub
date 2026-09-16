@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 账号池视图，回答「同一渠道的多个账号怎么轮换」（CONTRACT.md 6.5 的文案锚点）。
  *
@@ -12,7 +13,7 @@ import PoolCard from './parts/PoolCard';
 import styles from './index.module.css';
 
 /** 建池与查看的 CLI 入口，取自 claude-provider-once.py 的 accounts 子命令用法 */
-const CLI_ADD = 'claude1 accounts add <主provider> <账号provider>';
+const CLI_ADD = "claude1 accounts add <主provider> <账号provider>";
 const CLI_LIST = 'claude1 accounts list';
 
 export default function AccountsView() {
@@ -39,9 +40,7 @@ export default function AccountsView() {
     <div className={styles.view}>
       <div className={styles.notes}>
         {/* 正文说明 ≤1 行（DESIGN.md 3 节）：具体命令收进空态 hint 的「下一步」里，不在这里堆 */}
-        <p className={styles.note}>
-          账号池当前为只读展示，编辑请用 CLI；运行期状态（失败次数、冷却剩余）不在池文件里，本页不显示。
-        </p>
+        <p className={styles.note}>{t(" 账号池当前为只读展示，编辑请用 CLI；运行期状态（失败次数、冷却剩余）不在池文件里，本页不显示。 ")}</p>
       </div>
 
       {reason === null ? null : (
@@ -52,21 +51,19 @@ export default function AccountsView() {
 
       {(loading || !poolsLoaded) && pools.length === 0 ? (
         <div className={styles.loading}>
-          <Spinner label="正在读取账号池" />
+          <Spinner label={t("正在读取账号池")} />
         </div>
       ) : null}
 
       {showEmpty ? (
         <EmptyState
           icon="accounts"
-          title="本机没有配置账号池"
-          description="读到的池列表是空的：账号池文件（默认 ~/.cc-switch/claude1-account-pools.json）不存在，或者它的 providers 是空的。"
-          action={{ label: '重新读取', icon: 'refresh', onClick: () => void refresh('pools') }}
+          title={t("本机没有配置账号池")}
+          description={t("读到的池列表是空的：账号池文件（默认 ~/.cc-switch/claude1-account-pools.json）不存在，或者它的 providers 是空的。")}
+          action={{ label: t("重新读取"), icon: 'refresh', onClick: () => void refresh('pools') }}
           hint={
-            <>
-              用 <code className={styles.code}>{CLI_ADD}</code> 把同一上游的多个 CC Switch 账号编成池，再用{' '}
-              <code className={styles.code}>{CLI_LIST}</code> 确认结果。
-            </>
+            <>{t(" 用 ")}<code className={styles.code}>{t(CLI_ADD)}</code>{t(" 把同一上游的多个 CC Switch 账号编成池，再用")}{' '}
+              <code className={styles.code}>{CLI_LIST}</code>{t(" 确认结果。 ")}</>
           }
         />
       ) : null}

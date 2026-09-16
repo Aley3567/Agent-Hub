@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * 导航 store。形状取自 CONTRACT.md 第 6.2 节，字段不得增删——四个视图代理直接消费它。
  *
@@ -35,9 +36,9 @@ export type ThemeMode = NavState['theme'];
 export const THEME_STORAGE_KEY = 'claude1.desktop.theme';
 
 export const THEME_LABEL: Record<ThemeMode, string> = {
-  system: '跟随系统',
-  dark: '深色',
-  light: '浅色',
+  get system() { return t("跟随系统"); },
+  get dark() { return t("深色"); },
+  get light() { return t("浅色"); },
 };
 
 function isThemeMode(value: string | null): value is ThemeMode {

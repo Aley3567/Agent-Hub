@@ -100,7 +100,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
   const channelOptions = channels.map((channel) => ({ value: channelKey(channel), label: `${channel.name} · ${channel.appType}` }));
   const hubOptions = hubs.map((hub) => ({
     value: hub.name,
-    label: hub.isDefault ? `${hub.name} (${b("默认", "default")})` : hub.name,
+    label: hub.isDefault ? `${hub.name} (${b(t("默认"), "default")})` : hub.name,
   }));
 
   /** 前端只拦一眼可判的输入；cron 语义与下次运行时间仍由后端算（DESIGN.md 4.7 分工） */
@@ -109,7 +109,7 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
     if (name.trim() === '') next.name = t("任务名称不能为空。");
     // 结构化档位由选择器保证结构，只有「自定义」才需要数一数字段数
     if (detectDraft(schedule).tier === 'custom' && schedule.trim().split(/\s+/).length !== 5) {
-      next.schedule = b(`自定义表达式需要五个字段，例如 ${DEFAULT_SCHEDULE}。`, `A custom expression needs five fields, for example ${DEFAULT_SCHEDULE}.`);
+      next.schedule = b(t("自定义表达式需要五个字段，例如 {0}。", [DEFAULT_SCHEDULE]), `A custom expression needs five fields, for example ${DEFAULT_SCHEDULE}.`);
     }
     if (kind === 'launch-channel' && channelId === '') next.channel = t("选择要到点启动的渠道。");
     return next;
@@ -146,10 +146,10 @@ export default function TaskDialog({ open, task, onClose }: TaskDialogProps) {
           schedule: cron,
           enabled,
         });
-        toastSuccess(b(`已创建「${name.trim()}」。`, `Created “${name.trim()}”.`));
+        toastSuccess(b(t("已创建「{0}」。", [name.trim()]), `Created “${name.trim()}”.`));
       } else {
         await updateTask(task.id, { name: name.trim(), schedule: cron, enabled });
-        toastSuccess(b(`已保存「${name.trim()}」。`, `Saved “${name.trim()}”.`));
+        toastSuccess(b(t("已保存「{0}」。", [name.trim()]), `Saved “${name.trim()}”.`));
       }
       onClose();
     } catch (cause) {

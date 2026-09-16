@@ -146,7 +146,7 @@ export default function App() {
                       · 这层放在 Suspense 内侧 —— 兜底期间 children 根本不挂载，
                         所以动画等 lazy chunk 落地、内容真的到位那一刻才开始，
                         不会在顶部进度线还在跑的时候空转一遍。 */}
-                <div key={view} className="view-enter">
+                <div key={`${view}:${language}`} className="view-enter">
                   <CurrentView />
                 </div>
               </Suspense>
@@ -155,7 +155,7 @@ export default function App() {
         </main>
       </div>
       <StatusBar />
-      {paletteOpen ? <CommandPalette /> : null}
+      {paletteOpen ? <CommandPalette key={language} /> : null}
       {/* toast 渲染层常驻（空队列时自身返回 null），层级 --z-toast，在命令面板之上 */}
       <ToastLayer />
     </div>

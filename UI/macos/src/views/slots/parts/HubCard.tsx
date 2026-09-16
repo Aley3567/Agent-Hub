@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 一个 hub 一张卡：头部是 hub 名、监听端口、运行状态，主体是四个槽位，底部是启动会话。
  *
@@ -64,9 +65,7 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
       key: `protocol-${label}`,
       text: (
         <>
-          <span className={styles.mono}>{slots.join('、')}</span> 槽位绑定到 {label} 渠道，会产生
-          HUB_DEGRADE_* 降级。
-        </>
+          <span className={styles.mono}>{slots.join('、')}</span>{t(" 槽位绑定到 ")}{label}{t(" 渠道，会产生 HUB_DEGRADE_* 降级。 ")}</>
       ),
     });
   }
@@ -89,16 +88,13 @@ function buildHubWarnings(hub: HubConfig, usageRows: UsageRow[], now: number): H
     out.push({
       key: 'degraded',
       text: (
-        <>
-          最近 24 小时本 hub 有 <span className={styles.mono}>{degraded}</span> 个回合带
-          HUB_DEGRADE_* 降级码。
-        </>
+        <>{t(" 最近 24 小时本 hub 有 ")}<span className={styles.mono}>{degraded}</span>{t(" 个回合带 HUB_DEGRADE_* 降级码。 ")}</>
       ),
     });
   } else if (degraded === null) {
     out.push({
       key: 'degraded-gap',
-      text: <>命名 hub 的降级流水不在默认 hub 的 journal 里，这里的降级统计覆盖不到。</>,
+      text: <>{t("命名 hub 的降级流水不在默认 hub 的 journal 里，这里的降级统计覆盖不到。")}</>,
     });
   }
 
@@ -129,15 +125,15 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
    */
   const usageGap = hub.isDefault
     ? null
-    : `本视图的用量流水取自默认 hub 的 journal，命名 hub ${hub.name} 的流水在 logs/hubs/${hub.name}-usage.jsonl，这里统计不到。`;
+    : t("本视图的用量流水取自默认 hub 的 journal，命名 hub {0} 的流水在 logs/hubs/{1}-usage.jsonl，这里统计不到。", [hub.name, hub.name]);
 
   /** 启动落在哪个槽位、用哪一档 effort：launch_slot 未设置时 claude1 用 fable 兜底 */
   const launchSlot = hub.launchSlot ?? 'fable';
   const launchEffort = hub.effortBySlot[launchSlot] ?? SLOT_DEFAULT_EFFORT[launchSlot];
   const launchHint =
     hub.launchSlot === null
-      ? `未设置 launch_slot，claude1 用 fable 兜底，effort ${launchEffort}`
-      : `启动后停在槽位 ${launchSlot}，effort ${launchEffort}`;
+      ? t("未设置 launch_slot，claude1 用 fable 兜底，effort {0}", [launchEffort])
+      : t("启动后停在槽位 {0}，effort {1}", [launchSlot, launchEffort]);
 
   async function startSession(): Promise<void> {
     setLaunching(true);
@@ -146,13 +142,13 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
     try {
       const next = await launch({ kind: 'hub', hubName: hub.name });
       setResult(next);
-      announce(next.ok ? `hub ${hub.name} 的会话已启动：${next.message}` : `hub ${hub.name} 启动失败：${next.message}`);
-      if (next.ok) toastSuccess(`hub ${hub.name} 的会话已启动`);
+      announce(next.ok ? t("hub {0} 的会话已启动：{1}", [hub.name, next.message]) : t("hub {0} 启动失败：{1}", [hub.name, next.message]));
+      if (next.ok) toastSuccess(t("hub {0} 的会话已启动", [hub.name]));
       else toastError(next.message);
     } catch (cause) {
       const reason = errorText(cause);
       setFailure(reason);
-      announce(`hub ${hub.name} 启动失败：${reason}`);
+      announce(t("hub {0} 启动失败：{1}", [hub.name, reason]));
       toastError(reason);
     } finally {
       setLaunching(false);
@@ -165,17 +161,15 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
         <>
           <span className={styles.hubName}>{hub.name}</span>
           <Badge tone={hub.isDefault ? 'accent' : 'neutral'} mono={false}>
-            {hub.isDefault ? '默认 hub' : '命名 hub'}
+            {hub.isDefault ? t("默认 hub") : t("命名 hub")}
           </Badge>
         </>
       }
       subtitle={
         <span className={styles.meta}>
-          <span>
-            监听端口 <span className={styles.mono}>{hub.port === null ? '未配置' : hub.port}</span>
+          <span>{t(" 监听端口 ")}<span className={styles.mono}>{hub.port === null ? t("未配置") : hub.port}</span>
           </span>
-          <span>
-            配置版本 <span className={styles.mono}>v{hub.version}</span>
+          <span>{t(" 配置版本 ")}<span className={styles.mono}>v{hub.version}</span>
           </span>
           <span className={styles.path}>{hub.configPath}</span>
         </span>
@@ -183,17 +177,15 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
       actions={
         <StatusDot
           tone={hub.running ? 'ok' : 'off'}
-          title={hub.running ? '读 .lock 并探测回环端口，确认有活着的进程' : '没有活着的进程，槽位改动会在下次启动时生效'}
+          title={hub.running ? t("读 .lock 并探测回环端口，确认有活着的进程") : t("没有活着的进程，槽位改动会在下次启动时生效")}
         >
-          {hub.running ? '运行中' : '未运行'}
+          {hub.running ? t("运行中") : t("未运行")}
         </StatusDot>
       }
       footer={
         <div className={styles.footer}>
           <div className={styles.footerRow}>
-            <Button variant="primary" size="sm" icon="play" loading={launching} onClick={() => void startSession()}>
-              启动会话
-            </Button>
+            <Button variant="primary" size="sm" icon="play" loading={launching} onClick={() => void startSession()}>{t(" 启动会话 ")}</Button>
             <span className={styles.footerHint}>{launchHint}</span>
           </div>
           {failure === null ? null : (
@@ -203,9 +195,9 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
           )}
           {result === null ? null : (
             <div className={styles.launchResult}>
-              <StatusDot tone={result.ok ? 'ok' : 'fail'}>{result.ok ? '已交给终端执行' : '启动失败'}</StatusDot>
-              <p className={result.ok ? styles.launchMessage : styles.launchFail}>{result.message}</p>
-              <CodeBlock label="实际执行的命令" code={result.command} />
+              <StatusDot tone={result.ok ? 'ok' : 'fail'}>{result.ok ? t("已交给终端执行") : t("启动失败")}</StatusDot>
+              <p className={result.ok ? styles.launchMessage : styles.launchFail}>{t(result.message)}</p>
+              <CodeBlock label={t("实际执行的命令")} code={result.command} />
             </div>
           )}
         </div>
@@ -215,11 +207,9 @@ export function HubCard({ hub, channels, channelsById, usageRows, now }: HubCard
         <div className={styles.hubWarnings}>
           {warnings.map((warning) => (
             <p key={warning.key} className={styles.hubWarning}>
-              <StatusDot tone="degraded">降级提示</StatusDot>
+              <StatusDot tone="degraded">{t("降级提示")}</StatusDot>
               <span>{warning.text}</span>
-              <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>
-                去诊断视图
-              </Button>
+              <Button variant="ghost" size="sm" icon="diagnostics" onClick={() => setView('diagnostics')}>{t(" 去诊断视图 ")}</Button>
             </p>
           ))}
         </div>

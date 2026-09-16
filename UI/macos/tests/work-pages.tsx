@@ -154,9 +154,9 @@ try {
   assert(input().disabled === false, '切回本地会话应当恢复可发送');
 
   /* B.2 真流式：三条同 requestId 的增量逐条上屏，不靠定时器 */
-  const streamBox = () => document.querySelector('[aria-label="消息流"]');
+  const streamBox = () => document.querySelector(`[aria-label="${t('消息流')}"]`);
   const streamed = () => streamBox()?.textContent ?? '';
-  const streamRows = () => document.querySelectorAll('[aria-label="消息流"] > div').length;
+  const streamRows = () => document.querySelectorAll(`[aria-label="${t('消息流')}"] > div`).length;
   const requestId = 'req-fixture';
   await type(input(), 'fixture 提问');
   await click(t('发送'));

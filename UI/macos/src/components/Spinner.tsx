@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { CSSProperties } from 'react';
 import { cx } from '../lib';
 import styles from './Spinner.module.css';
@@ -34,7 +35,7 @@ export function Spinner({ size, label, className }: SpinnerProps) {
         <circle cx="12" cy="12" r="9" stroke="var(--border-default)" />
         <path d="M21 12a9 9 0 0 0-9-9" stroke="var(--accent)" strokeLinecap="round" />
       </svg>
-      <span className={label ? styles.label : styles.srOnly}>{label ?? '加载中'}</span>
+      <span className={label ? styles.label : styles.srOnly}>{label ?? t("加载中")}</span>
     </span>
   );
 }

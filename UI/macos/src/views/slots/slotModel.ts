@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 槽位视图的纯逻辑层：槽位元数据、绑定可选项、fallback 去向、24 小时调用量分桶、
  * 一键填充计划。全部是纯函数，不碰 store、不碰 DOM，便于在别处直接推演结论。
@@ -35,7 +36,7 @@ export const SLOT_DEFAULT_EFFORT: Record<SlotName, Effort> = {
 
 /** 这一行会被什么请求命中。规则来自 claude-hub.py 的 route_model：裸槽位名与官方风格 id 都走这里 */
 export function slotHitText(slot: SlotName): string {
-  return `下游把模型写成 ${slot} 或 claude-${slot}-* 时命中这一行`;
+  return t("下游把模型写成 {0} 或 claude-{1}-* 时命中这一行", [slot, slot]);
 }
 
 /** effort 五档里的「未设置」用这个值表示，落到 IPC 时转成 null */
@@ -54,13 +55,13 @@ export function effortChoices(slot: SlotName): EffortChoiceOption[] {
   return [
     {
       value: EFFORT_UNSET,
-      label: '未设置',
-      title: `不写 effort_by_slot.${slot}；claude1 启动这个槽位时落到内置默认档 ${SLOT_DEFAULT_EFFORT[slot]}`,
+      label: t("未设置"),
+      title: t("不写 effort_by_slot.{0}；claude1 启动这个槽位时落到内置默认档 {1}", [slot, SLOT_DEFAULT_EFFORT[slot]]),
     },
-    { value: 'low', label: 'low', title: `把 effort_by_slot.${slot} 写成 low` },
-    { value: 'medium', label: 'medium', title: `把 effort_by_slot.${slot} 写成 medium` },
-    { value: 'high', label: 'high', title: `把 effort_by_slot.${slot} 写成 high` },
-    { value: 'xhigh', label: 'xhigh', title: `把 effort_by_slot.${slot} 写成 xhigh` },
+    { value: 'low', label: 'low', title: t("把 effort_by_slot.{0} 写成 low", [slot]) },
+    { value: 'medium', label: 'medium', title: t("把 effort_by_slot.{0} 写成 medium", [slot]) },
+    { value: 'high', label: 'high', title: t("把 effort_by_slot.{0} 写成 high", [slot]) },
+    { value: 'xhigh', label: 'xhigh', title: t("把 effort_by_slot.{0} 写成 xhigh", [slot]) },
   ];
 }
 
@@ -73,14 +74,14 @@ export function fromEffortChoice(choice: EffortChoice): Effort | null {
 }
 
 export const PROTOCOL_LABEL: Record<ApiFormat, string> = {
-  anthropic: 'Anthropic 原生',
+  get anthropic() { return t("Anthropic 原生"); },
   openai_chat: 'OpenAI Chat',
   openai_responses: 'OpenAI Responses',
-  unknown: '协议未识别',
+  get unknown() { return t("协议未识别"); },
 };
 
 export function protocolLabel(format: ApiFormat | null): string {
-  return format === null ? 'hub 未声明协议' : PROTOCOL_LABEL[format];
+  return format === null ? t("hub 未声明协议") : PROTOCOL_LABEL[format];
 }
 
 /**
@@ -90,12 +91,12 @@ export function protocolLabel(format: ApiFormat | null): string {
 export function protocolWarning(format: ApiFormat | null): string | null {
   if (format === 'anthropic') return null;
   if (format === null) {
-    return 'hub 配置没有声明这个渠道说什么协议。若它不是 Anthropic 原生，claude1 会做协议转换并记 HUB_DEGRADE_* 降级。';
+    return t("hub 配置没有声明这个渠道说什么协议。若它不是 Anthropic 原生，claude1 会做协议转换并记 HUB_DEGRADE_* 降级。");
   }
   if (format === 'unknown') {
-    return '这个渠道的协议没能识别出来。只要不是 Anthropic 原生，转换过程就会记 HUB_DEGRADE_* 降级。';
+    return t("这个渠道的协议没能识别出来。只要不是 Anthropic 原生，转换过程就会记 HUB_DEGRADE_* 降级。");
   }
-  return `这个渠道说的是 ${PROTOCOL_LABEL[format]}，与 Anthropic 之间要做协议转换，会记 HUB_DEGRADE_* 降级。`;
+  return t("这个渠道说的是 {0}，与 Anthropic 之间要做协议转换，会记 HUB_DEGRADE_* 降级。", [PROTOCOL_LABEL[format]]);
 }
 
 /** hub 渠道别名（大小写不敏感）→ hub 渠道声明。找不到返回 null */
@@ -137,7 +138,7 @@ export function hubFallback(hub: HubConfig): FallbackInfo {
   if (alias === null || alias.trim() === '') {
     return {
       ok: false,
-      text: '本 hub 没有配置 default_channel，未绑定的槽位没有去处，claude1 启动时会报「hub 配置缺少 default_channel」。',
+      text: t("本 hub 没有配置 default_channel，未绑定的槽位没有去处，claude1 启动时会报「hub 配置缺少 default_channel」。"),
     };
   }
   const channel = findHubChannel(hub, alias);
@@ -145,12 +146,12 @@ export function hubFallback(hub: HubConfig): FallbackInfo {
   if (channel === null || model === null) {
     return {
       ok: false,
-      text: `default_channel 指向的 ${alias} 在本 hub 里没有声明模型，claude1 启动时会报「hub default_channel 必须引用有模型的渠道」。`,
+      text: t("default_channel 指向的 {0} 在本 hub 里没有声明模型，claude1 启动时会报「hub default_channel 必须引用有模型的渠道」。", [alias]),
     };
   }
   return {
     ok: true,
-    text: `fallback 去向：默认渠道 ${alias} 的第一个声明模型 ${model}。claude1 启动 hub 时会把未绑定的槽位补成这一对。`,
+    text: t("fallback 去向：默认渠道 {0} 的第一个声明模型 {1}。claude1 启动 hub 时会把未绑定的槽位补成这一对。", [alias, model]),
   };
 }
 
@@ -246,7 +247,7 @@ export function buildFillPlan(hub: HubConfig, current: Channel | null): FillPlan
     return {
       hubName: hub.name,
       ok: false,
-      blocked: 'CC Switch 没有标记当前渠道（is_current），没有可以照着填的渠道。',
+      blocked: t("CC Switch 没有标记当前渠道（is_current），没有可以照着填的渠道。"),
     };
   }
   const target = hub.channels.find((item) => item.resolvedChannelId === current.id) ?? null;
@@ -254,7 +255,7 @@ export function buildFillPlan(hub: HubConfig, current: Channel | null): FillPlan
     return {
       hubName: hub.name,
       ok: false,
-      blocked: `本 hub 的 channels 里没有指向渠道 ${current.name} 的声明，先把它写进 hub 配置的 channels 才能绑定。`,
+      blocked: t("本 hub 的 channels 里没有指向渠道 {0} 的声明，先把它写进 hub 配置的 channels 才能绑定。", [current.name]),
     };
   }
   const declared = target.models.map((model) => model.trim()).filter((model) => model !== '');
@@ -272,16 +273,16 @@ export function buildFillPlan(hub: HubConfig, current: Channel | null): FillPlan
       return {
         slot,
         fill: false,
-        reason: `hub 渠道 ${alias} 有 ${guesses.length} 个模型含 ${slot}（${guesses.join('、')}），不替你猜，请手动选。`,
+        reason: t("hub 渠道 {0} 有 {1} 个模型含 {2}（{3}），不替你猜，请手动选。", [alias, guesses.length, slot, guesses.join('、')]),
       };
     }
     if (declared.length === 0) {
-      return { slot, fill: false, reason: `hub 渠道 ${alias} 一个模型都没声明，先给它加模型。` };
+      return { slot, fill: false, reason: t("hub 渠道 {0} 一个模型都没声明，先给它加模型。", [alias]) };
     }
     return {
       slot,
       fill: false,
-      reason: `渠道 ${current.name} 没声明 ${slot} 的默认模型，hub 渠道 ${alias} 声明的 ${declared.join('、')} 里也没有含 ${slot} 的，请手动选。`,
+      reason: t("渠道 {0} 没声明 {1} 的默认模型，hub 渠道 {2} 声明的 {3} 里也没有含 {4} 的，请手动选。", [current.name, slot, alias, declared.join('、'), slot]),
     };
   });
   return { hubName: hub.name, ok: true, alias, items };

@@ -1,3 +1,4 @@
+import { t, useLocale } from '../i18n';
 /**
  * 格式化工具：token 计数、成本、时间戳、百分比。
  *
@@ -48,10 +49,11 @@ export function formatTokens(n: number | null | undefined): string {
  * 用于 hero 大数字的副行，继承 cc-switch 的口径（AGENTS.md：继承优先于发明）。
  */
 export function formatTokensCn(n: number | null | undefined): string {
+  if (useLocale.getState().language === 'en') return formatTokens(n);
   if (isMissing(n)) return MISSING;
   const abs = Math.abs(n);
-  if (abs >= 100_000_000) return `${(n / 100_000_000).toFixed(2)}亿`;
-  if (abs >= 10_000) return `${(n / 10_000).toFixed(1)}万`;
+  if (abs >= 100_000_000) return t("{0}亿", [(n / 100_000_000).toFixed(2)]);
+  if (abs >= 10_000) return t("{0}万", [(n / 10_000).toFixed(1)]);
   return groupThousands(Math.round(n));
 }
 
@@ -120,22 +122,22 @@ export function formatRelative(ts: number | null | undefined, now: number = Date
   const base = Math.abs(now) > 1e11 ? now / 1000 : now;
   const diff = base - target;
   const abs = Math.abs(diff);
-  const suffix = diff >= 0 ? '前' : '后';
-  if (abs < 10) return '刚刚';
-  if (abs < MINUTE) return `${Math.floor(abs)} 秒${suffix}`;
-  if (abs < HOUR) return `${Math.floor(abs / MINUTE)} 分钟${suffix}`;
-  if (abs < DAY) return `${Math.floor(abs / HOUR)} 小时${suffix}`;
-  if (abs < MONTH) return `${Math.floor(abs / DAY)} 天${suffix}`;
-  if (abs < YEAR) return `${Math.floor(abs / MONTH)} 个月${suffix}`;
-  return `${Math.floor(abs / YEAR)} 年${suffix}`;
+  const suffix = diff >= 0 ? t("前") : t("后");
+  if (abs < 10) return t("刚刚");
+  if (abs < MINUTE) return t("{0} 秒{1}", [Math.floor(abs), suffix]);
+  if (abs < HOUR) return t("{0} 分钟{1}", [Math.floor(abs / MINUTE), suffix]);
+  if (abs < DAY) return t("{0} 小时{1}", [Math.floor(abs / HOUR), suffix]);
+  if (abs < MONTH) return t("{0} 天{1}", [Math.floor(abs / DAY), suffix]);
+  if (abs < YEAR) return t("{0} 个月{1}", [Math.floor(abs / MONTH), suffix]);
+  return t("{0} 年{1}", [Math.floor(abs / YEAR), suffix]);
 }
 
 const COUNTDOWN_UNITS: Array<[number, string]> = [
-  [YEAR, '年'],
-  [MONTH, '个月'],
-  [DAY, '天'],
-  [HOUR, '小时'],
-  [MINUTE, '分钟'],
+  [YEAR, "年"],
+  [MONTH, "个月"],
+  [DAY, "天"],
+  [HOUR, "小时"],
+  [MINUTE, "分钟"],
 ];
 
 /**
@@ -149,19 +151,19 @@ export function formatCountdown(ts: number | null | undefined, now: number = Dat
   const target = Math.abs(ts) > 1e11 ? ts / 1000 : ts;
   const base = Math.abs(now) > 1e11 ? now / 1000 : now;
   const diff = target - base;
-  if (diff <= 0) return '已错过';
-  if (diff < MINUTE) return '1 分钟内';
+  if (diff <= 0) return t("已错过");
+  if (diff < MINUTE) return t("1 分钟内");
   let rest = Math.floor(diff);
   const parts: string[] = [];
   for (const [secs, label] of COUNTDOWN_UNITS) {
     const value = Math.floor(rest / secs);
     if (value > 0) {
-      parts.push(`${value} ${label}`);
+      parts.push(`${value} ${t(label)}`);
       rest -= value * secs;
       if (parts.length === 2) break;
     }
   }
-  return `${parts.join(' ')}后`;
+  return t("{0}后", [parts.join(' ')]);
 }
 
 /**

@@ -63,7 +63,7 @@ export default function ChannelDetail({
       {launchResult === null ? null : (
         <div className={styles.launch} aria-live="polite">
           <CodeBlock label={t("实际执行的命令")} code={launchResult.command} />
-          <p className={launchResult.ok ? styles.launchOk : styles.launchFail}>{launchResult.message}</p>
+          <p className={launchResult.ok ? styles.launchOk : styles.launchFail}>{t(launchResult.message)}</p>
         </div>
       )}
 
@@ -99,7 +99,7 @@ export default function ChannelDetail({
               {t(COMPATIBILITY_LABEL[channel.compatibility])}
             </StatusDot>
             {channel.compatibilityReason === null ? null : (
-              <span className={styles.reason}>{redactSecrets(channel.compatibilityReason)}</span>
+              <span className={styles.reason}>{t(redactSecrets(channel.compatibilityReason))}</span>
             )}
             {channel.compatibility === 'unassessed' ? (
               <span className={styles.hint}>{t(UNASSESSED_EXPLAINER)}</span>

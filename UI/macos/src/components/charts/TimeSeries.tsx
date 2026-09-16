@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 import { useState } from 'react';
 import type { MouseEvent } from 'react';
 import { cx, formatTime, formatTokens } from '../../lib';
@@ -43,11 +44,11 @@ export interface TimeSeriesProps {
 
 /** 序列语义固定（DESIGN.md 第 4.2 节）：输入=青、输出=紫、缓存=灰；成本=红虚线（语义色，不计入 3 色限制） */
 const META: Record<TimeSeriesKey | 'cost', { label: string; color: string }> = {
-  in: { label: '输入', color: 'var(--accent)' },
-  out: { label: '输出', color: 'var(--violet)' },
-  cr: { label: '缓存读', color: 'var(--text-tertiary)' },
-  turns: { label: '回合', color: 'var(--text-tertiary)' },
-  cost: { label: '成本', color: 'var(--danger)' },
+  in: { get label() { return t("输入"); }, color: 'var(--accent)' },
+  out: { get label() { return t("输出"); }, color: 'var(--violet)' },
+  cr: { get label() { return t("缓存读"); }, color: 'var(--text-tertiary)' },
+  turns: { get label() { return t("回合"); }, color: 'var(--text-tertiary)' },
+  cost: { get label() { return t("成本"); }, color: 'var(--danger)' },
 };
 
 /* SVG 内部坐标 */
@@ -111,7 +112,7 @@ export function TimeSeries({
   height = 200,
   formatValue = formatTokens,
   secondary,
-  emptyText = '这段时间没有流水，跑一次会话后回来看',
+  emptyText = t("这段时间没有流水，跑一次会话后回来看"),
   ariaLabel,
   className,
 }: TimeSeriesProps) {
@@ -218,7 +219,7 @@ export function TimeSeries({
           role="img"
           aria-label={
             ariaLabel ??
-            `用量走势，${rows.length} 个桶，峰值 ${formatValue(maxValue)}${hasSecondary ? `，成本峰值 ${secondary?.formatValue(maxSecondary)}` : ''}`
+            t("用量走势，{0} 个桶，峰值 {1}{2}", [rows.length, formatValue(maxValue), hasSecondary ? t("，成本峰值 {0}", [secondary?.formatValue(maxSecondary)]) : ''])
           }
           onMouseMove={handleMove}
           onMouseLeave={() => setHover(null)}
@@ -381,10 +382,10 @@ export function TimeSeries({
 
       {/* 逐桶数值只在 hover 浮层里，键盘够不着；补一张视觉隐藏的数据表兜底（DESIGN.md 6 节） */}
       <table className="sr-only">
-        <caption>{ariaLabel ?? '用量走势'}：逐桶数值</caption>
+        <caption>{ariaLabel ?? t("用量走势")}{t("：逐桶数值")}</caption>
         <thead>
           <tr>
-            <th scope="col">时间</th>
+            <th scope="col">{t("时间")}</th>
             {series.map((key) => (
               <th key={key} scope="col">
                 {META[key].label}

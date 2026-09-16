@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 对话视图右栏的消息流（DESIGN.md 4.5）：独立滚动容器。
  *
@@ -93,7 +94,7 @@ function MessageStream({ session, stream, pending, followSignal }: MessageStream
   };
 
   return (
-    <div className={styles.stream} ref={scrollerRef} onScroll={onScroll} aria-label="消息流">
+    <div className={styles.stream} ref={scrollerRef} onScroll={onScroll} aria-label={t("消息流")}>
       {visible.map((message, index) => (
         <MessageRow key={`${message.ts}-${index}`} session={session} message={message} />
       ))}
@@ -101,7 +102,7 @@ function MessageStream({ session, stream, pending, followSignal }: MessageStream
       {stream === '' ? (
         /* 思考态：首个增量到达前，等待指示就是 caret-pulse 光标本身（DESIGN.md 4.5） */
         <div className={cx(styles.row, styles.assistantRow)}>
-          <span className={cx(styles.caret, 'caret-pulse')} aria-label="正在等待回复" />
+          <span className={cx(styles.caret, 'caret-pulse')} aria-label={t("正在等待回复")} />
         </div>
       ) : null}
 
@@ -127,7 +128,7 @@ function MessageRow({ session, message }: { session: ChatSession; message: ChatM
   if (message.role === 'system') {
     return (
       <div className={cx(styles.row, styles.systemRow)}>
-        <p className={styles.systemBar}>{content}</p>
+        <p className={styles.systemBar}>{t(content)}</p>
       </div>
     );
   }

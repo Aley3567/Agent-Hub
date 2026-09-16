@@ -55,12 +55,10 @@ export const API_FORMAT_TONE: Record<ApiFormat, BadgeTone> = {
 };
 
 export const API_FORMAT_NOTE: Record<ApiFormat, string> = {
-  anthropic: 'Anthropic 原生格式：请求与响应直通，不需要协议转换，不会因为翻译丢字段。',
-  openai_chat:
-    '跨协议：请求要翻成 OpenAI Chat Completions 再翻回来。提示缓存标记、思考签名这类字段在目标协议里没有等价物，会记 HUB_DEGRADE_* 降级。',
-  openai_responses:
-    '跨协议：请求要翻成 OpenAI Responses 再翻回来。提示缓存标记、思考签名这类字段在目标协议里没有等价物，会记 HUB_DEGRADE_* 降级。',
-  unknown: '读不出协议格式：settings_config 没能解析，也没有 meta.apiFormat，无法判断这次会不会跨协议降级。',
+  get anthropic() { return t("Anthropic 原生格式：请求与响应直通，不需要协议转换，不会因为翻译丢字段。"); },
+  get openai_chat() { return t("跨协议：请求要翻成 OpenAI Chat Completions 再翻回来。提示缓存标记、思考签名这类字段在目标协议里没有等价物，会记 HUB_DEGRADE_* 降级。"); },
+  get openai_responses() { return t("跨协议：请求要翻成 OpenAI Responses 再翻回来。提示缓存标记、思考签名这类字段在目标协议里没有等价物，会记 HUB_DEGRADE_* 降级。"); },
+  get unknown() { return t("读不出协议格式：settings_config 没能解析，也没有 meta.apiFormat，无法判断这次会不会跨协议降级。"); },
 };
 
 export function isCrossProtocol(format: ApiFormat): boolean {
@@ -70,11 +68,11 @@ export function isCrossProtocol(format: ApiFormat): boolean {
 export type FormatFilter = ApiFormat | 'all';
 
 export const FORMAT_FILTER_OPTIONS: ReadonlyArray<{ value: FormatFilter; label: string }> = [
-  { value: 'all', label: '全部协议' },
-  { value: 'anthropic', label: 'anthropic（原生）' },
-  { value: 'openai_chat', label: 'openai_chat（跨协议）' },
-  { value: 'openai_responses', label: 'openai_responses（跨协议）' },
-  { value: 'unknown', label: 'unknown（读不出）' },
+  { value: 'all', get label() { return t("全部协议"); } },
+  { value: 'anthropic', get label() { return t("anthropic（原生）"); } },
+  { value: 'openai_chat', get label() { return t("openai_chat（跨协议）"); } },
+  { value: 'openai_responses', get label() { return t("openai_responses（跨协议）"); } },
+  { value: 'unknown', get label() { return t("unknown（读不出）"); } },
 ];
 
 /** 把 <select> 的字符串收回联合类型；不认识的值回落到「全部」而不是抛错 */
@@ -95,9 +93,9 @@ export function asFormatFilter(raw: string): FormatFilter {
 // ---------------------------------------------------------------------------
 
 export const COMPATIBILITY_LABEL: Record<Compatibility, string> = {
-  compatible: '已验收',
-  incompatible: '不兼容',
-  unassessed: '未评估',
+  get compatible() { return t("已验收"); },
+  get incompatible() { return t("不兼容"); },
+  get unassessed() { return t("未评估"); },
 };
 
 export const COMPATIBILITY_TONE: Record<Compatibility, StatusTone> = {
@@ -108,14 +106,14 @@ export const COMPATIBILITY_TONE: Record<Compatibility, StatusTone> = {
 
 /** 「未评估」的含义只在详情与表尾解释，不在每行重复 */
 export const UNASSESSED_EXPLAINER =
-  '尚未做 Claude Code 语义验收：长 system prompt、工具调用、多轮终态这三项还没跑过用例。含义是「没人验过」，不是「不能用」。';
+  "尚未做 Claude Code 语义验收：长 system prompt、工具调用、多轮终态这三项还没跑过用例。含义是「没人验过」，不是「不能用」。";
 
 export function unassessedSummary(count: number): string {
   return t("列出的渠道里有 {0} 个尚未做 Claude Code 语义验收（长 system prompt、工具调用、多轮终态），它们在「语义兼容性」列显示灰点「未评估」。", [count]);
 }
 
 export const INCOMPATIBLE_LAUNCH_NOTE =
-  '判为不兼容的渠道仍然可以启动：claude1 只接受按 id 的显式选择，那条路径只用于诊断。';
+  "判为不兼容的渠道仍然可以启动：claude1 只接受按 id 的显式选择，那条路径只用于诊断。";
 
 // ---------------------------------------------------------------------------
 // 行状态点
@@ -224,7 +222,7 @@ export function channelModel(channel: Channel): ModelCell {
 }
 
 export const CONTEXT_WINDOW_UNKNOWN_TITLE =
-  '渠道没声明 claude1_capabilities.context_window，这里不猜一个数字充数';
+  "渠道没声明 claude1_capabilities.context_window，这里不猜一个数字充数";
 
 export function contextWindowTitle(tokens: number): string {
   return t("{0} token，来自 settings_config 的 claude1_capabilities.context_window", [tokens]);
@@ -233,11 +231,11 @@ export function contextWindowTitle(tokens: number): string {
 export type EffortChoice = Effort | 'none';
 
 export const EFFORT_CHOICES: ReadonlyArray<{ value: EffortChoice; label: string; title: string }> = [
-  { value: 'none', label: '未设置', title: '不写 effort：由渠道 settings_config 的 effortLevel 决定' },
-  { value: 'low', label: 'low', title: '本地覆盖 effortLevel 为 low' },
-  { value: 'medium', label: 'medium', title: '本地覆盖 effortLevel 为 medium' },
-  { value: 'high', label: 'high', title: '本地覆盖 effortLevel 为 high' },
-  { value: 'xhigh', label: 'xhigh', title: '本地覆盖 effortLevel 为 xhigh' },
+  { value: 'none', get label() { return t("未设置"); }, get title() { return t("不写 effort：由渠道 settings_config 的 effortLevel 决定"); } },
+  { value: 'low', label: 'low', get title() { return t("本地覆盖 effortLevel 为 low"); } },
+  { value: 'medium', label: 'medium', get title() { return t("本地覆盖 effortLevel 为 medium"); } },
+  { value: 'high', label: 'high', get title() { return t("本地覆盖 effortLevel 为 high"); } },
+  { value: 'xhigh', label: 'xhigh', get title() { return t("本地覆盖 effortLevel 为 xhigh"); } },
 ];
 
 export const SLOT_ORDER: readonly SlotName[] = ['fable', 'opus', 'sonnet', 'haiku'];

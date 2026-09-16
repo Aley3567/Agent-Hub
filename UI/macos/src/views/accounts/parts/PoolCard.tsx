@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 单个账号池的只读卡片。
  *
@@ -31,11 +32,11 @@ export interface PoolCardProps {
  * 其余值 claude1 会直接拒绝加载，所以这里不猜，原码照显示。
  */
 const STRATEGY_LABEL: Record<string, string | undefined> = {
-  round_robin: '轮询',
-  weighted: '按权重',
+  get round_robin() { return t("轮询"); },
+  get weighted() { return t("按权重"); },
 };
 
-const CREDENTIAL_TITLE = '凭证本身永远不出现在界面上，这里只说有没有配';
+const CREDENTIAL_TITLE = "凭证本身永远不出现在界面上，这里只说有没有配";
 
 interface MemberStatus {
   tone: StatusToneInput;
@@ -48,32 +49,32 @@ function memberStatus(member: AccountMember, latestRef: string | null): MemberSt
   if (!member.enabled) {
     return {
       tone: 'off',
-      text: '已停用',
+      text: t("已停用"),
       hollow: false,
-      title: '池文件里 enabled 是 false，claude1 不会选它',
+      title: t("池文件里 enabled 是 false，claude1 不会选它"),
     };
   }
   if (latestRef !== null && member.providerRef === latestRef) {
     return {
       tone: 'current',
-      text: '最近使用',
+      text: t("最近使用"),
       hollow: false,
-      title: '这个池里最后一次记账的成员',
+      title: t("这个池里最后一次记账的成员"),
     };
   }
   if (member.turns > 0) {
     return {
       tone: 'ok',
-      text: '已启用',
+      text: t("已启用"),
       hollow: false,
-      title: '池文件里启用，用量流水里也有过记账',
+      title: t("池文件里启用，用量流水里也有过记账"),
     };
   }
   return {
     tone: 'ok',
-    text: '已启用，未记账',
+    text: t("已启用，未记账"),
     hollow: true,
-    title: '池文件里启用，但用量流水里还没有它的记录',
+    title: t("池文件里启用，但用量流水里还没有它的记录"),
   };
 }
 
@@ -104,20 +105,20 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
   async function copyRef(raw: string, label: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(redactSecrets(raw));
-      toastSuccess(`已复制${label}`);
+      toastSuccess(t("已复制{0}", [label]));
     } catch (cause) {
-      toastError(`复制${label}未成功：${errorText(cause)}`);
+      toastError(t("复制{0}未成功：{1}", [label, errorText(cause)]));
     }
   }
 
   return (
     <Card
       flush
-      aria-label={`账号池 ${poolRef}`}
+      aria-label={t("账号池 {0}", [poolRef])}
       title={
         <span className={styles.titleRow}>
           {primary === undefined ? (
-            '未解析的渠道'
+            t("未解析的渠道")
           ) : (
             <span className={styles.channelName}>{primary.name}</span>
           )}
@@ -125,15 +126,11 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
             <Badge
               tone="warn"
               mono={false}
-              title="池文件里的主 provider 选择器在 CC Switch 数据库里找不到对应渠道"
-            >
-              未解析
-            </Badge>
+              title={t("池文件里的主 provider 选择器在 CC Switch 数据库里找不到对应渠道")}
+            >{t(" 未解析 ")}</Badge>
           ) : null}
           {primary !== undefined && primary.hidden ? (
-            <Badge tone="neutral" mono={false} title="这个渠道在渠道视图里被隐藏了，池仍然会用它">
-              已隐藏
-            </Badge>
+            <Badge tone="neutral" mono={false} title={t("这个渠道在渠道视图里被隐藏了，池仍然会用它")}>{t(" 已隐藏 ")}</Badge>
           ) : null}
         </span>
       }
@@ -142,69 +139,58 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
           <code className={styles.ref}>{poolRef}</code>
           <IconButton
             icon="copy"
-            aria-label={`复制池选择器 ${poolRef}`}
-            tooltip="复制池选择器"
-            onClick={() => void copyRef(pool.providerRef, '池选择器')}
+            aria-label={t("复制池选择器 {0}", [poolRef])}
+            tooltip={t("复制池选择器")}
+            onClick={() => void copyRef(pool.providerRef, t("池选择器"))}
           />
         </span>
       }
       actions={
-        <span className={styles.headerMeta}>
-          成员 <span className={styles.num}>{formatCount(pool.members.length)}</span> 个，启用{' '}
-          <span className={styles.num}>{formatCount(enabledCount)}</span> 个
-        </span>
+        <span className={styles.headerMeta}>{t("成员 {0} 个，启用 {1} 个", [formatCount(pool.members.length), formatCount(enabledCount)])}</span>
       }
     >
       <dl className={styles.meta}>
         <div className={styles.metaItem}>
-          <dt className={styles.metaLabel}>轮换策略</dt>
+          <dt className={styles.metaLabel}>{t("轮换策略")}</dt>
           <dd className={styles.metaValue}>
-            {strategyLabel === undefined ? `策略 ${pool.strategy} 不是内置值，按原配置展示` : strategyLabel}
+            {strategyLabel === undefined ? t("策略 {0} 不是内置值，按原配置展示", [pool.strategy]) : strategyLabel}
             <code className={styles.metaCode}>{pool.strategy}</code>
           </dd>
         </div>
         <div className={styles.metaItem}>
-          <dt className={styles.metaLabel} title="成员失败后默认冷却这么久；上游给了 Retry-After 就按上游的来">
-            默认冷却
-          </dt>
+          <dt className={styles.metaLabel} title={t("成员失败后默认冷却这么久；上游给了 Retry-After 就按上游的来")}>{t(" 默认冷却 ")}</dt>
           <dd className={styles.metaValue}>
             {pool.cooldownSeconds === null ? (
-              <span className={styles.muted} title="池文件没给这个值，也读不到默认值">
+              <span className={styles.muted} title={t("池文件没给这个值，也读不到默认值")}>
                 {MISSING}
               </span>
             ) : (
               <>
-                <code className={styles.metaCode}>{formatCount(pool.cooldownSeconds)}</code> 秒
-              </>
+                <code className={styles.metaCode}>{formatCount(pool.cooldownSeconds)}</code>{t(" 秒 ")}</>
             )}
           </dd>
         </div>
         <div className={styles.metaItem}>
-          <dt className={styles.metaLabel} title="上游给的 Retry-After 再长，也不会超过这个上限">
-            冷却上限
-          </dt>
+          <dt className={styles.metaLabel} title={t("上游给的 Retry-After 再长，也不会超过这个上限")}>{t(" 冷却上限 ")}</dt>
           <dd className={styles.metaValue}>
             {pool.maxCooldownSeconds === null ? (
-              <span className={styles.muted} title="池文件没给这个值，也读不到默认值">
+              <span className={styles.muted} title={t("池文件没给这个值，也读不到默认值")}>
                 {MISSING}
               </span>
             ) : (
               <>
-                <code className={styles.metaCode}>{formatCount(pool.maxCooldownSeconds)}</code> 秒
-              </>
+                <code className={styles.metaCode}>{formatCount(pool.maxCooldownSeconds)}</code>{t(" 秒 ")}</>
             )}
           </dd>
         </div>
         <div className={styles.metaItem}>
           <dt
             className={styles.metaLabel}
-            title="按用量流水里 account 字段的最后一次记账算出来的，不是 hub 运行期的当前绑定"
-          >
-            最近使用的成员
-          </dt>
+            title={t("按用量流水里 account 字段的最后一次记账算出来的，不是 hub 运行期的当前绑定")}
+          >{t(" 最近使用的成员 ")}</dt>
           <dd className={styles.metaValue}>
             {latest === null ? (
-              <span className={styles.muted}>用量流水里还没有这个池的记账</span>
+              <span className={styles.muted}>{t("用量流水里还没有这个池的记账")}</span>
             ) : (
               <>
                 <StatusDot tone="current">
@@ -220,29 +206,19 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
       </dl>
 
       {pool.members.length === 0 ? (
-        <p className={styles.brokenPool} role="alert">
-          这个池没有成员。claude1 要求 members 是非空列表，所以它会拒绝加载这个池——用
-          <code className={styles.metaCode}>claude1 accounts list</code>
-          检查池文件。
-        </p>
+        <p className={styles.brokenPool} role="alert">{t(" 这个池没有成员。claude1 要求 members 是非空列表，所以它会拒绝加载这个池——用 ")}<code className={styles.metaCode}>claude1 accounts list</code>{t(" 检查池文件。 ")}</p>
       ) : (
         <Table minWidth={880} framed={false}>
           <thead>
             <tr>
-              <Th>成员标识</Th>
-              <Th>渠道</Th>
-              <Th>状态</Th>
-              <Th>凭证</Th>
-              <Th numeric title="只有 weighted 策略、且在同一优先级组里才起作用">
-                权重
-              </Th>
-              <Th numeric title="数字小的先用；只有同一优先级的成员之间才轮换">
-                优先级
-              </Th>
-              <Th numeric title="用量流水里以这个成员记过账的回合数">
-                记账回合
-              </Th>
-              <Th>最近使用</Th>
+              <Th>{t("成员标识")}</Th>
+              <Th>{t("渠道")}</Th>
+              <Th>{t("状态")}</Th>
+              <Th>{t("凭证")}</Th>
+              <Th numeric title={t("只有 weighted 策略、且在同一优先级组里才起作用")}>{t(" 权重 ")}</Th>
+              <Th numeric title={t("数字小的先用；只有同一优先级的成员之间才轮换")}>{t(" 优先级 ")}</Th>
+              <Th numeric title={t("用量流水里以这个成员记过账的回合数")}>{t(" 记账回合 ")}</Th>
+              <Th>{t("最近使用")}</Th>
             </tr>
           </thead>
           <tbody>
@@ -262,9 +238,9 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
                       <span className={styles.refText}>{memberRef}</span>
                       <IconButton
                         icon="copy"
-                        aria-label={`复制成员标识 ${memberRef}`}
-                        tooltip="复制成员标识"
-                        onClick={() => void copyRef(member.providerRef, '成员标识')}
+                        aria-label={t("复制成员标识 {0}", [memberRef])}
+                        tooltip={t("复制成员标识")}
+                        onClick={() => void copyRef(member.providerRef, t("成员标识"))}
                       />
                     </span>
                   </Td>
@@ -272,10 +248,10 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
                     mono
                     truncate
                     title={
-                      channel === undefined ? '这个选择器在 CC Switch 数据库里没找到对应渠道' : channel.name
+                      channel === undefined ? t("这个选择器在 CC Switch 数据库里没找到对应渠道") : channel.name
                     }
                   >
-                    {channel === undefined ? <span className={styles.muted}>未解析</span> : channel.name}
+                    {channel === undefined ? <span className={styles.muted}>{t("未解析")}</span> : channel.name}
                   </Td>
                   <Td>
                     <StatusDot tone={status.tone} hollow={status.hollow} title={status.title}>
@@ -284,12 +260,10 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
                   </Td>
                   <Td>
                     {channel === undefined ? (
-                      <span className={styles.muted} title="渠道没解析出来，凭证状态也就查不到">
-                        未解析
-                      </span>
+                      <span className={styles.muted} title={t("渠道没解析出来，凭证状态也就查不到")}>{t(" 未解析 ")}</span>
                     ) : (
-                      <StatusDot tone={channel.credential === 'configured' ? 'ok' : 'fail'} title={CREDENTIAL_TITLE}>
-                        {channel.credential === 'configured' ? '已配置' : '未配置'}
+                      <StatusDot tone={channel.credential === 'configured' ? 'ok' : 'fail'} title={t(CREDENTIAL_TITLE)}>
+                        {channel.credential === 'configured' ? t("已配置") : t("未配置")}
                       </StatusDot>
                     )}
                   </Td>
@@ -299,7 +273,7 @@ export default function PoolCard({ pool, channelById, now }: PoolCardProps) {
                   <Td
                     className={styles.when}
                     title={
-                      member.lastUsedAt === null ? '用量流水里没有这个成员的记账' : formatTime(member.lastUsedAt)
+                      member.lastUsedAt === null ? t("用量流水里没有这个成员的记账") : formatTime(member.lastUsedAt)
                     }
                   >
                     {member.lastUsedAt === null ? (

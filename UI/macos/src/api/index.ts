@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * IPC 包装层。CONTRACT.md 第 3 节的每个 snake_case 命令在这里对应一个同名 camelCase 函数，
  * 类型全部取自 `../types/contract`。
@@ -74,7 +75,7 @@ export const isOffline: boolean = typeof window === 'undefined' || typeof window
 /** 离线模式下拒绝写操作时说的话。把「为什么不行」和「怎么才行」一起说清。 */
 function offlineWriteRejection(action: string): Error {
   return new Error(
-    `现在显示的是离线示例数据（没有检测到 Rust 侧），${action}没有可以落盘的地方，所以这一步没有执行。请在 Agent Hub 桌面应用里操作，或用命令行改配置。`,
+    t("现在显示的是离线示例数据（没有检测到 Rust 侧），{0}没有可以落盘的地方，所以这一步没有执行。请在 Agent Hub 桌面应用里操作，或用命令行改配置。", [action]),
   );
 }
 
@@ -99,15 +100,15 @@ export function listChannels(): Promise<Channel[]> {
 }
 
 export function setChannelHidden(id: string, hidden: boolean, appType: Channel['appType'] = 'claude'): Promise<void> {
-  return write('set_channel_hidden', { id, hidden, appType }, '改隐藏状态');
+  return write('set_channel_hidden', { id, hidden, appType }, t("改隐藏状态"));
 }
 
 export function setChannelAlias(id: string, alias: string | null, appType: Channel['appType'] = 'claude'): Promise<void> {
-  return write('set_channel_alias', { id, alias, appType }, '改别名');
+  return write('set_channel_alias', { id, alias, appType }, t("改别名"));
 }
 
 export function setChannelOverride(id: string, model: string | null, effort: Effort | null, appType: Channel['appType'] = 'claude'): Promise<void> {
-  return write('set_channel_override', { id, model, effort, appType }, '改本地覆盖');
+  return write('set_channel_override', { id, model, effort, appType }, t("改本地覆盖"));
 }
 
 // ---------------------------------------------------------------------------
@@ -124,11 +125,11 @@ export function setHubSlot(
   channel: string | null,
   model: string | null,
 ): Promise<void> {
-  return write('set_hub_slot', { hubName, slot, channel, model }, '改槽位绑定');
+  return write('set_hub_slot', { hubName, slot, channel, model }, t("改槽位绑定"));
 }
 
 export function setHubSlotEffort(hubName: string, slot: SlotName, effort: Effort | null): Promise<void> {
-  return write('set_hub_slot_effort', { hubName, slot, effort }, '改槽位 effort');
+  return write('set_hub_slot_effort', { hubName, slot, effort }, t("改槽位 effort"));
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +176,7 @@ export function runDoctor(): Promise<DoctorCheck[]> {
 }
 
 export function doctorFixSubagentPins(): Promise<DoctorCheck[]> {
-  if (isOffline) return Promise.reject(offlineWriteRejection('清理子代理模型固定值'));
+  if (isOffline) return Promise.reject(offlineWriteRejection(t("清理子代理模型固定值")));
   return invoke<DoctorCheck[]>('doctor_fix_subagent_pins', {});
 }
 
@@ -184,7 +185,7 @@ export function doctorFixSubagentPins(): Promise<DoctorCheck[]> {
 // ---------------------------------------------------------------------------
 
 export function launch(target: LaunchTarget): Promise<LaunchResult> {
-  if (isOffline) return Promise.reject(offlineWriteRejection('启动会话'));
+  if (isOffline) return Promise.reject(offlineWriteRejection(t("启动会话")));
   return invoke<LaunchResult>('launch', { target });
 }
 
@@ -193,11 +194,11 @@ export function appEnv(): Promise<AppEnv> {
 }
 
 export function openPath(path: string): Promise<void> {
-  return write('open_path', { path }, '打开路径');
+  return write('open_path', { path }, t("打开路径"));
 }
 
 export function revealInFolder(path: string): Promise<void> {
-  return write('reveal_in_folder', { path }, '在 Finder 中显示');
+  return write('reveal_in_folder', { path }, t("在 Finder 中显示"));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +218,7 @@ export function listChatSessions(): Promise<ChatSession[]> {
 export function sendChatMessage(sessionId: string, content: string): Promise<ChatMessage> {
   // 流式增量与终态走 `chat-stream` / `chat-stream-end` / `chat-stream-error` 事件；
   // 这里的返回值只是最终副本，界面由事件驱动（shell/chatEvents.ts）
-  if (isOffline) return Promise.reject(offlineWriteRejection('发送消息'));
+  if (isOffline) return Promise.reject(offlineWriteRejection(t("发送消息")));
   return invoke<ChatMessage>('send_chat_message', { sessionId, content });
 }
 
@@ -227,17 +228,17 @@ export function chatProjects(): Promise<ChatProject[]> {
 }
 
 export function selectChatProject(key: string): Promise<void> {
-  return write('select_chat_project', { key }, '切换历史项目');
+  return write('select_chat_project', { key }, t("切换历史项目"));
 }
 
 /** hubName 为 null = 用默认 hub。渠道与模型由 Rust 侧按真值解析，解不出就报错 */
 export function createChatSession(hubName: string | null, channelId: string): Promise<ChatSession> {
-  if (isOffline) return Promise.reject(offlineWriteRejection('新建会话'));
+  if (isOffline) return Promise.reject(offlineWriteRejection(t("新建会话")));
   return invoke<ChatSession>('create_chat_session', { hubName, channelId });
 }
 
 export function deleteChatSession(id: string): Promise<void> {
-  return write('delete_chat_session', { id }, '删除会话');
+  return write('delete_chat_session', { id }, t("删除会话"));
 }
 
 export function listPlugins(): Promise<PluginItem[]> {
@@ -276,7 +277,7 @@ export function deleteTask(id: string): Promise<void> {
 // Management requests are explicit writes; raw settings/secrets never return to the renderer.
 import type { ProviderSource, ImportPreview, ImportSelection, ProviderOutcome, ProviderEditView, ProviderInput, CredentialStatus, MigrationOutcome, DeleteOutcome, AppType } from '../types/contract';
 async function manage<T>(command: string, args: Record<string, unknown>): Promise<T> {
-  if (isOffline) throw offlineWriteRejection('管理渠道');
+  if (isOffline) throw offlineWriteRejection(t("管理渠道"));
   return invoke<T>(command, args);
 }
 export const previewImport = (source: ProviderSource): Promise<ImportPreview> => manage('preview_import', { source });
@@ -290,10 +291,10 @@ export const credentialStatus = (): Promise<CredentialStatus> => manage('credent
 export const migrateCredentials = (): Promise<MigrationOutcome> => manage('migrate_credentials', {});
 
 export async function listPullRequests(filter: string, repository: string): Promise<import('../types/contract').PullRequest[]> {
-  if (isOffline) throw new Error('PR 列表需要桌面应用与本机 gh 登录 / Open the desktop app and sign in with gh.');
+  if (isOffline) throw new Error(t("PR 列表需要桌面应用与本机 gh 登录 / Open the desktop app and sign in with gh."));
   return invoke('list_pull_requests', { filter, repository });
 }
 export async function openPullRequest(url: string): Promise<void> {
-  if (isOffline) throw new Error('请在桌面应用中打开 PR / Open this PR from the desktop app.');
+  if (isOffline) throw new Error(t("请在桌面应用中打开 PR / Open this PR from the desktop app."));
   return invoke('open_pull_request', { url });
 }

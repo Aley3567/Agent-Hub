@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 一条降级记录，可展开（DESIGN.md 第 4.4 节的呈现规则就是这个组件的全部规格）：
  *   人话标题在前，HUB_DEGRADE_ 原码紧跟其后（--fs-11 mono --text-tertiary，不隐藏、可搜可选）；
@@ -46,12 +47,12 @@ export function DegradeItem({ entries, count = null, meta, footer, expanded, onT
             type="button"
             className={styles.extra}
             onClick={onToggle}
-            title={`同一回合还记了 ${extra} 个降级码，展开看全部`}
+            title={t("同一回合还记了 {0} 个降级码，展开看全部", [extra])}
           >
             {`+${extra}`}
           </button>
         ) : null}
-        {count === null ? null : <span className={styles.count}>{`${count} 次`}</span>}
+        {count === null ? null : <span className={styles.count}>{t("{0} 次", [count])}</span>}
         {meta === undefined ? null : <span className={styles.meta}>{meta}</span>}
       </div>
 
@@ -69,18 +70,18 @@ export function DegradeItem({ entries, count = null, meta, footer, expanded, onT
                 </div>
               ) : null}
               <dl className={styles.facts}>
-                <dt className={styles.term}>发生了什么</dt>
+                <dt className={styles.term}>{t("发生了什么")}</dt>
                 <dd className={styles.text}>{entry.what}</dd>
-                <dt className={styles.term}>对你的影响</dt>
+                <dt className={styles.term}>{t("对你的影响")}</dt>
                 <dd className={styles.text}>{entry.impact}</dd>
-                <dt className={styles.term}>建议动作</dt>
+                <dt className={styles.term}>{t("建议动作")}</dt>
                 <dd className={styles.text}>{entry.action}</dd>
               </dl>
             </div>
           ))}
           <CodeBlock
             code={entries.map((entry) => entry.code).join('\n')}
-            label={entries.length > 1 ? '这一回合的全部降级码，可复制发给作者' : '降级码，可复制发给作者'}
+            label={entries.length > 1 ? t("这一回合的全部降级码，可复制发给作者") : t("降级码，可复制发给作者")}
             wrap
           />
           {footer}

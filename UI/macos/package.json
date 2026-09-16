@@ -9,7 +9,7 @@
     "build": "tauri build",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && node scripts/check-i18n.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

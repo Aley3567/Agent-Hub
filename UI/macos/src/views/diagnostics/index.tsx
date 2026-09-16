@@ -1,3 +1,4 @@
+import { t } from '../../i18n';
 /**
  * 诊断视图 —— 回答「失败了什么、悄悄降级了什么」。
  *
@@ -66,8 +67,8 @@ import styles from './index.module.css';
 type Grouping = 'code' | 'turn';
 
 const GROUPING_OPTIONS: ReadonlyArray<SegmentedOption<Grouping>> = [
-  { value: 'code', label: '按降级码', title: '同一个码的多次出现合成一行，先看哪类妥协最多' },
-  { value: 'turn', label: '按回合', title: '一行一个回合，同一回合的多个码折叠成「+N」' },
+  { value: 'code', get label() { return t("按降级码"); }, get title() { return t("同一个码的多次出现合成一行，先看哪类妥协最多"); } },
+  { value: 'turn', get label() { return t("按回合"); }, get title() { return t("一行一个回合，同一回合的多个码折叠成「+N」"); } },
 ];
 
 /** 每个降级码展开后最多列出多少条出现记录，避免一次撑开几百行 */
@@ -254,9 +255,9 @@ export default function DiagnosticsView() {
   const emptyJournal = (
     <EmptyState
       hero
-      title="本机还没有产生流水"
-      description="用量与错误 journal 都是空的（文件不存在也算空）。跑一次会话后回来看，这一页读的就是那两个文件。"
-      action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+      title={t("本机还没有产生流水")}
+      description={t("用量与错误 journal 都是空的（文件不存在也算空）。跑一次会话后回来看，这一页读的就是那两个文件。")}
+      action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
       hint={logsDir === null ? undefined : <code>{logsDir}</code>}
     />
   );
@@ -264,9 +265,9 @@ export default function DiagnosticsView() {
   const emptyFiltered = (
     <EmptyState
       icon="filter"
-      title="当前筛选没有匹配项"
-      description="筛选条件把所有记录都排除掉了。清空后再逐项收窄，就能看出是哪一条把结果筛空的。"
-      action={{ label: '清空筛选', icon: 'close', onClick: clearFilters }}
+      title={t("当前筛选没有匹配项")}
+      description={t("筛选条件把所有记录都排除掉了。清空后再逐项收窄，就能看出是哪一条把结果筛空的。")}
+      action={{ label: t("清空筛选"), icon: 'close', onClick: clearFilters }}
     />
   );
 
@@ -278,38 +279,34 @@ export default function DiagnosticsView() {
     <div className={styles.view}>
       {usageFailure === null ? null : (
         <p className={styles.alert} role="alert">
-          {`读取用量流水失败：${usageFailure}`}
+          {t("读取用量流水失败：{0}", [usageFailure])}
         </p>
       )}
       {errorsFailure === null ? null : (
         <p className={styles.alert} role="alert">
-          {`读取错误流水失败：${errorsFailure}`}
+          {t("读取错误流水失败：{0}", [errorsFailure])}
         </p>
       )}
 
       <Toolbar
         sticky
         divider
-        aria-label="诊断筛选"
+        aria-label={t("诊断筛选")}
         right={
           <>
-            {busy ? <Spinner size="sm" label="正在读流水" /> : null}
+            {busy ? <Spinner size="sm" label={t("正在读流水")} /> : null}
             {filtersActive ? (
-              <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>
-                清空筛选
-              </Button>
+              <Button variant="ghost" size="sm" icon="close" onClick={clearFilters}>{t(" 清空筛选 ")}</Button>
             ) : null}
-            <Button variant="secondary" size="sm" icon="refresh" loading={busy} onClick={reload}>
-              刷新
-            </Button>
+            <Button variant="secondary" size="sm" icon="refresh" loading={busy} onClick={reload}>{t(" 刷新 ")}</Button>
           </>
         }
       >
         <SearchInput
           value={query}
           onChange={setQuery}
-          aria-label="过滤诊断记录"
-          placeholder="搜降级码、人话标题、状态码、渠道、模型、原文"
+          aria-label={t("过滤诊断记录")}
+          placeholder={t("搜降级码、人话标题、状态码、渠道、模型、原文")}
         />
       </Toolbar>
 
@@ -318,7 +315,7 @@ export default function DiagnosticsView() {
           // 两份流水一次都没加载过时（首帧 busy 还没置真）也走加载态；已空的数据
           // 再刷新时请求在途同样不得下空态结论（上方 settled 的同一口径）
           <div className={styles.loading}>
-            <Spinner size="md" label="正在读取诊断流水" />
+            <Spinner size="md" label={t("正在读取诊断流水")} />
           </div>
         ) : hasFailure ? null : (
           emptyJournal
@@ -330,45 +327,43 @@ export default function DiagnosticsView() {
               ref={degradeRef}
               id={SECTION_DOM_ID.degrade}
               className={styles.section}
-              aria-label="降级记录"
+              aria-label={t("降级记录")}
             >
               <div className={styles.sectionHead}>
                 <SectionHeader
-                  title="降级记录"
+                  title={t("降级记录")}
                   count={occurrences.length}
-                  subtitle={`最近 ${recentUsage.length} 条用量与 ${errors.length} 条错误流水里的 HUB_DEGRADE_* 码。`}
+                  subtitle={t("最近 {0} 条用量与 {1} 条错误流水里的 HUB_DEGRADE_* 码。", [recentUsage.length, errors.length])}
                   actions={
                     <SegmentedControl
                       options={GROUPING_OPTIONS}
                       value={grouping}
                       onChange={setGrouping}
-                      aria-label="降级列表分组"
+                      aria-label={t("降级列表分组")}
                     />
                   }
                 />
               </div>
 
               <FilterChips
-                aria-label="按严重度筛选降级"
+                aria-label={t("按严重度筛选降级")}
                 chips={severityChips}
                 active={severity}
                 onChange={setSeverity}
-                allLabel="全部"
+                allLabel={t("全部")}
                 allCount={totalCodeHits}
               />
 
               {codeFilter === null ? null : (
                 <div className={styles.handoff} role="status">
                   <Icon name="filter" size={14} />
-                  <span className={styles.handoffText}>{`只看从用量明细带过来的 ${codeFilter.length} 个降级码`}</span>
+                  <span className={styles.handoffText}>{t("只看从用量明细带过来的 {0} 个降级码", [codeFilter.length])}</span>
                   {codeFilter.map((code) => (
                     <Badge key={code} tone="warn">
                       {code}
                     </Badge>
                   ))}
-                  <Button variant="ghost" size="sm" icon="close" onClick={() => setCodeFilter(null)}>
-                    看全部降级
-                  </Button>
+                  <Button variant="ghost" size="sm" icon="close" onClick={() => setCodeFilter(null)}>{t(" 看全部降级 ")}</Button>
                 </div>
               )}
 
@@ -376,9 +371,9 @@ export default function DiagnosticsView() {
                 settled ? (
                   <EmptyState
                     icon="success"
-                    title="这批记录里没有降级"
-                    description={`最近 ${recentUsage.length} 条用量与 ${errors.length} 条失败里，一个 HUB_DEGRADE_ 码都没有——这几轮协议桥没做过任何妥协。`}
-                    action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+                    title={t("这批记录里没有降级")}
+                    description={t("最近 {0} 条用量与 {1} 条失败里，一个 HUB_DEGRADE_ 码都没有——这几轮协议桥没做过任何妥协。", [recentUsage.length, errors.length])}
+                    action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
                   />
                 ) : null
               ) : grouping === 'code' ? (
@@ -387,7 +382,7 @@ export default function DiagnosticsView() {
                 ) : (
                   <>
                     <Card flush>
-                      <ul className={styles.list} aria-label="按降级码聚合">
+                      <ul className={styles.list} aria-label={t("按降级码聚合")}>
                         {visibleGroups.map((group) => (
                           <DegradeItem
                             key={group.code}
@@ -395,17 +390,17 @@ export default function DiagnosticsView() {
                             count={group.count}
                             expanded={expanded.has(group.code)}
                             onToggle={() => setExpanded((prev) => toggleKey(prev, group.code))}
-                            meta={`最近一次 ${formatRelative(group.lastTs)}`}
+                            meta={t("最近一次 {0}", [formatRelative(group.lastTs)])}
                             footer={
                               <div className={styles.occurrences}>
-                                <Table dense minWidth={620} framed={false} aria-label={`${group.code} 的出现记录`}>
+                                <Table dense minWidth={620} framed={false} aria-label={t("{0} 的出现记录", [group.code])}>
                                   <thead>
                                     <tr>
-                                      <Th>时间</Th>
-                                      <Th>来源</Th>
-                                      <Th>渠道</Th>
-                                      <Th>模型</Th>
-                                      <Th>同一回合的其他码</Th>
+                                      <Th>{t("时间")}</Th>
+                                      <Th>{t("来源")}</Th>
+                                      <Th>{t("渠道")}</Th>
+                                      <Th>{t("模型")}</Th>
+                                      <Th>{t("同一回合的其他码")}</Th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -415,10 +410,10 @@ export default function DiagnosticsView() {
                                         <tr key={item.id}>
                                           <Td mono>{formatTime(item.ts)}</Td>
                                           <Td>{ORIGIN_LABEL[item.origin]}</Td>
-                                          <Td mono truncate title={item.channel ?? '流水未记录渠道'}>
+                                          <Td mono truncate title={item.channel ?? t("流水未记录渠道")}>
                                             {item.channel ?? MISSING}
                                           </Td>
-                                          <Td mono truncate title={item.model ?? '流水未记录模型'}>
+                                          <Td mono truncate title={item.model ?? t("流水未记录模型")}>
                                             {item.model ?? MISSING}
                                           </Td>
                                           <Td mono truncate title={others.join('、')}>
@@ -431,7 +426,7 @@ export default function DiagnosticsView() {
                                 </Table>
                                 {group.occurrences.length > OCCURRENCE_PREVIEW ? (
                                   <p className={styles.more}>
-                                    {`还有 ${group.occurrences.length - OCCURRENCE_PREVIEW} 条出现记录没列出，换到「按回合」可以逐条看。`}
+                                    {t("还有 {0} 条出现记录没列出，换到「按回合」可以逐条看。", [group.occurrences.length - OCCURRENCE_PREVIEW])}
                                   </p>
                                 ) : null}
                               </div>
@@ -448,8 +443,8 @@ export default function DiagnosticsView() {
                         onClick={() => setShowAllGroups((prev) => !prev)}
                       >
                         {showAllGroups
-                          ? `只看前 ${GROUP_PREVIEW} 个`
-                          : `展开全部 ${formatCount(groups.length)} 个降级码`}
+                          ? t("只看前 {0} 个", [GROUP_PREVIEW])
+                          : t("展开全部 {0} 个降级码", [formatCount(groups.length)])}
                       </Button>
                     ) : null}
                   </>
@@ -459,7 +454,7 @@ export default function DiagnosticsView() {
               ) : (
                 <>
                   <Card flush>
-                    <ul className={styles.list} aria-label="按回合列出降级">
+                    <ul className={styles.list} aria-label={t("按回合列出降级")}>
                       {visibleTurns.map((item) => (
                         <DegradeItem
                           key={item.id}
@@ -486,8 +481,8 @@ export default function DiagnosticsView() {
                       onClick={() => setShowAllTurns((prev) => !prev)}
                     >
                       {showAllTurns
-                        ? `只看前 ${TURN_PREVIEW} 个`
-                        : `展开全部 ${formatCount(turns.length)} 个回合`}
+                        ? t("只看前 {0} 个", [TURN_PREVIEW])
+                        : t("展开全部 {0} 个回合", [formatCount(turns.length)])}
                     </Button>
                   ) : null}
                 </>
@@ -498,22 +493,22 @@ export default function DiagnosticsView() {
               ref={failureRef}
               id={SECTION_DOM_ID.failure}
               className={styles.section}
-              aria-label="失败列表"
+              aria-label={t("失败列表")}
             >
               <div className={styles.sectionHead}>
                 <SectionHeader
-                  title="失败列表"
+                  title={t("失败列表")}
                   count={failureItems.length}
-                  subtitle={`错误流水里的最近 ${failureItems.length} 条，状态码与错误体原样呈现。`}
+                  subtitle={t("错误流水里的最近 {0} 条，状态码与错误体原样呈现。", [failureItems.length])}
                 />
               </div>
 
               <FilterChips
-                aria-label="按失败类型筛选"
+                aria-label={t("按失败类型筛选")}
                 chips={kindChips}
                 active={kind}
                 onChange={setKind}
-                allLabel="全部"
+                allLabel={t("全部")}
                 allCount={failureItems.length}
               />
 
@@ -521,9 +516,9 @@ export default function DiagnosticsView() {
                 settled ? (
                   <EmptyState
                     icon="success"
-                    title="没有失败记录"
-                    description={`错误流水里一条都没有，最近 ${recentUsage.length} 条用量全都跑通了。`}
-                    action={{ label: '刷新', icon: 'refresh', onClick: reload }}
+                    title={t("没有失败记录")}
+                    description={t("错误流水里一条都没有，最近 {0} 条用量全都跑通了。", [recentUsage.length])}
+                    action={{ label: t("刷新"), icon: 'refresh', onClick: reload }}
                   />
                 ) : null
               ) : failures.length === 0 ? (
@@ -553,8 +548,8 @@ export default function DiagnosticsView() {
                       onClick={() => setShowAllFailures((prev) => !prev)}
                     >
                       {showAllFailures
-                        ? `只看前 ${FAILURE_PREVIEW} 条`
-                        : `展开全部 ${formatCount(failures.length)} 条失败`}
+                        ? t("只看前 {0} 条", [FAILURE_PREVIEW])
+                        : t("展开全部 {0} 条失败", [formatCount(failures.length)])}
                     </Button>
                   ) : null}
                 </>
@@ -564,12 +559,12 @@ export default function DiagnosticsView() {
 
           <SectionNav
             className={styles.rail}
-            aria-label="诊断小节导航"
+            aria-label={t("诊断小节导航")}
             active={activeSection}
             onJump={jumpTo}
             items={[
-              { id: 'degrade', label: '降级记录', count: occurrences.length },
-              { id: 'failure', label: '失败列表', count: failureItems.length },
+              { id: 'degrade', label: t("降级记录"), count: occurrences.length },
+              { id: 'failure', label: t("失败列表"), count: failureItems.length },
             ]}
           />
         </div>

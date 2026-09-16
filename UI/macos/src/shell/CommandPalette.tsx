@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * 命令面板（⌘K）。Cursor 式中心浮层：宽 560、距顶 15vh、--bg-elevated + --shadow-lg + --radius-lg
  * （DESIGN.md 第 4.3 节）。
@@ -38,11 +39,11 @@ type PaletteGroupId = 'nav' | 'recent' | 'channel' | 'slot' | 'action';
 const GROUP_SEQUENCE: PaletteGroupId[] = ['nav', 'recent', 'channel', 'slot', 'action'];
 
 const GROUP_TITLE: Record<PaletteGroupId, string> = {
-  nav: '导航',
-  recent: '最近使用',
-  channel: '渠道',
-  slot: '槽位',
-  action: '动作',
+  get nav() { return t("导航"); },
+  get recent() { return t("最近使用"); },
+  get channel() { return t("渠道"); },
+  get slot() { return t("槽位"); },
+  get action() { return t("动作"); },
 };
 
 const SLOTS: SlotName[] = ['fable', 'opus', 'sonnet', 'haiku'];
@@ -65,23 +66,23 @@ const MAX_PER_GROUP = 12;
 
 /** refresh key 的人话名字：刷新播报失败时要说清是哪一路失败 */
 const REFRESH_KEY_LABEL: Record<RefreshKey, string> = {
-  env: '环境信息',
-  channels: '渠道',
-  hubs: 'hub 配置',
-  pools: '账号池',
-  usage: '用量',
-  errors: '错误流水',
-  doctor: '体检',
-  chat: '对话',
-  chatProjects: '历史项目',
-  plugins: '插件',
-  tasks: '计划任务',
+  get env() { return t("环境信息"); },
+  get channels() { return t("渠道"); },
+  get hubs() { return t("hub 配置"); },
+  get pools() { return t("账号池"); },
+  get usage() { return t("用量"); },
+  get errors() { return t("错误流水"); },
+  get doctor() { return t("体检"); },
+  get chat() { return t("对话"); },
+  get chatProjects() { return t("历史项目"); },
+  get plugins() { return t("插件"); },
+  get tasks() { return t("计划任务"); },
 };
 
 /** 用量时间窗的三个预设，与用量视图工具栏的 SegmentedControl 同一口径 */
 const RANGE_PRESETS: readonly RangePreset[] = ['today', 'week', 'month'];
 
-const GRANULARITY_LABEL: Record<'hour' | 'day', string> = { hour: '按小时', day: '按天' };
+const GRANULARITY_LABEL: Record<'hour' | 'day', string> = { get hour() { return t("按小时"); }, get day() { return t("按天"); } };
 
 /**
  * 刷新播报说真话：refresh 永不抛出，await 之后读 error[key]，非 null 就是失败，
@@ -128,7 +129,7 @@ interface IndexedRow extends ScoredRow {
 
 function slotBindingText(hub: HubConfig, slot: SlotName): string {
   const binding = hub.slots[slot];
-  if (!binding) return '未绑定';
+  if (!binding) return t("未绑定");
   return binding.model === '' ? binding.channel : `${binding.channel} / ${binding.model}`;
 }
 
@@ -213,9 +214,9 @@ export default function CommandPalette() {
     const runLaunch = async (target: LaunchTarget, label: string): Promise<void> => {
       try {
         const result = await launch(target);
-        announce(result.ok ? `${label}：${result.message}` : `${label}未成功：${result.message}`);
+        announce(result.ok ? `${label}：${result.message}` : t("{0}未成功：{1}", [label, result.message]));
       } catch (cause) {
-        announce(`${label}未成功：${errorText(cause)}`);
+        announce(t("{0}未成功：{1}", [label, errorText(cause)]));
       }
     };
 
@@ -228,9 +229,9 @@ export default function CommandPalette() {
     ): Promise<void> => {
       try {
         await setSlot(hubName, slot, channel, model);
-        announce(`${label}，已写入 ${hubName} 的配置`);
+        announce(t("{0}，已写入 {1} 的配置", [label, hubName]));
       } catch (cause) {
-        announce(`${label}未成功：${errorText(cause)}`);
+        announce(t("{0}未成功：{1}", [label, errorText(cause)]));
       }
     };
 
@@ -242,9 +243,9 @@ export default function CommandPalette() {
     ): Promise<void> => {
       try {
         await setSlotEffort(hubName, slot, effort);
-        announce(`${label}，已写入 ${hubName} 的配置`);
+        announce(t("{0}，已写入 {1} 的配置", [label, hubName]));
       } catch (cause) {
-        announce(`${label}未成功：${errorText(cause)}`);
+        announce(t("{0}未成功：{1}", [label, errorText(cause)]));
       }
     };
 
@@ -252,9 +253,9 @@ export default function CommandPalette() {
     const runChannelWrite = async (call: () => Promise<void>, label: string): Promise<void> => {
       try {
         await call();
-        announce(`${label}，已写入 claude1-config.json`);
+        announce(t("{0}，已写入 claude1-config.json", [label]));
       } catch (cause) {
-        announce(`${label}未成功：${errorText(cause)}`);
+        announce(t("{0}未成功：{1}", [label, errorText(cause)]));
       }
     };
 
@@ -263,7 +264,7 @@ export default function CommandPalette() {
         await (reveal ? revealInFolder(path) : openPath(path));
         announce(`${label}：${path}`);
       } catch (cause) {
-        announce(`${label}未成功：${errorText(cause)}`);
+        announce(t("{0}未成功：{1}", [label, errorText(cause)]));
       }
     };
 
@@ -277,13 +278,13 @@ export default function CommandPalette() {
       const failed = state.doctor.filter((check) => check.level === 'fail').length;
       const noticed = state.doctor.filter((check) => check.level === 'info').length;
       const lines: string[] = [
-        `Agent Hub 诊断报告（${formatTime(Math.floor(Date.now() / 1000))}）`,
-        `体检：共 ${state.doctor.length} 项，失败 ${failed} 项，提醒 ${noticed} 项`,
+        t("Agent Hub 诊断报告（{0}）", [formatTime(Math.floor(Date.now() / 1000))]),
+        t("体检：共 {0} 项，失败 {1} 项，提醒 {2} 项", [state.doctor.length, failed, noticed]),
       ];
       for (const check of state.doctor) {
         lines.push(`- [${check.level}] ${check.title}${check.detail === null ? '' : `：${check.detail}`}`);
       }
-      lines.push(`最近错误：${state.errors.length} 条`);
+      lines.push(t("最近错误：{0} 条", [state.errors.length]));
       for (const row of state.errors.slice(0, REPORT_ERROR_LIMIT)) {
         const parts = [
           formatTime(row.ts),
@@ -296,11 +297,11 @@ export default function CommandPalette() {
       }
       try {
         await navigator.clipboard.writeText(redactSecrets(lines.join('\n')));
-        toastSuccess('诊断报告已复制到剪贴板');
-        announce('诊断报告已复制到剪贴板');
+        toastSuccess(t("诊断报告已复制到剪贴板"));
+        announce(t("诊断报告已复制到剪贴板"));
       } catch (cause) {
-        toastError(`复制诊断报告未成功：${errorText(cause)}`);
-        announce(`复制诊断报告未成功：${errorText(cause)}`);
+        toastError(t("复制诊断报告未成功：{0}", [errorText(cause)]));
+        announce(t("复制诊断报告未成功：{0}", [errorText(cause)]));
       }
     };
 
@@ -314,10 +315,10 @@ export default function CommandPalette() {
           {
             id: 'channel-missing',
             group: 'channel',
-            label: '找不到这个渠道，先去渠道视图确认配置',
+            label: t("找不到这个渠道，先去渠道视图确认配置"),
             hint: null,
             icon: 'warning',
-            keywords: 'channel 渠道',
+            keywords: t("channel 渠道"),
             action: { kind: 'run', run: () => goto('channels') },
           },
         ];
@@ -327,19 +328,19 @@ export default function CommandPalette() {
       const rows: PaletteItem[] = [];
 
       const notes: string[] = [channel.apiFormat];
-      if (channel.hidden) notes.push('已隐藏');
-      if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
-      if (channel.credential === 'missing') notes.push('凭证未配置');
+      if (channel.hidden) notes.push(t("已隐藏"));
+      if (channel.compatibility === 'incompatible') notes.push(t("语义不兼容"));
+      if (channel.credential === 'missing') notes.push(t("凭证未配置"));
       rows.push({
         id: `channel-${channel.appType}:${channel.id}-launch`,
         group: 'channel',
-        label: `用 ${channel.name} 启动会话`,
+        label: t("用 {0} 启动会话", [channel.name]),
         hint: notes.join(' · '),
         icon: 'play',
-        keywords: `${channel.alias ?? ''} launch 启动`,
+        keywords: t("{0} launch 启动", [channel.alias ?? '']),
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, t("用 {0} 启动会话", [channel.name])),
         },
       });
 
@@ -347,16 +348,16 @@ export default function CommandPalette() {
       rows.push({
         id: `channel-${channel.appType}:${channel.id}-hidden`,
         group: 'channel',
-        label: channel.hidden ? `取消隐藏渠道 ${channel.name}` : `隐藏渠道 ${channel.name}`,
-        hint: '隐藏后列表默认不显示，别名与 id 仍能启动',
+        label: channel.hidden ? t("取消隐藏渠道 {0}", [channel.name]) : t("隐藏渠道 {0}", [channel.name]),
+        hint: t("隐藏后列表默认不显示，别名与 id 仍能启动"),
         icon: channel.hidden ? 'eye' : 'eye-off',
-        keywords: 'hidden 隐藏 取消隐藏 显示',
+        keywords: t("hidden 隐藏 取消隐藏 显示"),
         action: {
           kind: 'run',
           run: () =>
             runChannelWrite(
               () => setHidden(channel.id, !channel.hidden),
-              channel.hidden ? `取消隐藏渠道 ${channel.name}` : `隐藏渠道 ${channel.name}`,
+              channel.hidden ? t("取消隐藏渠道 {0}", [channel.name]) : t("隐藏渠道 {0}", [channel.name]),
             ),
         },
       });
@@ -365,13 +366,13 @@ export default function CommandPalette() {
         rows.push({
           id: `channel-${channel.appType}:${channel.id}-alias-set`,
           group: 'channel',
-          label: `把 ${channel.name} 的别名设为「${typed}」`,
-          hint: channel.alias === null ? '当前未设置别名' : `当前别名：${channel.alias}`,
+          label: t("把 {0} 的别名设为「{1}」", [channel.name, typed]),
+          hint: channel.alias === null ? t("当前未设置别名") : t("当前别名：{0}", [channel.alias]),
           icon: 'edit',
-          keywords: 'alias 别名',
+          keywords: t("alias 别名"),
           action: {
             kind: 'run',
-            run: () => runChannelWrite(() => setAlias(channel.id, typed), `把 ${channel.name} 的别名设为「${typed}」`),
+            run: () => runChannelWrite(() => setAlias(channel.id, typed), t("把 {0} 的别名设为「{1}」", [channel.name, typed])),
           },
         });
       }
@@ -379,13 +380,13 @@ export default function CommandPalette() {
         rows.push({
           id: `channel-${channel.appType}:${channel.id}-alias-clear`,
           group: 'channel',
-          label: `清除 ${channel.name} 的别名`,
-          hint: `当前别名：${channel.alias}`,
+          label: t("清除 {0} 的别名", [channel.name]),
+          hint: t("当前别名：{0}", [channel.alias]),
           icon: 'close',
-          keywords: 'alias 别名 清除',
+          keywords: t("alias 别名 清除"),
           action: {
             kind: 'run',
-            run: () => runChannelWrite(() => setAlias(channel.id, null), `清除 ${channel.name} 的别名`),
+            run: () => runChannelWrite(() => setAlias(channel.id, null), t("清除 {0} 的别名", [channel.name])),
           },
         });
       }
@@ -394,16 +395,16 @@ export default function CommandPalette() {
         rows.push({
           id: `channel-${channel.appType}:${channel.id}-model-set`,
           group: 'channel',
-          label: `把 ${channel.name} 的模型覆盖设为「${typed}」`,
-          hint: channel.modelOverride === null ? '当前未覆盖模型' : `当前覆盖：${channel.modelOverride}`,
+          label: t("把 {0} 的模型覆盖设为「{1}」", [channel.name, typed]),
+          hint: channel.modelOverride === null ? t("当前未覆盖模型") : t("当前覆盖：{0}", [channel.modelOverride]),
           icon: 'edit',
-          keywords: 'override 模型 覆盖 model',
+          keywords: t("override 模型 覆盖 model"),
           action: {
             kind: 'run',
             run: () =>
               runChannelWrite(
                 () => setOverride(channel.id, typed, channel.effortOverride),
-                `把 ${channel.name} 的模型覆盖设为「${typed}」`,
+                t("把 {0} 的模型覆盖设为「{1}」", [channel.name, typed]),
               ),
           },
         });
@@ -412,16 +413,16 @@ export default function CommandPalette() {
         rows.push({
           id: `channel-${channel.appType}:${channel.id}-model-clear`,
           group: 'channel',
-          label: `清除 ${channel.name} 的模型覆盖`,
-          hint: `当前覆盖：${channel.modelOverride}`,
+          label: t("清除 {0} 的模型覆盖", [channel.name]),
+          hint: t("当前覆盖：{0}", [channel.modelOverride]),
           icon: 'close',
-          keywords: 'override 模型 覆盖 清除 model',
+          keywords: t("override 模型 覆盖 清除 model"),
           action: {
             kind: 'run',
             run: () =>
               runChannelWrite(
                 () => setOverride(channel.id, null, channel.effortOverride),
-                `清除 ${channel.name} 的模型覆盖`,
+                t("清除 {0} 的模型覆盖", [channel.name]),
               ),
           },
         });
@@ -433,15 +434,15 @@ export default function CommandPalette() {
         const isCurrent = currentEffort === choice.value;
         const label =
           choice.value === 'none'
-            ? `清除 ${channel.name} 的 effort 覆盖`
-            : `把 ${channel.name} 的 effort 覆盖设为 ${choice.label}`;
+            ? t("清除 {0} 的 effort 覆盖", [channel.name])
+            : t("把 {0} 的 effort 覆盖设为 {1}", [channel.name, choice.label]);
         rows.push({
           id: `channel-${channel.appType}:${channel.id}-effort-${choice.value}`,
           group: 'channel',
           label,
-          hint: isCurrent ? `当前 · ${choice.title}` : choice.title,
+          hint: isCurrent ? t("当前 · {0}", [choice.title]) : choice.title,
           icon: 'zap',
-          keywords: `effort 覆盖 ${choice.label}`,
+          keywords: t("effort 覆盖 {0}", [choice.label]),
           action: {
             kind: 'run',
             run: () =>
@@ -464,7 +465,7 @@ export default function CommandPalette() {
           {
             id: 'slot-missing-hub',
             group: 'slot',
-            label: `找不到 hub ${mode.hubName}，先去模型槽位视图确认配置`,
+            label: t("找不到 hub {0}，先去模型槽位视图确认配置", [mode.hubName]),
             hint: null,
             icon: 'warning',
             keywords: 'hub slot',
@@ -479,14 +480,14 @@ export default function CommandPalette() {
           rows.push({
             id: `slot-${slot}-${hubChannel.name}-default`,
             group: 'slot',
-            label: `把 ${slot} 槽位绑到 ${hubChannel.name}（不指定模型）`,
-            hint: hubChannel.resolvedChannelId === null ? '渠道未解析' : (hubChannel.apiFormat ?? '协议未知'),
+            label: t("把 {0} 槽位绑到 {1}（不指定模型）", [slot, hubChannel.name]),
+            hint: hubChannel.resolvedChannelId === null ? t("渠道未解析") : (hubChannel.apiFormat ?? t("协议未知")),
             icon: 'slots',
             keywords: `${slot} ${hubChannel.name} ${hubChannel.provider}`,
             action: {
               kind: 'run',
               run: () =>
-                runSetSlot(target.name, slot, hubChannel.name, null, `${slot} 槽位绑到 ${hubChannel.name}`),
+                runSetSlot(target.name, slot, hubChannel.name, null, t("{0} 槽位绑到 {1}", [slot, hubChannel.name])),
             },
           });
           continue;
@@ -495,8 +496,8 @@ export default function CommandPalette() {
           rows.push({
             id: `slot-${slot}-${hubChannel.name}-${model}`,
             group: 'slot',
-            label: `把 ${slot} 槽位绑到 ${hubChannel.name} 的 ${model}`,
-            hint: hubChannel.resolvedChannelId === null ? '渠道未解析' : (hubChannel.apiFormat ?? '协议未知'),
+            label: t("把 {0} 槽位绑到 {1} 的 {2}", [slot, hubChannel.name, model]),
+            hint: hubChannel.resolvedChannelId === null ? t("渠道未解析") : (hubChannel.apiFormat ?? t("协议未知")),
             icon: 'slots',
             keywords: `${slot} ${hubChannel.name} ${hubChannel.provider} ${model}`,
             action: {
@@ -507,7 +508,7 @@ export default function CommandPalette() {
                   slot,
                   hubChannel.name,
                   model,
-                  `${slot} 槽位绑到 ${hubChannel.name} 的 ${model}`,
+                  t("{0} 槽位绑到 {1} 的 {2}", [slot, hubChannel.name, model]),
                 ),
             },
           });
@@ -518,7 +519,7 @@ export default function CommandPalette() {
         rows.push({
           id: `slot-${slot}-no-channels`,
           group: 'slot',
-          label: `hub ${target.name} 还没声明 channels，先去模型槽位视图添加`,
+          label: t("hub {0} 还没声明 channels，先去模型槽位视图添加", [target.name]),
           hint: null,
           icon: 'warning',
           keywords: `${slot} channels`,
@@ -529,13 +530,13 @@ export default function CommandPalette() {
       rows.push({
         id: `slot-${slot}-clear`,
         group: 'slot',
-        label: `清除 ${slot} 槽位的绑定`,
+        label: t("清除 {0} 槽位的绑定", [slot]),
         hint: slotBindingText(target, slot),
         icon: 'close',
-        keywords: `${slot} clear 清除`,
+        keywords: t("{0} clear 清除", [slot]),
         action: {
           kind: 'run',
-          run: () => runSetSlot(target.name, slot, null, null, `${slot} 槽位绑定已清除`),
+          run: () => runSetSlot(target.name, slot, null, null, t("{0} 槽位绑定已清除", [slot])),
         },
       });
 
@@ -545,11 +546,11 @@ export default function CommandPalette() {
         const isCurrent = currentEffort === choice.value;
         const label =
           choice.value === EFFORT_UNSET
-            ? `清除 ${slot} 槽位的 effort 设置`
-            : `把 ${slot} 槽位的 effort 设为 ${choice.label}`;
+            ? t("清除 {0} 槽位的 effort 设置", [slot])
+            : t("把 {0} 槽位的 effort 设为 {1}", [slot, choice.label]);
         const hintParts = [
-          isCurrent ? '当前' : null,
-          choice.value === EFFORT_UNSET ? `内置默认档 ${SLOT_DEFAULT_EFFORT[slot]}` : null,
+          isCurrent ? t("当前") : null,
+          choice.value === EFFORT_UNSET ? t("内置默认档 {0}", [SLOT_DEFAULT_EFFORT[slot]]) : null,
         ].filter((part): part is string => part !== null);
         rows.push({
           id: `slot-${slot}-effort-${choice.value}`,
@@ -574,7 +575,7 @@ export default function CommandPalette() {
       rows.push({
         id: `nav-${meta.id}`,
         group: 'nav',
-        label: `转到 ${meta.title}`,
+        label: t("转到 {0}", [meta.title]),
         hint: viewShortcut(meta.id),
         icon: meta.icon,
         keywords: `${meta.navLabel} ${meta.subtitle}`,
@@ -592,13 +593,13 @@ export default function CommandPalette() {
       rows.push({
         id: `recent-${channel.appType}:${channel.id}`,
         group: 'recent',
-        label: `用 ${channel.name} 启动会话`,
-        hint: `最近使用 ${formatRelative(channel.lastUsedAt)}`,
+        label: t("用 {0} 启动会话", [channel.name]),
+        hint: t("最近使用 {0}", [formatRelative(channel.lastUsedAt)]),
         icon: 'clock',
-        keywords: `recent 最近 ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
+        keywords: t("recent 最近 {0} {1}", [channel.alias ?? '', channel.endpoint ?? '']),
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, t("用 {0} 启动会话", [channel.name])),
         },
       });
     }
@@ -606,32 +607,32 @@ export default function CommandPalette() {
     // 隐藏渠道不过滤：CONTRACT 明确「隐藏渠道别名与 id 仍然能启动」，面板只标注，不藏起来
     for (const channel of channels) {
       const notes: string[] = [channel.apiFormat];
-      if (channel.hidden) notes.push('已隐藏');
-      if (channel.compatibility === 'incompatible') notes.push('语义不兼容');
-      if (channel.credential === 'missing') notes.push('凭证未配置');
+      if (channel.hidden) notes.push(t("已隐藏"));
+      if (channel.compatibility === 'incompatible') notes.push(t("语义不兼容"));
+      if (channel.credential === 'missing') notes.push(t("凭证未配置"));
       rows.push({
         id: `channel-${channel.appType}:${channel.id}`,
         group: 'channel',
-        label: `用 ${channel.name} 启动会话`,
+        label: t("用 {0} 启动会话", [channel.name]),
         hint: notes.join(' · '),
         icon: 'play',
         keywords: `${channel.alias ?? ''} ${channel.endpoint ?? ''} ${channel.declaredModel ?? ''}`,
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, `用 ${channel.name} 启动会话`),
+          run: () => runLaunch({ kind: 'channel', channelId: channel.id, appType: channel.appType }, t("用 {0} 启动会话", [channel.name])),
         },
       });
       const manageHints = [
-        channel.alias === null ? null : `别名 ${channel.alias}`,
-        channel.hidden ? '已隐藏' : null,
+        channel.alias === null ? null : t("别名 {0}", [channel.alias]),
+        channel.hidden ? t("已隐藏") : null,
       ].filter((part): part is string => part !== null);
       rows.push({
         id: `channel-manage-${channel.appType}:${channel.id}`,
         group: 'channel',
-        label: `管理 ${channel.name}（启动、隐藏、别名、覆盖）`,
+        label: t("管理 {0}（启动、隐藏、别名、覆盖）", [channel.name]),
         hint: manageHints.length === 0 ? null : manageHints.join(' · '),
         icon: 'edit',
-        keywords: `管理 隐藏 别名 覆盖 manage ${channel.alias ?? ''} ${channel.endpoint ?? ''}`,
+        keywords: t("管理 隐藏 别名 覆盖 manage {0} {1}", [channel.alias ?? '', channel.endpoint ?? '']),
         action: { kind: 'enter', mode: { kind: 'channel', channelId: channel.id, appType: channel.appType } },
       });
     }
@@ -641,10 +642,10 @@ export default function CommandPalette() {
         rows.push({
           id: `slot-enter-${slot}`,
           group: 'slot',
-          label: `设置 ${slot} 槽位`,
+          label: t("设置 {0} 槽位", [slot]),
           hint: `${hub.name} · ${slotBindingText(hub, slot)}`,
           icon: 'slots',
-          keywords: `slot 槽位 ${slot} ${hub.name}`,
+          keywords: t("slot 槽位 {0} {1}", [slot, hub.name]),
           action: { kind: 'enter', mode: { kind: 'slot', hubName: hub.name, slot } },
         });
       }
@@ -653,10 +654,10 @@ export default function CommandPalette() {
     rows.push({
       id: 'action-refresh-view',
       group: 'action',
-      label: `刷新当前视图（${VIEW_META[view].title}）`,
+      label: t("刷新当前视图（{0}）", [VIEW_META[view].title]),
       hint: '⌘R',
       icon: 'refresh',
-      keywords: 'refresh 刷新',
+      keywords: t("refresh 刷新"),
       action: {
         kind: 'run',
         run: async () => {
@@ -664,8 +665,8 @@ export default function CommandPalette() {
           const problems = refreshProblems(VIEW_REFRESH_KEY[view]);
           announce(
             problems.length === 0
-              ? `${VIEW_META[view].title} 数据已刷新`
-              : `${VIEW_META[view].title} 刷新未成功：${problems.join('；')}`,
+              ? t("{0} 数据已刷新", [VIEW_META[view].title])
+              : t("{0} 刷新未成功：{1}", [VIEW_META[view].title, problems.join('；')]),
           );
         },
       },
@@ -674,16 +675,16 @@ export default function CommandPalette() {
     rows.push({
       id: 'action-refresh-all',
       group: 'action',
-      label: '刷新全部数据',
-      hint: '渠道、hub、用量、诊断、账号池、体检',
+      label: t("刷新全部数据"),
+      hint: t("渠道、hub、用量、诊断、账号池、体检"),
       icon: 'refresh',
-      keywords: 'refresh all 全部 刷新',
+      keywords: t("refresh all 全部 刷新"),
       action: {
         kind: 'run',
         run: async () => {
           await refreshAll();
           const problems = refreshProblems(REFRESH_KEYS);
-          announce(problems.length === 0 ? '全部数据已刷新' : `刷新未全部成功：${problems.join('；')}`);
+          announce(problems.length === 0 ? t("全部数据已刷新") : t("刷新未全部成功：{0}", [problems.join('；')]));
         },
       },
     });
@@ -695,15 +696,15 @@ export default function CommandPalette() {
       rows.push({
         id: `action-range-${preset}`,
         group: 'action',
-        label: `用量时间窗：${PRESET_LABEL[preset]}`,
-        hint: preset === currentPreset ? '当前' : `${GRANULARITY_LABEL[PRESET_GRANULARITY[preset]]}分桶`,
+        label: t("用量时间窗：{0}", [PRESET_LABEL[preset]]),
+        hint: preset === currentPreset ? t("当前") : t("{0}分桶", [GRANULARITY_LABEL[PRESET_GRANULARITY[preset]]]),
         icon: 'clock',
-        keywords: `usage 用量 时间窗 范围 range ${preset}`,
+        keywords: t("usage 用量 时间窗 范围 range {0}", [preset]),
         action: {
           kind: 'run',
           run: () => {
             setUsageRange({ ...rangeFor(preset), granularity: PRESET_GRANULARITY[preset] });
-            announce(`用量时间窗已切换为${PRESET_LABEL[preset]}，正在重新聚合`);
+            announce(t("用量时间窗已切换为{0}，正在重新聚合", [PRESET_LABEL[preset]]));
           },
         },
       });
@@ -712,15 +713,15 @@ export default function CommandPalette() {
       rows.push({
         id: `action-granularity-${granularity}`,
         group: 'action',
-        label: `用量分桶粒度：${GRANULARITY_LABEL[granularity]}`,
-        hint: usageRange.granularity === granularity ? '当前' : null,
+        label: t("用量分桶粒度：{0}", [GRANULARITY_LABEL[granularity]]),
+        hint: usageRange.granularity === granularity ? t("当前") : null,
         icon: 'usage',
-        keywords: `usage 用量 粒度 分桶 granularity ${granularity}`,
+        keywords: t("usage 用量 粒度 分桶 granularity {0}", [granularity]),
         action: {
           kind: 'run',
           run: () => {
             setUsageRange({ granularity });
-            announce(`用量分桶粒度已切换为${GRANULARITY_LABEL[granularity]}，正在重新聚合`);
+            announce(t("用量分桶粒度已切换为{0}，正在重新聚合", [GRANULARITY_LABEL[granularity]]));
           },
         },
       });
@@ -729,10 +730,10 @@ export default function CommandPalette() {
     rows.push({
       id: 'action-sidebar',
       group: 'action',
-      label: sidebarCollapsed ? '展开侧栏' : '折叠侧栏',
+      label: sidebarCollapsed ? t("展开侧栏") : t("折叠侧栏"),
       hint: '⌘B',
       icon: 'sidebar',
-      keywords: 'sidebar 侧栏 折叠 展开',
+      keywords: t("sidebar 侧栏 折叠 展开"),
       action: { kind: 'run', run: () => toggleSidebar() },
     });
 
@@ -740,15 +741,15 @@ export default function CommandPalette() {
       rows.push({
         id: `action-theme-${candidate}`,
         group: 'action',
-        label: `主题：${THEME_LABEL[candidate]}`,
-        hint: candidate === theme ? '当前' : null,
+        label: t("主题：{0}", [THEME_LABEL[candidate]]),
+        hint: candidate === theme ? t("当前") : null,
         icon: candidate === 'dark' ? 'moon' : candidate === 'light' ? 'sun' : 'monitor',
-        keywords: `theme 主题 ${candidate}`,
+        keywords: t("theme 主题 {0}", [candidate]),
         action: {
           kind: 'run',
           run: () => {
             setTheme(candidate);
-            announce(`主题已切换为${THEME_LABEL[candidate]}`);
+            announce(t("主题已切换为{0}", [THEME_LABEL[candidate]]));
           },
         },
       });
@@ -760,16 +761,16 @@ export default function CommandPalette() {
       rows.push({
         id: `action-density-${candidate}`,
         group: 'action',
-        label: `界面大小：${DENSITY_LABEL[candidate]}`,
-        hint: candidate === density ? '当前' : null,
+        label: t("界面大小：{0}", [DENSITY_LABEL[candidate]]),
+        hint: candidate === density ? t("当前") : null,
         icon: 'monitor',
-        keywords: `density 界面大小 缩放 ${candidate}`,
+        keywords: t("density 界面大小 缩放 {0}", [candidate]),
         action: {
           kind: 'run',
           run: () => {
             setDensity(candidate);
-            toastSuccess(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
-            announce(`界面大小已切换为${DENSITY_LABEL[candidate]}`);
+            toastSuccess(t("界面大小已切换为{0}", [DENSITY_LABEL[candidate]]));
+            announce(t("界面大小已切换为{0}", [DENSITY_LABEL[candidate]]));
           },
         },
       });
@@ -778,20 +779,20 @@ export default function CommandPalette() {
     rows.push({
       id: 'action-copy-diagnostics',
       group: 'action',
-      label: '复制诊断报告',
-      hint: '体检结论与最近错误摘要进剪贴板',
+      label: t("复制诊断报告"),
+      hint: t("体检结论与最近错误摘要进剪贴板"),
       icon: 'copy',
-      keywords: 'copy 复制 诊断 报告 diagnostics report',
+      keywords: t("copy 复制 诊断 报告 diagnostics report"),
       action: { kind: 'run', run: runCopyDiagnostics },
     });
 
     rows.push({
       id: 'action-doctor',
       group: 'action',
-      label: '运行本机体检',
-      hint: '只读不联网',
+      label: t("运行本机体检"),
+      hint: t("只读不联网"),
       icon: 'doctor',
-      keywords: 'doctor 体检 检查',
+      keywords: t("doctor 体检 检查"),
       action: {
         kind: 'run',
         run: async () => {
@@ -805,20 +806,20 @@ export default function CommandPalette() {
       rows.push({
         id: 'action-open-config',
         group: 'action',
-        label: '在 Finder 中显示配置文件',
+        label: t("在 Finder 中显示配置文件"),
         hint: env.configPath,
         icon: 'reveal',
-        keywords: 'config 配置 目录 finder',
-        action: { kind: 'run', run: () => runOpen(env.configPath, '已定位配置文件', true) },
+        keywords: t("config 配置 目录 finder"),
+        action: { kind: 'run', run: () => runOpen(env.configPath, t("已定位配置文件"), true) },
       });
       rows.push({
         id: 'action-open-logs',
         group: 'action',
-        label: '打开日志目录',
+        label: t("打开日志目录"),
         hint: env.logsDir,
         icon: 'external',
-        keywords: 'log 日志 目录',
-        action: { kind: 'run', run: () => runOpen(env.logsDir, '已打开日志目录', false) },
+        keywords: t("log 日志 目录"),
+        action: { kind: 'run', run: () => runOpen(env.logsDir, t("已打开日志目录"), false) },
       });
     }
 
@@ -826,13 +827,13 @@ export default function CommandPalette() {
       rows.push({
         id: 'action-launch-hub',
         group: 'action',
-        label: `启动 hub ${hub.name} 的会话`,
-        hint: hub.running ? 'hub 正在运行' : 'hub 未运行',
+        label: t("启动 hub {0} 的会话", [hub.name]),
+        hint: hub.running ? t("hub 正在运行") : t("hub 未运行"),
         icon: 'terminal',
-        keywords: 'hub launch 启动',
+        keywords: t("hub launch 启动"),
         action: {
           kind: 'run',
-          run: () => runLaunch({ kind: 'hub', hubName: hub.name }, `启动 hub ${hub.name} 的会话`),
+          run: () => runLaunch({ kind: 'hub', hubName: hub.name }, t("启动 hub {0} 的会话", [hub.name])),
         },
       });
       for (const slot of SLOTS) {
@@ -840,13 +841,13 @@ export default function CommandPalette() {
         rows.push({
           id: `action-launch-slot-${slot}`,
           group: 'action',
-          label: `按 ${slot} 槽位启动会话`,
+          label: t("按 {0} 槽位启动会话", [slot]),
           hint: slotBindingText(hub, slot),
           icon: 'play',
-          keywords: `launch 启动 槽位 ${slot}`,
+          keywords: t("launch 启动 槽位 {0}", [slot]),
           action: {
             kind: 'run',
-            run: () => runLaunch({ kind: 'slot', hubName: hub.name, slot }, `按 ${slot} 槽位启动会话`),
+            run: () => runLaunch({ kind: 'slot', hubName: hub.name, slot }, t("按 {0} 槽位启动会话", [slot])),
           },
         });
       }
@@ -962,7 +963,7 @@ export default function CommandPalette() {
     // 动作自己已经把失败播报出去了；这里兜的是同步抛出这种意外情况，同样不吞
     void Promise.resolve()
       .then(() => action.run())
-      .catch((cause: unknown) => announce(`命令执行未成功：${errorText(cause)}`));
+      .catch((cause: unknown) => announce(t("命令执行未成功：{0}", [errorText(cause)])));
   };
 
   const backToRoot = (): void => {
@@ -1031,7 +1032,7 @@ export default function CommandPalette() {
         className={styles.panel}
         role="dialog"
         aria-modal="true"
-        aria-label="命令面板"
+        aria-label={t("命令面板")}
         onKeyDown={onPanelKeyDown}
       >
         <div className={styles.inputRow}>
@@ -1039,9 +1040,9 @@ export default function CommandPalette() {
           {mode.kind === 'root' ? null : (
             <span className={styles.scope}>
               {mode.kind === 'slot'
-                ? `槽位 · ${mode.slot}`
-                : `渠道 · ${channels.find((candidate) => candidate.id === mode.channelId && candidate.appType === mode.appType)?.name ?? mode.channelId}`}
-              <button type="button" className={styles.scopeBack} onClick={backToRoot} aria-label="返回全部命令">
+                ? t("槽位 · {0}", [mode.slot])
+                : t("渠道 · {0}", [channels.find((candidate) => candidate.id === mode.channelId && candidate.appType === mode.appType)?.name ?? mode.channelId])}
+              <button type="button" className={styles.scopeBack} onClick={backToRoot} aria-label={t("返回全部命令")}>
                 <Icon name="close" size={14} />
               </button>
             </span>
@@ -1054,24 +1055,24 @@ export default function CommandPalette() {
             onKeyDown={onKeyDown}
             placeholder={
               mode.kind === 'slot'
-                ? '筛选渠道与模型'
+                ? t("筛选渠道与模型")
                 : mode.kind === 'channel'
-                  ? '筛选动作；输入的文字可直接设为别名或模型覆盖'
-                  : '输入命令：切视图、启动会话、改槽位、管理渠道、刷新、切主题'
+                  ? t("筛选动作；输入的文字可直接设为别名或模型覆盖")
+                  : t("输入命令：切视图、启动会话、改槽位、管理渠道、刷新、切主题")
             }
             role="combobox"
             aria-expanded={true}
             aria-controls="palette-list"
             aria-activedescendant={activeIndex >= 0 ? `palette-item-${activeIndex}` : undefined}
-            aria-label="命令输入"
+            aria-label={t("命令输入")}
             autoComplete="off"
             spellCheck={false}
           />
         </div>
 
-        <div className={styles.list} id="palette-list" role="listbox" aria-label="命令结果" ref={listRef}>
+        <div className={styles.list} id="palette-list" role="listbox" aria-label={t("命令结果")} ref={listRef}>
           {rows.length === 0 ? (
-            <p className={styles.empty}>没有命令匹配「{query.trim()}」，换个说法再试</p>
+            <p className={styles.empty}>{t("没有命令匹配「")}{query.trim()}{t("」，换个说法再试")}</p>
           ) : (
             rendered.map((group) => (
               <section key={group.id} className={styles.group} role="group" aria-label={GROUP_TITLE[group.id]}>
@@ -1102,7 +1103,7 @@ export default function CommandPalette() {
                   );
                 })}
                 {group.hidden > 0 ? (
-                  <p className={styles.more}>还有 {group.hidden} 条未显示，继续输入以筛选</p>
+                  <p className={styles.more}>{t("还有 ")}{group.hidden}{t(" 条未显示，继续输入以筛选")}</p>
                 ) : null}
               </section>
             ))
@@ -1110,9 +1111,9 @@ export default function CommandPalette() {
         </div>
 
         <div className={styles.legend}>
-          <span>↑↓ 移动</span>
-          <span>Enter 执行</span>
-          <span>{mode.kind === 'root' ? 'Esc 关闭' : 'Esc 返回'}</span>
+          <span>{t("↑↓ 移动")}</span>
+          <span>{t("Enter 执行")}</span>
+          <span>{mode.kind === 'root' ? t("Esc 关闭") : t("Esc 返回")}</span>
         </div>
       </div>
     </div>

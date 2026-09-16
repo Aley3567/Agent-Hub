@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { Icon, IconButton, Switch } from '../../../components';
-import { bilingual as b, useLocale } from '../../../i18n';
+import { t, bilingual as b, useLocale  } from '../../../i18n';
 import { errorText, useApp } from '../../../store';
 import { useToast } from '../../../store/toast';
 import type { Channel, HubConfig, ScheduledTask } from '../../../types/contract';
@@ -25,13 +25,13 @@ export default function TaskCard({ task, channels, hubs, now, onEdit, onDelete }
   const channel = channels.find(item => item.id === target?.channelId && item.appType === (target?.appType ?? 'claude'));
   const targetText = target?.kind === 'channel' ? `${target.appType ?? 'claude'} · ${channel?.name ?? target.channelId}`
     : target?.kind === 'slot' ? `${target.hubName ?? hubs.find(h => h.isDefault)?.name ?? 'default'} · ${target.slot}`
-    : b('本机体检提醒', 'Local diagnostic reminder');
-  const next = !task.enabled ? b('已暂停', 'Paused') : task.nextRunAt === null ? b('时间表达式无效', 'Invalid schedule')
-    : task.nextRunAt <= now ? b('等待调度', 'Awaiting scheduler') : `${b('下次', 'Next')} ${new Date(task.nextRunAt * 1000).toLocaleString(language)}`;
-  const status = { unconfirmed: b('结果未确认，不自动重试', 'Unconfirmed; no automatic retry'), dispatched: b('会话已派发', 'Session dispatched'), reminded: b('提醒已触发', 'Reminder triggered'), failed: b('执行失败', 'Dispatch failed') };
+    : b(t("本机体检提醒"), 'Local diagnostic reminder');
+  const next = !task.enabled ? b(t("已暂停"), 'Paused') : task.nextRunAt === null ? b(t("时间表达式无效"), 'Invalid schedule')
+    : task.nextRunAt <= now ? b(t("等待调度"), 'Awaiting scheduler') : `${b(t("下次"), 'Next')} ${new Date(task.nextRunAt * 1000).toLocaleString(language)}`;
+  const status = { unconfirmed: b(t("结果未确认，不自动重试"), 'Unconfirmed; no automatic retry'), dispatched: b(t("会话已派发"), 'Session dispatched'), reminded: b(t("提醒已触发"), 'Reminder triggered'), failed: b(t("执行失败"), 'Dispatch failed') };
   // 人话由前端按当前语言渲染；后端附的 notes 一并放进悬浮说明，不翻译
   const human = formatSchedule(task.scheduleSpec, task.notes, language === 'en' ? 'en' : 'zh');
-  const scheduleHint = [human.text, ...human.notes].join(' · ');
+  const scheduleHint = [human.text, ...human.notes.map(note => t(note))].join(' · ');
   return <article className={styles.row} aria-label={task.name}>
     <span className={task.lastRunStatus === 'failed' ? styles.failed : styles.symbol}><Icon name={task.lastRunStatus === 'failed' ? 'warning' : task.lastRunStatus === 'dispatched' || task.lastRunStatus === 'reminded' ? 'check' : 'clock'} size={20} /></span>
     <div className={styles.main}>
@@ -41,9 +41,9 @@ export default function TaskCard({ task, channels, hubs, now, onEdit, onDelete }
       {task.lastRunMessage ? <p className={task.lastRunStatus === 'failed' ? styles.failed : undefined}>{task.lastRunMessage}</p> : null}
     </div>
     <div className={styles.actions}>
-      <Switch checked={task.enabled} disabled={busy} onChange={value => void toggle(value)} aria-label={`${b('启用任务', 'Enable task')} ${task.name}`} />
-      <IconButton icon="edit" aria-label={`${b('编辑', 'Edit')} ${task.name}`} onClick={() => onEdit(task)} />
-      <IconButton icon="trash" variant="danger" aria-label={`${b('删除', 'Delete')} ${task.name}`} onClick={() => onDelete(task)} />
+      <Switch checked={task.enabled} disabled={busy} onChange={value => void toggle(value)} aria-label={`${b(t("启用任务"), 'Enable task')} ${task.name}`} />
+      <IconButton icon="edit" aria-label={`${b(t("编辑"), 'Edit')} ${task.name}`} onClick={() => onEdit(task)} />
+      <IconButton icon="trash" variant="danger" aria-label={`${b(t("删除"), 'Delete')} ${task.name}`} onClick={() => onDelete(task)} />
     </div>
   </article>;
 }

@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 时间范围预设。纯计算，不碰 React，也不写 store——写回 store 由视图统一做。
  *
@@ -21,9 +22,9 @@ export const PRESET_DAYS: Record<RangePreset, number> = {
 };
 
 export const PRESET_LABEL: Record<RangePreset, string> = {
-  today: '24 小时',
-  week: '7 天',
-  month: '30 天',
+  get today() { return t("24 小时"); },
+  get week() { return t("7 天"); },
+  get month() { return t("30 天"); },
 };
 
 /** 预设对应的默认粒度：一天只有一个日桶，画不出走势，所以「今天」按小时看 */

@@ -20,9 +20,9 @@ const THEME_ICON: Record<ThemeMode, 'monitor' | 'moon' | 'sun'> = {
 };
 
 const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
-  { value: 'system', label: '跟随' },
-  { value: 'dark', label: '深色' },
-  { value: 'light', label: '浅色' },
+  { value: 'system', get label() { return t("跟随"); } },
+  { value: 'dark', get label() { return t("深色"); } },
+  { value: 'light', get label() { return t("浅色"); } },
 ];
 
 interface NavItemProps {

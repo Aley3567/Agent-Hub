@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 /**
  * 界面外观偏好 store（与 CONTRACT.md 无关的纯本地偏好，不放 nav store——
  * nav store 的形状是 CONTRACT.md 第 6.2 节的契约，字段不得增删）。
@@ -11,9 +12,9 @@ import { create } from 'zustand';
 export type Density = 'standard' | 'large' | 'larger';
 
 export const DENSITY_LABEL: Record<Density, string> = {
-  standard: '标准',
-  large: '大',
-  larger: '特大',
+  get standard() { return t("标准"); },
+  get large() { return t("大"); },
+  get larger() { return t("特大"); },
 };
 
 /** 界面大小的 localStorage 键。改名会让老用户回到标准档，不要随手改 */

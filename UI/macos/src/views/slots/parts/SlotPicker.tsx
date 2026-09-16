@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 一个槽位的「渠道 + 模型」两级选择器。
  *
@@ -72,32 +73,32 @@ export function SlotPicker({
 
   const modelPlaceholder =
     binding === null
-      ? '先选渠道'
+      ? t("先选渠道")
       : declared.length === 0 && orphanModel === null
-        ? '该渠道未声明模型'
+        ? t("该渠道未声明模型")
         : undefined;
 
   return (
     <>
       <div className={styles.cell}>
-        <span className={styles.label}>绑定渠道</span>
+        <span className={styles.label}>{t("绑定渠道")}</span>
         <Select
           selectSize="sm"
           mono
-          aria-label={`${slot} 槽位绑定的渠道`}
+          aria-label={t("{0} 槽位绑定的渠道", [slot])}
           value={channelValue}
           disabled={disabled}
-          placeholder="未绑定（走 fallback）"
+          placeholder={t("未绑定（走 fallback）")}
           onChange={(event) => handleChannel(event.target.value)}
         >
-          <optgroup label="本 hub 已声明的渠道">
+          <optgroup label={t("本 hub 已声明的渠道")}>
             {hubChannels.map((item) => {
               const real = item.resolvedChannelId === null ? null : channelsById.get(item.resolvedChannelId);
               const empty = item.models.length === 0;
               const suffix = empty
-                ? '未声明模型，不能绑定'
+                ? t("未声明模型，不能绑定")
                 : real === undefined || real === null
-                  ? `${protocolLabel(item.apiFormat)}·provider 未解析`
+                  ? t("{0}·provider 未解析", [protocolLabel(item.apiFormat)])
                   : `${protocolLabel(item.apiFormat)}·${real.name}`;
               return (
                 <option key={item.name} value={item.name} disabled={empty}>
@@ -107,15 +108,15 @@ export function SlotPicker({
             })}
           </optgroup>
           {orphanChannel === null ? null : (
-            <optgroup label="当前绑定（本 hub 未声明，启动会报错）">
+            <optgroup label={t("当前绑定（本 hub 未声明，启动会报错）")}>
               <option value={orphanChannel}>{orphanChannel}</option>
             </optgroup>
           )}
           {undeclared.length === 0 ? null : (
-            <optgroup label="本机其他渠道（尚未加入本 hub，不能直接绑定）">
+            <optgroup label={t("本机其他渠道（尚未加入本 hub，不能直接绑定）")}>
               {undeclared.map((item) => (
                 <option key={item.id} value={`undeclared:${item.id}`} disabled>
-                  {`${item.name}（先写进本 hub 的 channels）`}
+                  {t("{0}（先写进本 hub 的 channels）", [item.name])}
                 </option>
               ))}
             </optgroup>
@@ -123,11 +124,11 @@ export function SlotPicker({
         </Select>
       </div>
       <div className={styles.cell}>
-        <span className={styles.label}>目标模型</span>
+        <span className={styles.label}>{t("目标模型")}</span>
         <Select
           selectSize="sm"
           mono
-          aria-label={`${slot} 槽位的目标模型`}
+          aria-label={t("{0} 槽位的目标模型", [slot])}
           value={binding === null ? '' : binding.model}
           disabled={disabled || binding === null}
           placeholder={modelPlaceholder}
@@ -139,7 +140,7 @@ export function SlotPicker({
             </option>
           ))}
           {orphanModel === null ? null : (
-            <option value={orphanModel}>{`${orphanModel}（本 hub 未声明）`}</option>
+            <option value={orphanModel}>{t("{0}（本 hub 未声明）", [orphanModel])}</option>
           )}
         </Select>
       </div>

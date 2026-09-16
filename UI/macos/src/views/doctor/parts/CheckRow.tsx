@@ -1,3 +1,4 @@
+import { t } from '../../../i18n';
 /**
  * 单条体检结论。
  *
@@ -12,9 +13,9 @@ import styles from './CheckRow.module.css';
 
 /** 三档结论的人话标签。DoctorLevel 的 info 在界面上叫「警告」：它不算失败，但会改变行为 */
 export const LEVEL_LABEL: Record<DoctorLevel, string> = {
-  ok: '通过',
-  info: '警告',
-  fail: '失败',
+  get ok() { return t("通过"); },
+  get info() { return t("警告"); },
+  get fail() { return t("失败"); },
 };
 
 /** 状态点语义映射（DESIGN.md 4.1：绿=正常、琥珀=降级、红=失败），info 档在界面上按「警告」呈现 */
@@ -42,7 +43,7 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
   const [open, setOpen] = useState(defaultOpen);
   const bodyId = useId();
 
-  const detail = redactSecrets(check.detail);
+  const detail = t(redactSecrets(check.detail));
   const hasFix = check.fixAction !== null;
   const hasBody = detail !== '' || hasFix || fixError !== null;
   const bodyOpen = hasBody && open;
@@ -67,7 +68,7 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
   const head = (
     <>
       <StatusDot tone={LEVEL_TONE[check.level]} className={styles.dot}>
-        <span className={styles.title}>{check.title}</span>
+        <span className={styles.title}>{t(check.title)}</span>
       </StatusDot>
       <span className={styles.tail}>
         <code className={styles.id}>{check.id}</code>
@@ -107,16 +108,11 @@ export default function CheckRow({ check, defaultOpen, canFix, onFix, fixing, fi
           {hasFix ? (
             canFix ? (
               <div className={styles.fix}>
-                <Button variant="primary" size="sm" icon="check" loading={fixing} onClick={() => onFix(check)}>
-                  清理并重新体检
-                </Button>
-                <span className={styles.fixHint}>点了会先弹确认框，说清会备份什么、清掉什么。</span>
+                <Button variant="primary" size="sm" icon="check" loading={fixing} onClick={() => onFix(check)}>{t(" 清理并重新体检 ")}</Button>
+                <span className={styles.fixHint}>{t("点了会先弹确认框，说清会备份什么、清掉什么。")}</span>
               </div>
             ) : (
-              <p className={styles.fixHint}>
-                这一项的修复动作是 <code className={styles.id}>{check.fixAction}</code>
-                ，桌面端没有接这条命令，请用 CLI 执行。
-              </p>
+              <p className={styles.fixHint}>{t(" 这一项的修复动作是 ")}<code className={styles.id}>{check.fixAction}</code>{t(" ，桌面端没有接这条命令，请用 CLI 执行。 ")}</p>
             )
           ) : null}
 
