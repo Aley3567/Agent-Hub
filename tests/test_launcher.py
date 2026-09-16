@@ -3361,7 +3361,13 @@ class LauncherSafetyTests(unittest.TestCase):
                         deadline = time.monotonic() + 3
                         while time.monotonic() < deadline:
                             replacement = supervisor._process
-                            if replacement is not None and replacement is not first:
+                            # The process handle is published before the recovery
+                            # log is flushed; wait for both observable outcomes.
+                            if (
+                                replacement is not None
+                                and replacement is not first
+                                and f"restored on {port}" in log_path.read_text(encoding="utf-8")
+                            ):
                                 break
                             time.sleep(0.05)
                         else:
