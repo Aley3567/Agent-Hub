@@ -68,6 +68,8 @@
 
 **审查修复 2（2026-09-16）**：外部只读覆盖 + 独立 Hub 写目标的回归在旧实现上失败，另覆盖外部库直接/软链接/硬链接写目标在备份前拒绝。doctor 现在仅解析 `AGENT_HUB_PROVIDER_DB` / 默认 Hub 路径，校验 Hub 身份和权限后再备份及写入；SQLite backup 保留 WAL 已提交内容，备份以 0600 独占创建。8 项 reader 与 196 项 launcher 测试通过。此入口仅修改原始非秘密元数据，不解析凭证。
 
+**审查修复 3（2026-09-16）**：PERSIST 非空零头日志回归在旧快照实现上返回 `source_busy`。现在复制 DB/WAL/journal 到私有临时目录，只读 SQLite 连接解析并 backup 到内存，删除手写 WAL/数据库头部处理；只读拒绝需要恢复的 hot journal，避免触及源 super-journal。PERSIST、WAL 已提交/未提交、hot rollback 及来源不变测试通过；共享草稿合计 34 passed / 1 ignored。此提交只纳入快照模块及调用和必要依赖，F 计划/scanner 草稿仍分离；其版本校验补含 journal。临时副本为 0700/0600 并及时删除，仍属于含明文临时文件，不代表严格零明文目标完成。
+
 **第二层剩余验收**：macOS stdin 合成写读删已通过，签名 App、真实锁定/拒绝/超时仍未验收；Windows 仅独立 target metadata 类型检查，非原生运行；真实 Claude CLI 只证实拒绝非普通 settings 文件，未完成选定账号 B 对全局 A 的真实上游正向验收，Codex 同项仍待实验。现有 Claude 临时 settings/Codex shadow auth 的 0600 明文机制保留，禁止称全程零明文。新引用写协议、清理恢复与迁移未启用。
 
 **L2 当前检查点（2026-09-16）**：C0 已实现 provider/v1/UUID 引用、绑定 app/id/revision 的 v1 envelope、独立错误码及旧库增列；根级只读 resolver 与安装/npm 分发已接入。macOS adapter 用 `security -i` 单命令 stdin 的 `-X` 输入，完整命令超过 4094 字节在启动前拒绝，秘密不进 argv；真实合成写/读/删通过，并确认 control/Unicode 载荷可能被 security 输出为 hex，已解码校验。此检查点尚未启用业务写入或迁移；签名 App、拒绝/锁定场景仍待验收；runtime readers 的后续提交证据见 D 段。独立 UUID 接口未改。

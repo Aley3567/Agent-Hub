@@ -4,6 +4,7 @@ pub mod model;
 pub mod paths;
 pub mod sources;
 pub mod store;
+mod snapshot;
 
 pub use model::{custom, ImportDocument, ImportProvider, Provider};
 pub use paths::default_db_path;

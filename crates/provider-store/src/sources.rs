@@ -1,7 +1,6 @@
 //! Explicit, read-only import adapters. No runtime synchronization.
 use crate::model::{ImportDocument, ImportProvider};
 use anyhow::{bail, Context, Result};
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::{fs, path::Path};
 
@@ -17,7 +16,7 @@ pub fn read_file(path: &Path) -> Result<Vec<ImportProvider>> {
 }
 
 pub fn read_cc(path: &Path) -> Result<Vec<ImportProvider>> {
-    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let conn = crate::snapshot::open(path)
         .context("cannot read CC Switch source")?;
     let columns = conn
         .prepare("PRAGMA table_info(providers)")?
