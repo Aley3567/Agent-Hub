@@ -12,11 +12,20 @@
 
 ## S25 · 桌面渠道写入与系统凭证迁移
 
-**状态**：规划完成，实施未开始。2026-09-16 用户指定完整技术文档，要求用 Luna 窄范围探索后形成清晰的分层计划；本轮只登记设计与任务。该任务优先于 S24 历史英文整理。
+**状态**：实施中。2026-09-16 已完成 A0 基线核对，开始第一层 B（共享存储与路径边界）；下列未标完成的卡仍未交付。该任务优先于 S24 历史英文整理。
 
 **设计真相**：[provider-management.md 的实施设计草案](provider-management.md#桌面渠道管理与系统凭证库实施设计草案)是唯一设计依据，本卡是唯一执行清单，两者共同取代外部旧计划。代码核对基线 `main@6fc85c9`。历史渠道数、ACL 实验和定价运行态数据不作为本轮已验证事实。
 
-**分支**：计划在当前 `main` 留档；产品实施使用 `ui/workspace-shell`。该工作树为 `d8105cf`，相对共同基线只有 handoff 忽略提交，尚缺 `372caeb` 与 `6fc85c9`。开始实施时先报告两树状态和具体基线；不自动 merge/rebase，也不改写另一条工作的 handoff。所有本地检查点均按行为提交，macOS/Windows 分开提交；未授权发布。
+**分支**：实施从 `main@ed63114` 建立隔离分支 `s25/provider-foundation`，工作树为 `../claude-hub-wt/provider-foundation`。原 `main` 比 `origin/main` 领先 2 个文档提交，未跟踪 `.agents/`、`.mimosa/` 与三个 SVG 均保留；`ui/workspace-shell@d8105cf` 工作树干净，但缺 `372caeb`、`6fc85c9`、`e854fc2`、`ed63114`，故不在旧树直接实施、不 merge/rebase。所有本地检查点按行为提交，macOS/Windows 分开提交；未授权发布。
+
+**实施层次与检查点**：
+1. **L1 独立存储**：A0 → B0a 根依赖与共享 crate → B0b macOS 接入 → B0c Windows 接入 → B1 迁移读写及来源解析 → B2a 写目标保护 → B2b/B2c 两平台读取路径、空库与定价。每步独立检查；B2 完成前不开放桌面写入。
+2. **L2 凭证读取**：A1/A2 实验与 C0 合同 → C1/C2 后端 → D0–D3 所有 reader。只使用合成凭据；reader 未通过前不启用新格式写入。
+3. **L3 变更与导入**：E0 提交/恢复 → E1 显式迁移；F0 安全预览计划 → F1/F2/F3 四种来源。计划模型由主线固定，scanner 不能自行定义另一份 DTO。
+4. **L4 桌面操作**：G0 双应用身份 → G1 macOS 命令与启动 → G2 渠道交互；G3 独立 Windows 适配。维持现有渠道页面视觉与结构。
+5. **L5 运行交付**：H0/H1 真实平台、实际 CLI 与合成上游 → H2 安装及文档。编译通过不等于凭证/启动/窗口验收通过。
+
+**A0 核对（2026-09-16）**：macOS 15.6 arm64；Rust/Cargo 1.96.0、Node 24.14.0、Python 3.12.8；Claude Code 2.1.261，Codex 0.154.0-alpha.6.2。已安装 `x86_64-pc-windows-msvc` target，但 Windows 实机尚无证据。Linux 暂保留已有写能力，新凭证后端未验收不切换。默认仍以“含启动临时文件的零明文”为最终目标；持久库迁移完成不能替代它。未读取或迁移真实 provider/Keychain，未安装到用户运行目录。
 
 **目标**：桌面三源发现及预览、保留 JSON 文件导入、两类渠道自定义 CRUD、统一安全存储、显式旧数据迁移，以及 CLI/桌面/运行时正确取用同一身份。先打通读路径，再启用 Keychain-only 写路径。三源/双平台目标不删减；Windows 未实机验证时单列状态。
 
@@ -26,7 +35,7 @@
 
 | 卡 | 单一交付物与文件 owner | 前置 | 完成信号 / 停止条件 |
 |---|---|---|---|
-| A0 | 基线与平台矩阵；owner：本卡与 `docs/provider-management.md` | 无 | 列清工作树、真实 CLI 版本、macOS/Windows 验收环境、Linux 保留策略；区分持久存储与全部临时文件的零明文目标。 |
+| A0 ✅ 2026-09-16 | 基线与平台矩阵；owner：本卡与 `docs/provider-management.md` | 无 | 列清工作树、真实 CLI 版本、macOS/Windows 验收环境、Linux 保留策略；区分持久存储与全部临时文件的零明文目标。 |
 | A1 | macOS 安全写入探针；owner：隔离 `/tmp` probe，结论回填设计 | A0 | 合成秘密在无 TTY/终端/签名 App 场景完成写读删；argv、日志、回显均无秘密；锁定/拒绝/超时明确。失败只阻断 OS adapter，不阻断纯存储/来源解析。 |
 | A2 | CLI 认证优先级探针；owner：隔离 probe、`tests/test_launcher.py` / `tests/test_codex_provider_once.py` 的合成案例 | A0 | 全局凭证 A、选中凭证 B，实际合成上游收到 B；原配置不变。确定消除临时明文的可行入口；失败时禁止直接剥字段，也不得宣称全程零明文。 |
 
