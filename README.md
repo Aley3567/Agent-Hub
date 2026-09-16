@@ -8,8 +8,9 @@
 
 A local runtime for Claude Code and Codex.
 
-Manage providers in one place, route Claude Code across different models,
-and launch isolated Codex sessions without rewriting your normal configuration.
+Manage providers in one place, route Claude Code across Anthropic and
+OpenAI-compatible APIs, and launch isolated Codex sessions without rewriting
+your normal configuration.
 
 [English](README.md) · [简体中文](README.zh-CN.md)
 
@@ -20,7 +21,7 @@ and launch isolated Codex sessions without rewriting your normal configuration.
 [![Tests](https://img.shields.io/badge/tests-1010%20passing-4F46E5)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-4F46E5.svg)](LICENSE)
 
-[Get started](#get-started) · [Capabilities](#capabilities) · [Architecture](#architecture) · [Changelog](CHANGELOG.md)
+[Get started](#get-started) · [Why Agent-Hub](#why-agent-hub) · [Architecture](#architecture) · [Changelog](CHANGELOG.md)
 
 </div>
 
@@ -36,13 +37,28 @@ Provider management and session launching currently have separate terminal
 entrypoints. See [current boundaries](#current-boundaries) before choosing an
 interface.
 
+## Why Agent-Hub
+
+Coding agents already own reasoning, tools, permissions and execution. Agent-Hub
+focuses on the operational layer around them, so changing providers or routing
+does not require replacing the agent loop or rewriting global configuration.
+
+- **Keep agents native.** Claude Code and Codex remain their normal upstream
+  runtimes; Agent-Hub sits beside them rather than forking their execution model.
+- **Manage providers once.** Provider state lives in one local store and can be
+  reused across isolated sessions.
+- **Translate only where needed.** Claude Code can route through Anthropic-native
+  or OpenAI-compatible upstreams; Codex keeps its native runtime and isolated
+  `CODEX_HOME` path.
+- **Stay local-first.** The control plane is local, credentials are redacted from
+  normal responses, and complete message payloads are not persisted in gateway
+  logs.
+
 ## Where Agent-Hub fits
 
-Agent-Hub does not replace your coding agents.
-
-They remain responsible for reasoning, tools, permissions and execution.
-Agent-Hub manages the layer around them: providers, sessions, routing,
-protocol translation and observability.
+The runtime boundary is intentionally asymmetric: Claude Code can use the local
+gateway and protocol bridge, while Codex stays close to its native configuration
+model.
 
 | | Claude Code | Codex |
 | :--- | :--- | :--- |

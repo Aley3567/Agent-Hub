@@ -8,7 +8,7 @@
 
 Claude Code 与 Codex 的本机运行时。
 
-在一处管理渠道，让 Claude Code 在不同模型之间路由，
+在一处管理渠道，让 Claude Code 在 Anthropic 与 OpenAI 兼容 API 之间路由，
 并为 Codex 启动隔离会话，而无需改写你原有的配置。
 
 [English](README.md) · [简体中文](README.zh-CN.md)
@@ -20,7 +20,7 @@ Claude Code 与 Codex 的本机运行时。
 [![Tests](https://img.shields.io/badge/tests-1010%20passing-4F46E5)](tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-4F46E5.svg)](LICENSE)
 
-[快速开始](#快速开始) · [核心能力](#核心能力) · [架构](#架构) · [更新记录](CHANGELOG.zh-CN.md)
+[快速开始](#快速开始) · [为什么需要 Agent-Hub](#为什么需要-agent-hub) · [架构](#架构) · [更新记录](CHANGELOG.zh-CN.md)
 
 </div>
 
@@ -33,12 +33,23 @@ Agent-Hub 是管理编程 Agent **周边那一层**的本机运行时：渠道�
 
 渠道管理和会话启动目前使用独立的终端入口。选择入口前可先查看[当前边界](#当前边界)。
 
+## 为什么需要 Agent-Hub
+
+编程 Agent 已经负责推理、工具、权限与执行。Agent-Hub 专注于它们周边的运行层，
+让渠道与路由变化不需要替换 agent loop，也不需要反复改写全局配置。
+
+- **保持 Agent 原生运行。** Claude Code 与 Codex 继续使用各自原生运行时；
+  Agent-Hub 位于它们旁边，而不是 fork 或接管执行模型。
+- **渠道只管理一次。** 渠道状态保存在统一的本地存储中，可复用于隔离会话。
+- **只在需要的位置做协议转换。** Claude Code 可接入 Anthropic 原生或 OpenAI
+  兼容上游；Codex 保持原生运行时，并使用隔离的 `CODEX_HOME` 路径。
+- **本地优先。** 控制面保留在本机，常规响应不暴露凭证，网关日志不持久化完整
+  消息正文。
+
 ## Agent-Hub 的位置
 
-Agent-Hub 不替代编程 Agent。
-
-推理、工具、权限与执行仍由它们负责。Agent-Hub 管理它们周边的那一层：渠道、
-会话、路由、协议转换与可观测性。
+两条运行路径刻意保持不同：Claude Code 可以使用本地网关与协议桥，Codex 则尽量
+贴近其原生配置模型。
 
 | | Claude Code | Codex |
 | :--- | :--- | :--- |
