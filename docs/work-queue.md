@@ -62,7 +62,7 @@
 
 **交接入口（2026-09-16）**：当前 HEAD 的第二层实现提交为 `a05223d`（合同/安全 OS 读取/安装）、`35ae4f3`（所有 runtime readers）、`7e29da4`（Windows adapter 代码）。后续先核对工作树和下述草稿，不重做第一层；补齐 A1/A2 的运行态放行条件，再推进 E0/E1 与 F/G。用户尚未批准降低“含启动临时文件零明文”的最终目标；已确认 Windows 实机验收后置。
 
-**L3 未提交变更账本**：用户要求交接时已开始 F0–F3，只保留草稿、未开放任何入口。修改的跟踪文件为 `Cargo.lock`、`crates/provider-store/Cargo.toml`、`src/lib.rs`、`src/model.rs`、`src/sources.rs`（后三者均位于该 crate）；未跟踪新增为 `src/plan.rs`、`src/plan_tests.rs`、`src/sources/user.rs`。包含安全候选 DTO、来源/目标/精确 env 的 revision 检查、选择确认、Claude/Codex 纯 scanner；新增 6 项测试通过，共享 crate 当前 27 passed / 1 手动 Keychain probe ignored。这是草稿检查，不代表 F 卡验收；尚未独立安全审查、未接 CLI/UI，两个 UI Cargo.lock 也尚未同步新增依赖。下一对话须保留并审查这些文件，不能 reset/覆盖；纯预览与安全提交之间的并发复核尚待 E0 统一。
+**L3 原草稿账本**：来源/计划/快照草稿已在本轮审查修复和 L3 共享与终端检查点接续；原文件没有被 reset 或覆盖回旧版本。后续状态见下方检查点。
 
 **审查修复 1（2026-09-16）**：合成 DB 在 build_settings 之后同时轮换 endpoint/ref，原生账号池测试在旧实现上因未中止而失败；启动器现在在 NotFound 后发现 ref 更换时返回 `provider_changed`，要求重新启动以整体重建配置，禁止局部注入新版本凭证。修改 owner 为 `_provider_settings`；Hub 快照整体重载合同不变。6 项 reader 集成与 launcher 全套通过；未使用真实凭证。L3 既有草稿另含 `src/snapshot.rs`，仍未提交，不并入此修复。
 
@@ -71,6 +71,8 @@
 **审查修复 3（2026-09-16）**：PERSIST 非空零头日志回归在旧快照实现上返回 `source_busy`。现在复制 DB/WAL/journal 到私有临时目录，只读 SQLite 连接解析并 backup 到内存，删除手写 WAL/数据库头部处理；只读拒绝需要恢复的 hot journal，避免触及源 super-journal。PERSIST、WAL 已提交/未提交、hot rollback 及来源不变测试通过；共享草稿合计 34 passed / 1 ignored。此提交只纳入快照模块及调用和必要依赖，F 计划/scanner 草稿仍分离；其版本校验补含 journal。临时副本为 0700/0600 并及时删除，仍属于含明文临时文件，不代表严格零明文目标完成。
 
 **E0 内核检查点（2026-09-16）**：新增 `commit`、秘密拆分及无秘密 `credential_operations` 清单；文件锁→先持久 intent→不可变引用 create/readback→SQL 全库逻辑版本复核与批次原子切换→旧引用清理。回收核对仍在用的引用，不扫描 OS 库；失败返回稳定码与未应用/已应用清理状态。9 项内核测试覆盖创建/读回/两阶段 SQL 故障、非法 revision、版本冲突、panic 中断恢复、skip 零 OS 调用、旧入口引用保护、OAuth/TOML/代理拆分；真实进程强杀/平台运行态仍需 H 验收。尚未接 CLI/UI，不宣称 E0 整卡完成。迁移和 F 计划/来源草稿另行提交。
+
+**L3 共享与终端检查点（2026-09-16）**：E0 补齐关联删除（双应用、Hub/pool、本地 alias）、统一错误码、预览前目标版本绑定；E1 显式 `provider migrate-credentials` 默认只读计数，`--apply` 才迁移，维护债务随 SQL 提交持久化，重复迁移重试 active DB/WAL 清理，不销毁历史备份；`recover-credentials` 只处理本库清单。F0–F3 既有草稿已审查接续为短期纯预览/选择/确认计划，四源 scanner、source/target/env/journal 变化失效、OS 写入后的 source 重核均进入同一提交内核。CLI/TUI 导入接同一计划，新增接 shared native 写入口；Linux 保持旧格式写入，Windows 新凭证写入返回 backend_unverified。新增 shared editor 支持 omitted 保留、显式替换/清除、revision 冲突、unchanged 零 OS 读取。根 Rust workspace：51 passed + 4 CLI，1 Keychain probe ignored；含跨语言真实 Python resolver、迁移长读事务/重试/明文 marker 检查。无真实凭证迁移；真实平台与窗口验证仍未完成。此前 L3 未提交草稿均已按此行为整合，不再作为独立待接草稿。
 
 **第二层剩余验收**：macOS stdin 合成写读删已通过，签名 App、真实锁定/拒绝/超时仍未验收；Windows 仅独立 target metadata 类型检查，非原生运行；真实 Claude CLI 只证实拒绝非普通 settings 文件，未完成选定账号 B 对全局 A 的真实上游正向验收，Codex 同项仍待实验。现有 Claude 临时 settings/Codex shadow auth 的 0600 明文机制保留，禁止称全程零明文。新引用写协议、清理恢复与迁移未启用。
 

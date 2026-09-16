@@ -52,10 +52,13 @@ pub fn add() -> Result<()> {
     let model = prompt("默认模型", false)?;
     let key = prompt("API key（隐藏输入）", true)?;
     let p = store::custom(id, app, name, &url, &key, &model, &protocol)?;
-    let mut conn = store::open(&db::default_db_path()?)?;
-    let exists = db::list_providers(&conn, Some(&p.app_type))?
-        .iter()
-        .any(|r| r.id == p.id);
+    let target = db::default_db_path()?;
+    let existing = if target.exists() {
+        ::provider_store::edit::view(&target, &p.app_type, &p.id).ok()
+    } else {
+        None
+    };
+    let exists = existing.is_some();
     if prompt(
         if exists {
             "已有此 ID，替换配置？输入 yes"
@@ -68,7 +71,20 @@ pub fn add() -> Result<()> {
         println!("已取消");
         return Ok(());
     }
-    store::import(&mut conn, &[p], "manual", exists, false)?;
+    store::native::save(
+        &target,
+        ::provider_store::edit::Input {
+            app_type: p.app_type,
+            id: p.id,
+            name: p.name,
+            expected_revision: existing.map(|v| v.revision),
+            endpoint: Some(url),
+            model: Some(model),
+            protocol: Some(protocol),
+            secret: Some(key),
+            clear_secret: false,
+        },
+    )?;
     println!("已保存");
     Ok(())
 }
@@ -81,54 +97,55 @@ pub fn import_prompt(cc: bool) -> Result<()> {
         std::path::PathBuf::from(prompt("JSON 文件绝对路径", false)?)
     };
     store::paths::ensure_distinct(&target, &source)?;
-    let entries = if cc {
-        store::read_cc(&source)?
+    use store::plan::{Plan, Source};
+    let source = if cc {
+        Source::CcSwitch { path: source }
     } else {
-        store::read_file(&source)?
+        Source::Json { path: source }
     };
-    for (i, p) in entries.iter().enumerate() {
-        println!("{}  {}  {}", i + 1, p.app_type, p.name);
+    let mut plan = Plan::prepare(source, &target, |name| std::env::var(name).ok())?;
+    let preview = plan.preview();
+    for candidate in &preview.candidates {
+        println!(
+            "{}  {}  {}  {}",
+            candidate.candidate_id,
+            candidate.app_type,
+            candidate.name,
+            candidate.blocked_reason.unwrap_or("ready")
+        );
     }
-    let choice = prompt("导入序号（逗号分隔，all 全选，空白取消）", false)?;
+    for reason in &preview.blocked {
+        println!("不可导入：{reason}");
+    }
+    let choice = prompt("导入候选 ID（逗号分隔，all 全选可用项，空白取消）", false)?;
     if choice.is_empty() {
         return Ok(());
     }
-    let selected = if choice == "all" {
-        entries
-    } else {
-        let indexes = choice
-            .split(',')
-            .map(|s| s.trim().parse::<usize>())
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        if indexes.iter().any(|i| *i == 0 || *i > entries.len()) {
-            bail!("序号超出范围");
-        }
-        entries
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, p)| indexes.contains(&(i + 1)).then_some(p))
+    let selected: Vec<String> = if choice == "all" {
+        preview
+            .candidates
+            .iter()
+            .filter(|c| c.blocked_reason.is_none())
+            .map(|c| c.candidate_id.clone())
             .collect()
+    } else {
+        choice.split(',').map(|v| v.trim().to_owned()).collect()
     };
-    let mut conn = store::open(&target)?;
-    let preview = store::import(&mut conn, &selected, "preview", false, true)?;
+    let counts = plan.select(&selected, false)?;
     println!(
-        "新增 {} 个，已有 {} 个默认保留。源中删除的条目不会删除本地记录。",
-        preview.0, preview.1
+        "新增 {} 个，已有 {} 个默认保留",
+        counts.added, counts.skipped
     );
     let action = prompt(
-        "输入 yes 导入新增；replace 明确覆盖所选已有配置；其他取消",
+        "输入 yes 导入新增；replace 覆盖所选已有配置；其他取消",
         false,
     )?;
     if action != "yes" && action != "replace" {
         return Ok(());
     }
-    let (n, skip) = store::import(
-        &mut conn,
-        &selected,
-        if cc { "cc-switch" } else { "file" },
-        action == "replace",
-        false,
-    )?;
-    println!("已导入 {n} 个，保留 {skip} 个");
+    let replace = action == "replace";
+    plan.select(&selected, replace)?;
+    let result = store::native::apply_plan(&plan, &selected, replace)?;
+    println!("{}", serde_json::to_string(&result)?);
     Ok(())
 }

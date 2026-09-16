@@ -36,6 +36,14 @@ enum ProviderCommands {
         cc_switch: bool,
         #[arg(long)]
         file: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["file", "cc_switch", "codex_settings"])]
+        claude_settings: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["file", "cc_switch", "claude_settings"])]
+        codex_settings: Option<PathBuf>,
+        #[arg(long, requires = "codex_settings")]
+        auth_file: Option<PathBuf>,
+        #[arg(long, requires = "codex_settings")]
+        profile: Option<String>,
         #[arg(long, requires = "cc_switch")]
         source_db: Option<PathBuf>,
         #[arg(long)]
@@ -43,6 +51,13 @@ enum ProviderCommands {
         #[arg(long)]
         preview: bool,
     },
+    /// 查看旧凭证数量（只读）或显式迁移到系统凭证库
+    MigrateCredentials {
+        #[arg(long)]
+        apply: bool,
+    },
+    /// 重试本库持久清理清单
+    RecoverCredentials,
     /// 交互添加 provider（API key 隐藏输入）
     Add,
     /// 删除一个本地 provider
@@ -90,46 +105,87 @@ fn run_provider(command: ProviderCommands) -> Result<()> {
             println!("Provider 存储已就绪");
             Ok(())
         }
+        ProviderCommands::MigrateCredentials { apply } => {
+            let path = db::default_db_path()?;
+            if apply {
+                println!(
+                    "{}",
+                    serde_json::to_string(&provider_store::native::migrate(&path)?)?
+                );
+            } else {
+                println!(
+                    "{}",
+                    serde_json::to_string(&provider_store::migration::status(&path)?)?
+                );
+            }
+            Ok(())
+        }
+        ProviderCommands::RecoverCredentials => {
+            println!(
+                "待清理 {} 项",
+                provider_store::native::recover(&db::default_db_path()?)?
+            );
+            Ok(())
+        }
         ProviderCommands::Add => crate::provider_form::add(),
         ProviderCommands::Remove { id, app } => {
-            let mut conn = provider_store::open(&db::default_db_path()?)?;
-            let n = provider_store::remove(&mut conn, &id, &app)?;
-            println!("已删除 {n} 个 provider");
+            let result = provider_store::native::remove(&db::default_db_path()?, &app, &id)?;
+            println!("{}", serde_json::to_string(&result)?);
             Ok(())
         }
         ProviderCommands::Import {
             cc_switch,
             file,
             source_db,
+            claude_settings,
+            codex_settings,
+            auth_file,
+            profile,
             replace,
             preview,
         } => {
             let target = db::default_db_path()?;
+            use provider_store::plan::{Plan, Source};
             let source = if cc_switch {
-                source_db.unwrap_or(provider_store::paths::cc_source_path()?)
+                Source::CcSwitch {
+                    path: source_db.unwrap_or(provider_store::paths::cc_source_path()?),
+                }
             } else if let Some(path) = file {
-                path
+                Source::Json { path }
+            } else if let Some(path) = claude_settings {
+                Source::Claude { path }
+            } else if let Some(config) = codex_settings {
+                let auth = auth_file.unwrap_or_else(|| config.with_file_name("auth.json"));
+                Source::Codex {
+                    config,
+                    auth,
+                    profile,
+                }
             } else {
-                anyhow::bail!("请选择 --cc-switch 或 --file PATH");
+                anyhow::bail!("请选择 --cc-switch / --file / --claude-settings / --codex-settings");
             };
-            provider_store::paths::ensure_distinct(&target, &source)?;
-            let providers = if cc_switch {
-                provider_store::read_cc(&source)?
+            let mut plan = Plan::prepare(source, &target, |name| std::env::var(name).ok())?;
+            let preview_data = plan.preview();
+            if preview {
+                println!("{}", serde_json::to_string(&preview_data)?);
+                return Ok(());
+            }
+            let selected: Vec<_> = preview_data
+                .candidates
+                .iter()
+                .filter(|c| c.blocked_reason.is_none())
+                .map(|c| c.candidate_id.clone())
+                .collect();
+            let counts = plan.select(&selected, replace)?;
+            if selected.is_empty() {
+                println!("{}", serde_json::to_string(&preview_data)?);
             } else {
-                provider_store::read_file(&source)?
-            };
-            let mut conn = provider_store::open(&target)?;
-            let (changed, skipped) = provider_store::import(
-                &mut conn,
-                &providers,
-                if cc_switch { "cc-switch" } else { "file" },
-                replace,
-                preview,
-            )?;
-            println!(
-                "{} {changed} 个，保留已有 {skipped} 个",
-                if preview { "将导入" } else { "已导入" }
-            );
+                let result = provider_store::native::apply_plan(&plan, &selected, replace)?;
+                println!("{}", serde_json::to_string(&result)?);
+            }
+            if counts.skipped != 0 {
+                println!("保留已有 {} 个", counts.skipped);
+            }
             Ok(())
         }
         ProviderCommands::List { app, json } => print_list(app.as_deref(), json),

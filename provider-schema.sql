@@ -19,3 +19,6 @@ CREATE TABLE IF NOT EXISTS credential_operations (
     last_error_code TEXT,
     PRIMARY KEY (op_id, credential_ref)
 );
+CREATE TABLE IF NOT EXISTS provider_maintenance (
+    name TEXT PRIMARY KEY
+);

@@ -79,3 +79,36 @@ fn source_db_requires_cc_switch_without_creating_target() {
     assert!(!output.status.success());
     assert!(!hub.exists());
 }
+
+#[test]
+fn preview_and_migration_status_never_create_target_or_expose_secrets() {
+    let sandbox = Sandbox::new();
+    let target = sandbox.0.join("absent/providers.db");
+    let source = sandbox.0.join("settings.json");
+    fs::write(&source, r#"{"env":{"ANTHROPIC_BASE_URL":"https://example.test/private","ANTHROPIC_AUTH_TOKEN":"fake-secret-marker","ANTHROPIC_MODEL":"model"}}"#).unwrap();
+    let output = sandbox.run(
+        &[
+            "provider",
+            "import",
+            "--claude-settings",
+            source.to_str().unwrap(),
+            "--preview",
+        ],
+        &target,
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("candidates"));
+    assert!(!text.contains("fake-secret-marker"));
+    assert!(!text.contains("/private"));
+    assert!(!target.parent().unwrap().exists());
+    assert!(sandbox
+        .run(&["provider", "migrate-credentials"], &target)
+        .status
+        .success());
+    assert!(!target.parent().unwrap().exists());
+}

@@ -3,6 +3,7 @@ use crate::model::{ImportDocument, ImportProvider};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::{fs, path::Path};
+pub mod user;
 
 pub fn read_file(path: &Path) -> Result<Vec<ImportProvider>> {
     let text = fs::read_to_string(path).context("cannot read provider import file")?;

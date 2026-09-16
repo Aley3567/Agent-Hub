@@ -309,3 +309,289 @@ fn invalid_revision_and_intent_errors_are_rejected_before_os_calls() {
     );
     assert_eq!(m.creates.get(), 0);
 }
+
+#[test]
+fn explicit_migration_is_idempotent_and_cleans_active_database_not_backups() {
+    let t = Temp::new();
+    let m = Memory::default();
+    let mut conn = crate::open(&t.db()).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    crate::import(&mut conn, &[record("p")], "old", false, false).unwrap();
+    let backup = t.0.join("history.db");
+    conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .unwrap();
+    fs::copy(t.db(), &backup).unwrap();
+    let original = fs::read(&backup).unwrap();
+    assert_eq!(crate::migration::status(&t.db()).unwrap().legacy, 1);
+    let result = crate::migration::migrate(&t.db(), &m).unwrap();
+    assert_eq!(result.applied.updated, 1);
+    assert!(!result.storage_cleanup_pending);
+    assert_eq!(crate::migration::status(&t.db()).unwrap().referenced, 1);
+    for path in [t.db(), t.0.join("providers.db-wal")] {
+        let bytes = fs::read(path).unwrap_or_default();
+        assert!(!bytes
+            .windows(b"fake-secret-marker".len())
+            .any(|b| b == b"fake-secret-marker"));
+    }
+    assert_eq!(fs::read(backup).unwrap(), original);
+    let calls = (m.creates.get(), m.reads.get(), m.deletes.get());
+    assert_eq!(
+        crate::migration::migrate(&t.db(), &m)
+            .unwrap()
+            .applied
+            .skipped,
+        1
+    );
+    assert_eq!((m.creates.get(), m.reads.get(), m.deletes.get()), calls);
+}
+
+#[test]
+fn confirmed_plan_rechecks_source_after_os_write_and_rolls_back() {
+    let t = Temp::new();
+    let m = Memory::default();
+    let source = t.0.join("settings.json");
+    fs::write(&source, record("p").settings_config.to_string()).unwrap();
+    let mut plan = crate::plan::Plan::prepare(
+        crate::plan::Source::Claude {
+            path: source.clone(),
+        },
+        &t.db(),
+        |_| None,
+    )
+    .unwrap();
+    let selected = vec!["0".to_string()];
+    plan.select(&selected, false).unwrap();
+    *m.after_create.borrow_mut() = Some(Box::new(move || {
+        fs::write(&source, "{}").unwrap();
+    }));
+    assert_eq!(
+        plan.apply(&selected, false, &m, |_| None)
+            .err()
+            .unwrap()
+            .to_string(),
+        "plan_stale"
+    );
+    assert!(m.values.borrow().is_empty());
+    assert_eq!(
+        crate::list_providers(&crate::open_readonly(&t.db()).unwrap(), None)
+            .unwrap()
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn delete_blocks_hub_and_pool_references_but_not_same_id_in_codex() {
+    let t = Temp::new();
+    let m = Memory::default();
+    let mut codex = record("same");
+    codex.app_type = "codex".into();
+    commit::apply(&t.db(), &[record("same"), codex], "test", false, &m).unwrap();
+    let refs = crate::references::References {
+        hub: t.0.join("hub.json"),
+        catalog: t.0.join("catalog.json"),
+        pools: t.0.join("pools.json"),
+        config: t.0.join("config.json"),
+    };
+    fs::write(
+        &refs.hub,
+        r#"{"channels":{"main":{"provider":"id:same"}},"slots":{"opus":"main,model"}}"#,
+    )
+    .unwrap();
+    let result = commit::remove(&t.db(), "claude", "same", &refs, &m).unwrap();
+    assert_eq!(result.removed, 0);
+    assert_eq!(result.blockers.len(), 1);
+    assert_eq!(
+        commit::remove(&t.db(), "codex", "same", &refs, &m)
+            .unwrap()
+            .removed,
+        1
+    );
+    fs::write(&refs.hub, "{}").unwrap();
+    fs::write(
+        &refs.pools,
+        r#"{"providers":{"id:other":{"members":[{"provider":"id:same"}]}}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        commit::remove(&t.db(), "claude", "same", &refs, &m)
+            .unwrap()
+            .removed,
+        0
+    );
+    fs::write(&refs.pools, "{}").unwrap();
+    m.deny_delete.set(true);
+    let result = commit::remove(&t.db(), "claude", "same", &refs, &m).unwrap();
+    assert_eq!((result.removed, result.pending_cleanup), (1, 1));
+}
+
+#[test]
+fn preflight_cannot_redefine_baseline_after_an_external_write() {
+    let t = Temp::new();
+    let m = Memory::default();
+    commit::apply(&t.db(), &[record("p")], "test", false, &m).unwrap();
+    let path = t.db();
+    let before = m.creates.get();
+    let result = commit::apply_checked(
+        &path,
+        &[record("p")],
+        "test",
+        true,
+        &m,
+        || {
+            crate::open(&path)?.execute("UPDATE providers SET name='concurrent'", [])?;
+            Ok(())
+        },
+        || Ok(()),
+    );
+    assert_eq!(
+        result.err().unwrap().to_string(),
+        "provider_revision_conflict"
+    );
+    assert_eq!(m.creates.get(), before);
+}
+
+#[test]
+fn alias_blocks_delete_and_sql_errors_never_expose_payloads() {
+    let t = Temp::new();
+    let m = Memory::default();
+    let mut p = record("p");
+    p.name = "Production East".into();
+    let mut other = record("other");
+    other.name = "Production".into();
+    commit::apply(&t.db(), &[p, other], "test", false, &m).unwrap();
+    let refs = crate::references::References {
+        hub: t.0.join("hub.json"),
+        catalog: t.0.join("catalog.json"),
+        pools: t.0.join("pools.json"),
+        config: t.0.join("config.json"),
+    };
+    fs::write(&refs.config, r#"{"providers":{"p":{"alias":"work"}}}"#).unwrap();
+    fs::write(&refs.hub, r#"{"channels":{"main":{"provider":"work"}}}"#).unwrap();
+    assert_eq!(
+        commit::remove(&t.db(), "claude", "p", &refs, &m)
+            .unwrap()
+            .removed,
+        0
+    );
+    fs::write(
+        &refs.hub,
+        r#"{"channels":{"main":{"provider":"Production"}}}"#,
+    )
+    .unwrap();
+    let conn = crate::open(&t.db()).unwrap();
+    conn.execute_batch("CREATE TRIGGER fail_delete BEFORE DELETE ON providers BEGIN SELECT RAISE(ABORT,'fake-secret-error'); END").unwrap();
+    assert_eq!(
+        commit::remove(&t.db(), "claude", "p", &refs, &m)
+            .err()
+            .unwrap()
+            .to_string(),
+        "provider_commit_failed"
+    );
+    conn.execute_batch("DROP TRIGGER fail_delete").unwrap();
+    assert_eq!(
+        commit::remove(&t.db(), "claude", "p", &refs, &m)
+            .unwrap()
+            .removed,
+        1
+    );
+}
+
+#[test]
+fn migration_retries_pending_storage_cleanup_without_creating_more_secrets() {
+    let t = Temp::new();
+    let m = Memory::default();
+    let mut conn = crate::open(&t.db()).unwrap();
+    conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+    crate::import(&mut conn, &[record("p")], "legacy", false, false).unwrap();
+    let reader = crate::open_readonly(&t.db()).unwrap();
+    reader
+        .execute_batch("BEGIN; SELECT * FROM providers;")
+        .unwrap();
+    let first = crate::migration::migrate(&t.db(), &m).unwrap();
+    assert!(first.storage_cleanup_pending);
+    let calls = (m.creates.get(), m.reads.get());
+    reader.execute_batch("ROLLBACK").unwrap();
+    let second = crate::migration::migrate(&t.db(), &m).unwrap();
+    assert!(!second.storage_cleanup_pending);
+    assert_eq!((m.creates.get(), m.reads.get()), calls);
+    for path in [t.db(), t.0.join("providers.db-wal")] {
+        assert!(!fs::read(path)
+            .unwrap_or_default()
+            .windows(b"fake-secret-marker".len())
+            .any(|b| b == b"fake-secret-marker"));
+    }
+}
+
+#[test]
+fn edit_preserves_secret_checks_revision_and_noop_never_reads_os() {
+    let t = Temp::new();
+    let m = Memory::default();
+    commit::apply(&t.db(), &[record("p")], "test", false, &m).unwrap();
+    let input = |name: &str, revision| crate::edit::Input {
+        app_type: "claude".into(),
+        id: "p".into(),
+        name: name.into(),
+        expected_revision: Some(revision),
+        endpoint: None,
+        model: None,
+        protocol: None,
+        secret: None,
+        clear_secret: false,
+    };
+    let calls = m.reads.get();
+    assert_eq!(
+        crate::edit::save(&t.db(), input("Fixture", 1), &m)
+            .unwrap()
+            .skipped,
+        1
+    );
+    assert_eq!(m.reads.get(), calls);
+    crate::edit::save(&t.db(), input("Renamed", 1), &m).unwrap();
+    let payload = m.read(&reference(&t.db())).unwrap();
+    assert_eq!(
+        Envelope::decode(&payload, "claude", "p", 2)
+            .unwrap()
+            .settings["env"]["ANTHROPIC_AUTH_TOKEN"],
+        "fake-secret-marker"
+    );
+    assert_eq!(
+        crate::edit::save(&t.db(), input("Stale", 1), &m)
+            .err()
+            .unwrap()
+            .to_string(),
+        "provider_revision_conflict"
+    );
+    let view = serde_json::to_string(&crate::edit::view(&t.db(), "claude", "p").unwrap()).unwrap();
+    assert!(!view.contains("fake-secret-marker"));
+    let mut clear = input("Renamed", 2);
+    clear.clear_secret = true;
+    crate::edit::save(&t.db(), clear, &m).unwrap();
+    let payload = m.read(&reference(&t.db())).unwrap();
+    assert!(Envelope::decode(&payload, "claude", "p", 3)
+        .unwrap()
+        .settings["env"]["ANTHROPIC_AUTH_TOKEN"]
+        .is_null());
+}
+
+#[test]
+fn rust_split_roundtrips_through_actual_python_resolver() {
+    use std::io::Write;
+    let mut record = record("p");
+    record.app_type = "codex".into();
+    record.settings_config = serde_json::json!({"auth":{"tokens":{"access_token":"fake-oauth"}},"config":"model_provider='p'\n[model_providers.p]\nexperimental_bearer_token='fake-key'\n"});
+    let (public, payload) = crate::credentials::split::separate(&record, 2).unwrap();
+    let mut child=std::process::Command::new("python3").args(["-c","import json,sys; from claude1_credentials import resolve; d=json.load(sys.stdin); s,m=resolve(d['row'],'codex',d['public'],reader=lambda _:d['payload'].encode()); assert s==d['expected']; print('ok')"])
+        .env("PYTHONPATH",std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+    let input = serde_json::json!({"row":{"id":"p","credential_ref":"provider/v1/00000000-0000-4000-8000-000000000001","credential_version":1,"revision":2},"public":public.settings_config,"payload":String::from_utf8(payload.encode().unwrap()).unwrap(),"expected":record.settings_config});
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"ok\n");
+}

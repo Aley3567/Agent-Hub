@@ -53,25 +53,51 @@ impl WriterLock {
             options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let file = options.open(lock_path)?;
-        file.try_lock()
+        fs2::FileExt::try_lock_exclusive(&file)
             .map_err(|_| anyhow::anyhow!("provider_store_busy"))?;
         Ok(Self(file))
     }
 }
 impl Drop for WriterLock {
     fn drop(&mut self) {
-        let _ = self.0.unlock();
+        let _ = fs2::FileExt::unlock(&self.0);
     }
 }
 
 // Compare full provider/provenance state: legacy writers may not increment revisions.
 pub(crate) fn revision(conn: &Connection) -> Result<Vec<Vec<rusqlite::types::Value>>> {
     let mut result = Vec::new();
+    let columns = conn
+        .prepare("PRAGMA table_info(providers)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut selected = columns.clone();
+    for column in ["credential_ref", "credential_version", "revision"] {
+        if !selected.iter().any(|c| c == column) {
+            selected.push(column.into());
+        }
+    }
+    selected.sort();
+    let fields: Vec<_> = selected
+        .iter()
+        .map(|name| {
+            if columns.contains(name) {
+                format!("\"{}\"", name.replace('"', "\"\""))
+            } else if name == "revision" {
+                "0".into()
+            } else {
+                "NULL".into()
+            }
+        })
+        .collect();
     for sql in [
-        "SELECT * FROM providers ORDER BY app_type,id",
-        "SELECT * FROM provider_sources ORDER BY app_type,id",
+        format!(
+            "SELECT {} FROM providers ORDER BY app_type,id",
+            fields.join(",")
+        ),
+        "SELECT * FROM provider_sources ORDER BY app_type,id".into(),
     ] {
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(&sql)?;
         let columns = stmt.column_count();
         let rows = stmt.query_map([], |r| {
             (0..columns)
@@ -158,41 +184,43 @@ pub fn apply_checked(
     preflight: impl FnOnce() -> Result<()>,
     recheck: impl FnOnce() -> Result<()>,
 ) -> Result<Outcome> {
-    apply_inner(path, records, source, replace, secrets, preflight, recheck).map_err(|error| {
-        if let Some(code) = error.downcast_ref::<CredentialError>() {
-            return anyhow::anyhow!(code.code());
-        }
-        if error.downcast_ref::<rusqlite::Error>().is_some() {
-            return anyhow::anyhow!("provider_commit_failed");
-        }
-        let message = error.to_string();
-        let code = message.split(':').next().unwrap_or("");
-        if [
-            "provider_revision_conflict",
-            "provider_store_busy",
-            "provider_write_alias",
-            "invalid_writer_lock",
-            "invalid_revision",
-            "duplicate_provider_identity",
-            "plan_stale",
-            "plan_expired",
-            "credential_corrupt",
-            "credential_missing",
-            "credential_denied",
-            "credential_locked",
-            "credential_unavailable",
-            "credential_timeout",
-            "credential_too_large",
-            "provider_commit_failed",
-            "provider_change_failed",
-        ]
-        .contains(&code)
-        {
-            anyhow::anyhow!(message)
-        } else {
-            anyhow::anyhow!("provider_change_failed")
-        }
-    })
+    apply_inner(path, records, source, replace, secrets, preflight, recheck).map_err(safe_error)
+}
+
+pub(crate) fn safe_error(error: anyhow::Error) -> anyhow::Error {
+    if let Some(code) = error.downcast_ref::<CredentialError>() {
+        return anyhow::anyhow!(code.code());
+    }
+    if error.downcast_ref::<rusqlite::Error>().is_some() {
+        return anyhow::anyhow!("provider_commit_failed");
+    }
+    let message = error.to_string();
+    let code = message.split(':').next().unwrap_or("");
+    if [
+        "provider_revision_conflict",
+        "provider_store_busy",
+        "provider_write_alias",
+        "invalid_writer_lock",
+        "invalid_revision",
+        "duplicate_provider_identity",
+        "plan_stale",
+        "plan_expired",
+        "credential_corrupt",
+        "credential_missing",
+        "credential_denied",
+        "credential_locked",
+        "credential_unavailable",
+        "credential_timeout",
+        "credential_too_large",
+        "provider_commit_failed",
+        "provider_change_failed",
+    ]
+    .contains(&code)
+    {
+        anyhow::anyhow!(message)
+    } else {
+        anyhow::anyhow!("provider_change_failed")
+    }
 }
 
 fn apply_inner(
@@ -212,8 +240,16 @@ fn apply_inner(
         }
     }
     let _lock = WriterLock::acquire(path)?;
+    let before = if path.exists() {
+        revision(&crate::snapshot::open(path)?)?
+    } else {
+        Vec::new()
+    };
     preflight()?;
     let mut conn = store::open(path)?;
+    if revision(&conn)? != before {
+        bail!("provider_revision_conflict");
+    }
     conn.pragma_update(None, "secure_delete", true)?;
     let baseline = revision(&conn)?;
     let mut outcome = Outcome::default();
@@ -284,13 +320,19 @@ fn apply_inner(
         for (record, reference, _, rev, old) in &pending {
             tx.execute("INSERT INTO providers(id,app_type,name,settings_config,meta,category,provider_type,sort_index,is_current,credential_ref,credential_version,revision) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,1,?11) ON CONFLICT(id,app_type) DO UPDATE SET name=excluded.name,settings_config=excluded.settings_config,meta=excluded.meta,category=excluded.category,provider_type=excluded.provider_type,sort_index=excluded.sort_index,credential_ref=excluded.credential_ref,credential_version=1,revision=excluded.revision",
                 params![record.id,record.app_type,record.name,record.settings_config.to_string(),record.meta.to_string(),record.category,record.provider_type,record.sort_index,record.is_current,reference,rev])?;
-            tx.execute("INSERT INTO provider_sources(id,app_type,source,imported_at) VALUES(?1,?2,?3,strftime('%s','now')) ON CONFLICT(id,app_type) DO UPDATE SET source=excluded.source,imported_at=excluded.imported_at", params![record.id,record.app_type,source])?;
+            tx.execute("INSERT INTO provider_sources(id,app_type,source,imported_at) VALUES(?1,?2,?3,strftime('%s','now')) ON CONFLICT(id,app_type) DO UPDATE SET source=excluded.source,imported_at=excluded.imported_at WHERE excluded.source!='credential-migration'", params![record.id,record.app_type,source])?;
             if let Some(old) = old {
                 tx.execute("INSERT INTO credential_operations(op_id,credential_ref,state) VALUES(?1,?2,'cleanup')", params![op,old])?;
             }
             tx.execute(
                 "DELETE FROM credential_operations WHERE op_id=?1 AND credential_ref=?2",
                 params![op, reference],
+            )?;
+        }
+        if source == "credential-migration" {
+            tx.execute(
+                "INSERT OR IGNORE INTO provider_maintenance(name) VALUES('storage_cleanup')",
+                [],
             )?;
         }
         tx.commit()?;
@@ -332,4 +374,77 @@ fn apply_inner(
             bail!("{safe}")
         }
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteOutcome {
+    pub removed: usize,
+    pub blockers: Vec<String>,
+    pub pending_cleanup: usize,
+}
+pub fn remove(
+    path: &Path,
+    app: &str,
+    id: &str,
+    references: &crate::references::References,
+    secrets: &dyn SecretStore,
+) -> Result<DeleteOutcome> {
+    remove_inner(path, app, id, references, secrets).map_err(safe_error)
+}
+fn remove_inner(
+    path: &Path,
+    app: &str,
+    id: &str,
+    references: &crate::references::References,
+    secrets: &dyn SecretStore,
+) -> Result<DeleteOutcome> {
+    if !["claude", "codex"].contains(&app) {
+        bail!("invalid_application");
+    }
+    let _lock = WriterLock::acquire(path)?;
+    let mut conn = store::open(path)?;
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let row: Option<(String, Option<String>)> = tx
+        .query_row(
+            "SELECT name,credential_ref FROM providers WHERE app_type=?1 AND id=?2",
+            params![app, id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((_name, reference)) = row else {
+        return Ok(DeleteOutcome {
+            removed: 0,
+            blockers: vec![],
+            pending_cleanup: 0,
+        });
+    };
+    let blockers = references.blockers(app, id, &store::list_providers(&tx, Some("claude"))?)?;
+    if !blockers.is_empty() {
+        return Ok(DeleteOutcome {
+            removed: 0,
+            blockers,
+            pending_cleanup: 0,
+        });
+    }
+    tx.execute(
+        "DELETE FROM providers WHERE app_type=?1 AND id=?2",
+        params![app, id],
+    )?;
+    tx.execute(
+        "DELETE FROM provider_sources WHERE app_type=?1 AND id=?2",
+        params![app, id],
+    )?;
+    if let Some(reference) = reference {
+        tx.execute(
+            "INSERT INTO credential_operations(op_id,credential_ref,state) VALUES(?1,?2,'cleanup')",
+            params![uuid::Uuid::new_v4().to_string(), reference],
+        )?;
+    }
+    tx.commit()?;
+    Ok(DeleteOutcome {
+        removed: 1,
+        blockers: vec![],
+        pending_cleanup: cleanup(&conn, secrets).unwrap_or(1),
+    })
 }
