@@ -19,3 +19,9 @@ Selected changes, grouped by user-visible behavior. Git remains the complete com
 - Sync Windows branding and shared table presentation improvements (`7e2175d`).
 
 Delivery and validation were recorded in `13dabc2` and [work queue S22](docs/work-queue.md#s22--provider-独立管理与用量图表). The macOS artifacts use ad-hoc signing; no Developer ID notarization or remote release was recorded. A Windows installer was not included.
+- Publish the first public preview as v0.2.1: English interface, an aligned compact theme switch, credential redaction at desktop boundaries and a double-click installer with version-manager PATH support (`c64cbbb`, `a095486`, `a755529`, `415becf`).
+
+## 0.2.2 — macOS preview update · 2026-09-16
+
+- Calm the visual density across the diagnostics, doctor and slots views: drop decorative accent fills, give diagnostic rows predictable grid columns and move long explanations behind disclosures (`4fb7d5b`).
+- Resolve a supported Python interpreter for GUI diagnostics and repair commands so a Finder-launched app no longer mistakes Homebrew 3.11+ for the old system 3.9 (`ff3b482`).

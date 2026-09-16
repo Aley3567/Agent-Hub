@@ -148,8 +148,8 @@ flowchart LR
 | :--- | :--- |
 | 渠道 TUI / CLI | 支持添加、列出和显式导入 Claude Code、Codex 渠道 |
 | 会话启动器 | 使用各自的启动器；网关内模型切换适用于 Claude Code |
-| macOS 桌面端 | 本地 0.2.1 构建，提供渠道视图与用量分析；已记录产物为 ad-hoc 签名，未做 Developer ID 公证或发布远端版本 |
-| Windows 桌面端 | 独立源码；0.2.1 交付不包含 Windows 安装器 |
+| macOS 桌面端 | 0.2.2 Apple Silicon 预览：渠道管理、用量分析、双语设置、PR 收件箱、本地 Hub 对话与应用内定时任务；ad-hoc 签名，未做 Developer ID 公证 |
+| Windows 桌面端 | 独立源码；这些预览不包含 Windows 安装器 |
 | 统一终端流程 | 渠道管理与会话启动的进一步整合仍属开发工作 |
 | Agent 编排 | 设计方向；桌面对话演示和本地任务清单不代表编排后端已经接通 |
 

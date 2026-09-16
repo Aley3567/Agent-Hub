@@ -337,7 +337,7 @@ dependencies = [
 
 [[package]]
 name = "claude1-desktop"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "chrono",
  "dirs 5.0.1",

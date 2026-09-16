@@ -1,6 +1,6 @@
 [package]
 name = "claude1-desktop"
-version = "0.2.1"
+version = "0.2.2"
 description = "claude1 macOS 桌面端：多渠道 / 多模型状态的只读遥控器"
 edition = "2021"
 rust-version = "1.85"

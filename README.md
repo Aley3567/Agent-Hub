@@ -42,7 +42,7 @@ Agent-Hub manages connections and routing. Claude Code and Codex remain responsi
 
 ### macOS preview package
 
-The first Apple Silicon desktop preview is **0.2.1**. Download the `.pkg` installer
+The first Apple Silicon desktop preview is **0.2.2**. Download the `.pkg` installer
 from [GitHub Releases](https://github.com/Aley3567/Agent-Hub/releases), verify its
 SHA-256, quit Agent Hub and double-click the installer. It installs the desktop app
 in Applications and the management CLI and Python runtime for the signed-in user. Python 3.11+, Claude Code and `uv` remain external prerequisites;
@@ -163,8 +163,8 @@ Existing Hub routing configuration and logs remain under `~/.cc-switch/` to pres
 | :--- | :--- |
 | Provider TUI / CLI | Add, list and explicitly import Claude Code and Codex providers |
 | Session launchers | Separate launchers; gateway model switching applies to Claude Code |
-| macOS desktop | 0.2.1 Apple Silicon preview: provider management, usage analysis, bilingual settings, PR inbox, local Hub chat and in-app scheduling; ad-hoc signed, not notarized |
-| Windows desktop | Separate source tree; the 0.2.1 delivery did not include a Windows installer |
+| macOS desktop | 0.2.2 Apple Silicon preview: provider management, usage analysis, bilingual settings, PR inbox, local Hub chat and in-app scheduling; ad-hoc signed, not notarized |
+| Windows desktop | Separate source tree; no Windows installer ships with these previews |
 | Unified terminal workflow | Further integration of provider management and session launching remains development work |
 | Agent orchestration | Desktop chat uses the local Hub; scheduled actions require the app to remain open. This is not a background orchestration service |
 
