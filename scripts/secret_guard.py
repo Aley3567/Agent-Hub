@@ -282,66 +282,66 @@ def load_private_fingerprints() -> set[PrivateFingerprint]:
             add_fingerprint(output, "private-environment-value", value)
 
     cc_switch_dir = Path.home() / ".cc-switch"
-    db_path = cc_switch_dir / "cc-switch.db"
-    if db_path.is_file():
-        try:
-            uri = db_path.resolve(strict=True).as_uri() + "?mode=ro"
-            connection = sqlite3.connect(uri, uri=True)
+    # Both applications can own credentials in either the legacy or Hub store.
+    for db_path in (cc_switch_dir / "cc-switch.db", Path.home() / ".agent-hub/providers.db"):
+        if db_path.is_file():
             try:
-                columns = {
-                    row[1]
-                    for row in connection.execute(
-                        "PRAGMA table_info(providers)"
-                    ).fetchall()
-                }
-                selected = [
-                    column
-                    for column in (
-                        "name",
-                        "settings_config",
-                        "meta",
-                        "website_url",
-                        "notes",
-                    )
-                    if column in columns
-                ]
-                if selected:
-                    rows = connection.execute(
-                        f"SELECT {', '.join(selected)} FROM providers "
-                        "WHERE app_type='claude'"
-                    ).fetchall()
-                    for row in rows:
-                        provider = dict(zip(selected, row))
-                        provider_name = provider.get("name")
-                        if not is_public_provider_label(provider_name):
-                            add_fingerprint(
-                                output,
-                                "private-provider-name",
-                                provider_name,
-                                minimum_length=4,
-                            )
-                        for key in ("settings_config", "meta"):
-                            raw = provider.get(key)
-                            if not isinstance(raw, str):
-                                continue
-                            try:
-                                walk_private_json(json.loads(raw), output)
-                            except (json.JSONDecodeError, UnicodeError):
-                                pass
-                        for key in ("website_url", "notes"):
-                            add_fingerprint(
-                                output,
-                                "private-provider-metadata",
-                                provider.get(key),
-                            )
-            finally:
-                connection.close()
-        except (OSError, sqlite3.Error):
-            print(
-                "[secret-guard] 警告：无法只读加载 CC Switch 私密指纹；"
-                "通用凭证检测仍会继续。",
-                file=sys.stderr,
-            )
+                uri = db_path.resolve(strict=True).as_uri() + "?mode=ro"
+                connection = sqlite3.connect(uri, uri=True)
+                try:
+                    columns = {
+                        row[1]
+                        for row in connection.execute(
+                            "PRAGMA table_info(providers)"
+                        ).fetchall()
+                    }
+                    selected = [
+                        column
+                        for column in (
+                            "name",
+                            "settings_config",
+                            "meta",
+                            "website_url",
+                            "notes",
+                        )
+                        if column in columns
+                    ]
+                    if selected:
+                        rows = connection.execute(
+                            f"SELECT {', '.join(selected)} FROM providers"
+                        ).fetchall()
+                        for row in rows:
+                            provider = dict(zip(selected, row))
+                            provider_name = provider.get("name")
+                            if not is_public_provider_label(provider_name):
+                                add_fingerprint(
+                                    output,
+                                    "private-provider-name",
+                                    provider_name,
+                                    minimum_length=4,
+                                )
+                            for key in ("settings_config", "meta"):
+                                raw = provider.get(key)
+                                if not isinstance(raw, str):
+                                    continue
+                                try:
+                                    walk_private_json(json.loads(raw), output)
+                                except (json.JSONDecodeError, UnicodeError):
+                                    pass
+                            for key in ("website_url", "notes"):
+                                add_fingerprint(
+                                    output,
+                                    "private-provider-metadata",
+                                    provider.get(key),
+                                )
+                finally:
+                    connection.close()
+            except (OSError, sqlite3.Error):
+                print(
+                    "[secret-guard] 警告：无法只读加载 provider 数据库私密指纹；"
+                    "通用凭证检测仍会继续。",
+                    file=sys.stderr,
+                )
 
     hub_config = cc_switch_dir / "claude-hub.json"
     if hub_config.is_file():

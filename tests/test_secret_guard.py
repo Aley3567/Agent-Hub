@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import json
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -19,6 +21,28 @@ SPEC.loader.exec_module(secret_guard)
 
 
 class SecretGuardTests(unittest.TestCase):
+    def test_private_sources_include_hub_and_codex_without_modifying_databases(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            home = Path(folder)
+            expected = set()
+            originals = {}
+            for subdir in (".cc-switch/cc-switch.db", ".agent-hub/providers.db"):
+                path = home / subdir
+                path.parent.mkdir()
+                with sqlite3.connect(path) as conn:
+                    conn.execute("CREATE TABLE providers (app_type TEXT, settings_config TEXT)")
+                    for app in ("claude", "codex"):
+                        token = "sk-" + app + path.parent.name + "z" * 24
+                        endpoint = "https://" + app + path.parent.name.replace(".", "") + ".invalid/api"
+                        expected.update((token, endpoint))
+                        conn.execute("INSERT INTO providers VALUES (?, ?)", (app, json.dumps({"api_key": token, "base_url": endpoint})))
+                originals[path] = path.read_bytes()
+            with mock.patch.object(secret_guard.Path, "home", return_value=home), mock.patch.dict(os.environ, {}, clear=True):
+                fingerprints = secret_guard.load_private_fingerprints()
+            self.assertTrue(expected <= {item.value for item in fingerprints})
+            for path, content in originals.items():
+                self.assertEqual(path.read_bytes(), content)
+
     def test_generic_token_is_reported_without_secret_value(self) -> None:
         token = "ghp_" + "A" * 30
         findings = secret_guard.scan_bytes("config.py", token.encode(), ())

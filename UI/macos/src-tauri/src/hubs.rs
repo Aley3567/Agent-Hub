@@ -308,9 +308,7 @@ fn build_hub(hub: &HubRef, raw: &Map<String, Value>, channel_list: &[Channel]) -
             proxy: definition
                 .get("proxy")
                 .and_then(|value| value.as_str())
-                .map(str::trim)
-                .filter(|proxy| !proxy.is_empty())
-                .map(str::to_string),
+                .and_then(redact::sanitize_endpoint),
         });
     }
 
@@ -702,6 +700,18 @@ mod tests {
             usage_path: PathBuf::from("/tmp/claude1-desktop-test/usage.jsonl"),
             lock_path: PathBuf::from("/tmp/claude1-desktop-test/claude-hub.lock"),
         }
+    }
+
+    #[test]
+    fn proxy_credentials_do_not_cross_the_ipc_boundary() {
+        let mut raw = sample();
+        let proxy = format!("http://{}:{}@proxy.invalid:8080/?api_key={}", "user", "shortpass", "shortkey"); // secret-guard: allow embedded-url-credential (synthetic format placeholders)
+        raw.insert("channels".into(), json!({"fixture": {"proxy": proxy}}));
+        let built = build_hub(&hub_ref(), &raw, &[]);
+        let serialized = serde_json::to_string(&built).unwrap();
+        assert!(!serialized.contains("shortpass"));
+        assert!(!serialized.contains("shortkey"));
+        assert_eq!(built.channels[0].proxy.as_deref(), Some("http://proxy.invalid:8080"));
     }
 
     #[test]

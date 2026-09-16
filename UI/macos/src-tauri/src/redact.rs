@@ -8,6 +8,8 @@
 //! 这些函数是返回值离开 Rust 之前的最后一道闸门；宁可多剥，不可漏出。
 
 use serde_json::{Map, Value};
+use regex::Regex;
+use std::sync::OnceLock;
 
 /// 命中即视为凭证字段（大小写不敏感、子串匹配）。
 pub const SENSITIVE_KEY_FRAGMENTS: [&str; 9] = [
@@ -52,9 +54,30 @@ pub fn is_configured_value(value: &Value) -> bool {
 ///
 /// 只认 ASCII 的 `[A-Za-z0-9_-]`，所以中文说明与短模型名不会被误伤。
 pub fn redact_text(input: &str) -> String {
+    static URL: OnceLock<Regex> = OnceLock::new();
+    static ASSIGNMENT: OnceLock<Regex> = OnceLock::new();
+    static BEARER: OnceLock<Regex> = OnceLock::new();
+    let urls = URL.get_or_init(|| Regex::new(r#"(?i)\b(?:https?|socks5h?|socks4a?)://[^\s\"'<>`]+"#).unwrap());
+    let assignments = ASSIGNMENT.get_or_init(|| Regex::new(
+        r#"(?i)(\b[\w-]*(?:key|token|secret|password|credential|authorization)[\w-]*[\"']?\s*[:=]\s*[\"']?)([^\s\"',;}\]]+)"#
+    ).unwrap());
+    let bearer = BEARER.get_or_init(|| Regex::new(r#"(?i)(\b(?:Bearer|Basic)\s+)[^\s\"',;}\]]+"#).unwrap());
+    let safe_urls = urls.replace_all(input, |caps: &regex::Captures<'_>| {
+        sanitize_endpoint(&caps[0]).unwrap_or_else(|| MASK.into())
+    });
+    let safe_bearer = bearer.replace_all(&safe_urls, |caps: &regex::Captures<'_>| {
+        format!("{}{MASK}", &caps[1])
+    });
+    let safe_assignments = assignments.replace_all(&safe_bearer, |caps: &regex::Captures<'_>| {
+        // strip_sensitive emits JSON booleans for credential availability.
+        if caps[1].trim_end().ends_with(':') && matches!(&caps[2], "true" | "false" | "null") {
+            return caps[0].to_string();
+        }
+        format!("{}{MASK}", &caps[1])
+    });
     let mut out = String::with_capacity(input.len());
     let mut run = String::new();
-    for ch in input.chars() {
+    for ch in safe_assignments.chars() {
         if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
             run.push(ch);
             continue;
@@ -152,6 +175,15 @@ pub fn has_configured_credential(env: &Map<String, Value>) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn named_short_secrets_and_url_credentials_are_masked() {
+        for raw in [r#"{"api_key":"tiny"}"#, "token=tiny", "Authorization: Bearer tiny", "Authorization: Basic tiny", "x-api-key: tiny"] {
+            assert!(!redact_text(raw).contains("tiny"));
+        }
+        assert_eq!(redact_text("error 429: retry later"), "error 429: retry later");
+        assert_eq!(redact_text("https://example.invalid/path?q=tiny#tiny"), "https://example.invalid/path");
+    }
 
     #[test]
     fn sensitive_key_matches_substring_case_insensitively() {

@@ -782,6 +782,25 @@ event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\
     }
 
     #[test]
+    fn short_credentials_in_http_and_sse_errors_never_reach_the_caller() {
+        let message = format!("upstream https://{}:{}@example.invalid/v1?api_key={} failed; token={}", "user", "shortpass", "shortkey", "tiny"); // secret-guard: allow embedded-url-credential (synthetic format placeholders)
+        let event = json!({"type": "error", "error": {"message": message}});
+        let responses = [
+            format!("HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", message.len(), message),
+            sse_response(&format!("event: error\ndata: {event}\n\n")),
+        ];
+        for response in responses {
+            let port = serve_once(response);
+            let request = build_request_body("m", None, &[("user".into(), "hi".into())]);
+            let err = tauri::async_runtime::block_on(stream_message(&target(port), &request, |_| {})).unwrap_err();
+            for secret in ["shortpass", "shortkey", "tiny"] {
+                assert!(!err.contains(secret), "credential escaped in error");
+            }
+            assert!(err.contains("example.invalid/v1"));
+        }
+    }
+
+    #[test]
     fn the_request_on_the_wire_carries_the_bearer_token_and_the_top_level_system() {
         let env = HubEnv::new("wire");
         let fake = env.fake_token.clone();
