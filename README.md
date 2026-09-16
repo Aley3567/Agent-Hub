@@ -40,6 +40,22 @@ Agent-Hub manages connections and routing. Claude Code and Codex remain responsi
 
 ## Get started
 
+### macOS preview package
+
+The first Apple Silicon desktop preview is **0.2.1**. Download the complete ZIP
+from [GitHub Releases](https://github.com/Aley3567/Agent-Hub/releases), verify its
+SHA-256, and run `Install.command` before opening `Agent Hub.app`. The ZIP includes
+the desktop app, management CLI and Python runtime; a standalone DMG contains only
+the desktop app. Python 3.11+, Claude Code and `uv` remain external prerequisites;
+install Codex CLI separately for Codex sessions.
+
+This preview is ad-hoc signed and **not Apple notarized**. macOS may require an
+explicit approval in Privacy & Security after you verify the download. It does
+not include Intel Mac or Windows binaries. Scheduled tasks run only while the app
+is open; chat requires a configured, running local Hub.
+
+### Build from source
+
 The source installation below targets **macOS and Linux**. You need Python 3.11+, zsh, Rust/Cargo and Claude Code available as `claude`. Install Codex CLI separately for Codex sessions. The gateway and protocol conversion also require `uv`.
 
 ### 1. Install the terminal tools
@@ -148,10 +164,10 @@ Existing Hub routing configuration and logs remain under `~/.cc-switch/` to pres
 | :--- | :--- |
 | Provider TUI / CLI | Add, list and explicitly import Claude Code and Codex providers |
 | Session launchers | Separate launchers; gateway model switching applies to Claude Code |
-| macOS desktop | Local 0.2.1 build with provider views and usage analysis; the recorded build is ad-hoc signed, not Developer ID notarized or published as a release |
+| macOS desktop | 0.2.1 Apple Silicon preview: provider management, usage analysis, bilingual settings, PR inbox, local Hub chat and in-app scheduling; ad-hoc signed, not notarized |
 | Windows desktop | Separate source tree; the 0.2.1 delivery did not include a Windows installer |
 | Unified terminal workflow | Further integration of provider management and session launching remains development work |
-| Agent orchestration | A design direction; desktop chat demos and local task lists do not establish a working orchestration backend |
+| Agent orchestration | Desktop chat uses the local Hub; scheduled actions require the app to remain open. This is not a background orchestration service |
 
 The bilingual README does not mean the terminal and desktop interfaces are fully translated. See the [work queue](docs/work-queue.md) for delivery evidence and remaining work, and the [changelog](CHANGELOG.md) for a concise record of changes.
 

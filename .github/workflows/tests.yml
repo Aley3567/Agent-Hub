@@ -8,6 +8,52 @@ permissions:
   contents: read
 
 jobs:
+  macos-package:
+    name: macOS desktop and release kit
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: UI/macos/package-lock.json
+      - name: Set up Rust
+        run: rustup toolchain install 1.96.0 --profile minimal && rustup default 1.96.0
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            UI/macos/src-tauri/target
+          key: macos-arm64-rust-1.96-${{ hashFiles('Cargo.lock', 'UI/macos/src-tauri/Cargo.lock') }}
+      - name: Test management plane and shared provider store
+        run: cargo test --workspace --locked
+      - name: Install desktop dependencies
+        working-directory: UI/macos
+        run: npm ci --no-audit --no-fund
+      - name: Check desktop types
+        working-directory: UI/macos
+        run: npm run typecheck
+      - name: Test desktop backend
+        working-directory: UI/macos/src-tauri
+        run: cargo test --locked
+      - name: Build CLI
+        run: cargo build --release --locked
+      - name: Build desktop application
+        working-directory: UI/macos
+        run: npm run build -- --bundles app
+      - name: Assemble versioned release kit
+        run: python3 scripts/package-agent-hub-macos.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macOS-arm64-release-kit
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
   test:
     name: Python ${{ matrix.python-version }} on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

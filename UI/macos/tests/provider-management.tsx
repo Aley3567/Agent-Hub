@@ -1,4 +1,4 @@
-import React, { act, StrictMode } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const calls: {command: string; args: any}[] = [];

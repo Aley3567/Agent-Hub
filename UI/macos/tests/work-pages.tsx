@@ -1,4 +1,4 @@
-import React, { act, StrictMode } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 
 const calls: { command: string; args: any }[] = [];
@@ -75,7 +75,7 @@ const lastCall = (command: string) => [...calls].reverse().find((call) => call.c
 try {
   await act(async () => root.render(<StrictMode><PullRequests /></StrictMode>));
   await click('Review requested');
-  await act(async () => { pending.findLast(p => p.filter === 'review')!.resolve([{...fixture, title: 'Review fixture'}]); });
+  await act(async () => { [...pending].reverse().find(p => p.filter === 'review')!.resolve([{...fixture, title: 'Review fixture'}]); });
   await act(async () => { pending.filter(p => p.filter === 'all').forEach(p => p.resolve([fixture])); });
   assert(document.body.textContent?.includes('Review fixture') && !document.body.textContent?.includes('Synthetic PR'), 'stale PR requests must not replace active filter');
   await act(async () => (document.querySelector('button[aria-label="Review fixture · example/project #7"]') as HTMLButtonElement).click());
