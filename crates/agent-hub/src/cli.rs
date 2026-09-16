@@ -93,16 +93,7 @@ fn run_provider(command: ProviderCommands) -> Result<()> {
         ProviderCommands::Add => crate::provider_form::add(),
         ProviderCommands::Remove { id, app } => {
             let mut conn = provider_store::open(&db::default_db_path()?)?;
-            let tx = conn.transaction()?;
-            let n = tx.execute(
-                "DELETE FROM providers WHERE id=?1 AND app_type=?2",
-                rusqlite::params![id, app],
-            )?;
-            tx.execute(
-                "DELETE FROM provider_sources WHERE id=?1 AND app_type=?2",
-                rusqlite::params![id, app],
-            )?;
-            tx.commit()?;
+            let n = provider_store::remove(&mut conn, &id, &app)?;
             println!("已删除 {n} 个 provider");
             Ok(())
         }

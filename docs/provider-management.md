@@ -56,7 +56,7 @@ Claude provider 的协议可以是 `anthropic`、`openai_chat`、`openai_respons
 
 ## 数据所有权和兼容
 
-Hub 自有 SQLite 继续使用运行时已验证的 `providers` 记录格式，但维护自己的 schema；`provider_sources` 记录来源和最近导入时间。外部导入为批量事务，格式校验失败不写入半批数据。相同导入重复执行默认幂等，本地编辑不会被静默覆盖。
+Hub 自有 SQLite 继续使用运行时已验证的 `providers` 记录格式，但维护自己的 schema；Rust 读写与来源解析由 `crates/provider-store` 统一拥有，CLI/TUI 只负责交互；`provider_sources` 记录来源和最近导入时间。外部导入为批量事务，格式校验失败不写入半批数据。相同导入重复执行默认幂等，本地编辑不会被静默覆盖。
 
 为了保留已有路由、账号池和历史用量，0.2 不搬迁 `~/.cc-switch` 中原有的 Hub JSON 配置与日志。这些是 Hub 自身文件，目录名称不代表必须安装 CC Switch。定价可以继续通过 `~/.cc-switch/model-pricing.json` 提供。
 
