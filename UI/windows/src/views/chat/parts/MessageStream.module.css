@@ -52,7 +52,7 @@
   overflow-wrap: break-word;
 }
 
-/* system / 演示提示：--bg-inset 小条 */
+/* system 行：--bg-inset 小条 */
 .systemBar {
   max-width: 70%;
   background: var(--bg-inset);

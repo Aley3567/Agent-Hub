@@ -23,6 +23,7 @@ import type {
   AppEnv,
   Channel,
   ChatMessage,
+  ChatProject,
   ChatSession,
   DoctorCheck,
   Effort,
@@ -40,7 +41,6 @@ import type {
 } from '../types/contract';
 import {
   MOCK_CHANNELS,
-  MOCK_CHAT_SESSIONS,
   MOCK_DOCTOR,
   MOCK_ENV,
   MOCK_ERRORS,
@@ -51,7 +51,6 @@ import {
   MOCK_USAGE,
   mockCreateTask,
   mockDeleteTask,
-  mockSendChatMessage,
   mockSetPluginEnabled,
   mockUpdateTask,
   mockUsageSummary,
@@ -205,18 +204,40 @@ export function revealInFolder(path: string): Promise<void> {
 // 对话、插件与计划任务
 // ---------------------------------------------------------------------------
 //
-// 这一组与上面「离线拒绝写」的纪律不同：对话本轮恒为演示实现（Rust 侧也不连上游），
-// 任务与插件的开关是本轮新 surface——CONTRACT.md 第 4 节要求 mock 覆盖它们，
-// 所以离线模式下 mock 层就地改示例数据并回新值，让视图调试时能看到状态流转。
-// 「离线示例数据」徽章照亮，假数据不会冒充真实数据。
+// 对话这一组读的是本机真实数据（`~/.claude/projects` 的历史 jsonl + 本地会话文件），
+// 所以离线时不回退示例数据：读命令给空数组、写命令按 offlineWriteRejection 拒绝——
+// 假会话会让人以为历史真的在（CONTRACT.md 第 4 节：绝不让假数据冒充真实数据）。
+// 任务与插件的开关仍走离线可改的示例数据（CONTRACT.md 第 4 节要求 mock 覆盖它们），
+// 「离线示例数据」徽章照亮。
 
 export function listChatSessions(): Promise<ChatSession[]> {
-  return read('list_chat_sessions', {}, () => [...MOCK_CHAT_SESSIONS]);
+  return read<ChatSession[]>('list_chat_sessions', {}, () => []);
 }
 
 export function sendChatMessage(sessionId: string, content: string): Promise<ChatMessage> {
-  if (isOffline) return mockSendChatMessage(sessionId, content);
+  // 流式增量与终态走 `chat-stream` / `chat-stream-end` / `chat-stream-error` 事件；
+  // 这里的返回值只是最终副本，界面由事件驱动（shell/chatEvents.ts）
+  if (isOffline) return Promise.reject(offlineWriteRejection('发送消息'));
   return invoke<ChatMessage>('send_chat_message', { sessionId, content });
+}
+
+/** `~/.claude/projects` 下可回放的项目。离线回空数组，不编一个项目出来 */
+export function chatProjects(): Promise<ChatProject[]> {
+  return read<ChatProject[]>('chat_projects', {}, () => []);
+}
+
+export function selectChatProject(key: string): Promise<void> {
+  return write('select_chat_project', { key }, '切换历史项目');
+}
+
+/** hubName 为 null = 用默认 hub。渠道与模型由 Rust 侧按真值解析，解不出就报错 */
+export function createChatSession(hubName: string | null, channelId: string): Promise<ChatSession> {
+  if (isOffline) return Promise.reject(offlineWriteRejection('新建会话'));
+  return invoke<ChatSession>('create_chat_session', { hubName, channelId });
+}
+
+export function deleteChatSession(id: string): Promise<void> {
+  return write('delete_chat_session', { id }, '删除会话');
 }
 
 export function listPlugins(): Promise<PluginItem[]> {

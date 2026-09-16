@@ -2,8 +2,8 @@
  * 计划任务视图，回答「哪些事被定时触发，下一次什么时候跑」（CONTRACT.md 6.5 的文案锚点）。
  *
  * 搜索与状态筛选下的任务行；派发结果不代表模型会话完成。
- * 前后端分工写死：nextRunAt / scheduleText 由后端（或离线 mock）计算，这里只做展示与
- * 倒计时渲染，绝不在前端解析或推算 cron。
+ * nextRunAt 由后端（或离线 mock）计算，这里只做展示与倒计时渲染，绝不在前端推算。
+ * 重复频率的人话由前端按 scheduleSpec 渲染（views/tasks/parts/scheduleText.ts）。
  */
 import { useEffect, useMemo, useState } from 'react';
 import { Button, Dialog, EmptyState, Input, SegmentedControl, SectionHeader, Spinner } from '../../components';
@@ -13,8 +13,9 @@ import { useToast } from '../../store/toast';
 import type { ScheduledTask } from '../../types/contract';
 import TaskCard from './parts/TaskCard';
 import TaskDialog from './parts/TaskDialog';
+import { formatSchedule } from './parts/scheduleText';
 import styles from './index.module.css';
-import { bilingual as b } from '../../i18n';
+import { bilingual as b, useLocale } from '../../i18n';
 import { isOffline } from '../../api';
 
 /** 倒计时刷新周期（ms）。倒计时最小单位是分钟，30s 一刷足够跟手 */
@@ -44,6 +45,7 @@ export default function TasksView() {
   const refresh = useApp((state) => state.refresh);
   const deleteTask = useApp((state) => state.deleteTask);
   const registerViewReload = useNav((state) => state.registerViewReload);
+  const language = useLocale((state) => state.language);
   const toastSuccess = useToast((state) => state.success);
   const toastError = useToast((state) => state.error);
 
@@ -68,13 +70,16 @@ export default function TasksView() {
     return () => registerViewReload('tasks', null);
   }, [registerViewReload, refresh]);
 
+  // 搜索口径带上频率的人话，这样「工作日」「每周三」也能搜到，不必背 cron 串
+  const locale = language === 'en' ? 'en' as const : 'zh' as const;
   const sorted = useMemo(() => sortTasks(tasks).filter(task => {
-    if (!`${task.name} ${task.schedule}`.toLocaleLowerCase().includes(query.toLocaleLowerCase().trim())) return false;
+    const human = formatSchedule(task.scheduleSpec, task.notes, locale).text;
+    if (!`${task.name} ${task.schedule} ${human}`.toLocaleLowerCase().includes(query.toLocaleLowerCase().trim())) return false;
     if (filter === 'enabled') return task.enabled;
     if (filter === 'paused') return !task.enabled;
     if (filter === 'completed') return task.lastRunStatus === 'dispatched' || task.lastRunStatus === 'reminded';
     return true;
-  }), [tasks, query, filter]);
+  }), [tasks, query, filter, locale]);
 
   // tasks 一次都没加载过时（首帧 loading 还没置真）不下「没有任务」的结论
   const showEmpty = tasksLoaded && tasks.length === 0 && !loading && reason === null;

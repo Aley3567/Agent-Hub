@@ -1,0 +1,12 @@
+/* 七个星期按钮。窄对话框里允许折行，按钮自身不拉伸 */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.day {
+  min-width: var(--control-h-sm);
+  justify-content: center;
+}

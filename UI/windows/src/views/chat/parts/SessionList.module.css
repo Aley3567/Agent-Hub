@@ -8,9 +8,19 @@
   padding: var(--sp-2) 0;
 }
 
-/* 内缩圆角块：左右各留 sp-2，选中底填满整个块 */
+/* 一行 = 会话块 + 删除入口（只给本地会话）。右侧留 sp-2，与左侧内缩对称 */
+.itemRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-right: var(--sp-2);
+}
+
+/* 内缩圆角块：左右各留 sp-2，选中底填满整个块。在 .itemRow 里占满剩余宽度 */
 .item {
   display: flex;
+  flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: var(--sp-1);
   width: calc(100% - 2 * var(--sp-2));
@@ -61,7 +71,7 @@
   font-weight: var(--fw-semibold);
 }
 
-/* 副行「渠道名 · 相对时间」：技术标识走 mono，数字定宽（DESIGN.md 1 节第 3 条、2.3 节） */
+/* 副行「来源 · 渠道名 · 相对时间」：技术标识走 mono，数字定宽（DESIGN.md 1 节第 3 条、2.3 节） */
 .itemMeta {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -71,4 +81,30 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 来源标识：历史 = 只读。锁形图标 + 「历史」二字 + title 说明三处编码同一件事，
+   刻意不用颜色区分——颜色是唯一编码时，色觉障碍与高对比模式下这条信息就没了 */
+.source,
+.sourceReadOnly {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.sourceIcon {
+  flex: none;
+}
+
+/* 删除入口：hover 或行内获得焦点时现身。焦点在行内时 .itemRow:focus-within 兜住，
+   键盘用户 Tab 到它不会落在不可见按钮上 */
+.remove {
+  flex: none;
+  opacity: 0;
+  transition: opacity var(--dur-instant) var(--ease-in-out);
+}
+
+.itemRow:hover .remove,
+.itemRow:focus-within .remove {
+  opacity: 1;
 }

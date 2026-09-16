@@ -6,6 +6,7 @@
 mod provider_management;
 mod channels;
 mod chat;
+mod chat_hub;
 mod cron;
 mod db;
 mod doctor;
@@ -18,6 +19,7 @@ mod paths;
 mod plugins;
 mod pools;
 mod redact;
+mod sse;
 mod tasks;
 mod pull_requests;
 
@@ -163,9 +165,38 @@ fn list_chat_sessions() -> Result<Vec<chat::ChatSession>, String> {
     chat::list_chat_sessions()
 }
 
+/// JS 侧签名不变（`sessionId, content` → `ChatMessage`）：`app` 由 Tauri 注入，
+/// 用于把流式增量经 `chat-stream` / `chat-stream-end` / `chat-stream-error` 推给前端。
 #[tauri::command]
-fn send_chat_message(session_id: String, content: String) -> Result<chat::ChatMessage, String> {
-    chat::send_chat_message(&session_id, &content)
+async fn send_chat_message(
+    app: tauri::AppHandle,
+    session_id: String,
+    content: String,
+) -> Result<chat::ChatMessage, String> {
+    chat::send_chat_message(&app, &session_id, &content).await
+}
+
+#[tauri::command]
+fn chat_projects() -> Result<Vec<chat::ChatProject>, String> {
+    chat::chat_projects()
+}
+
+#[tauri::command]
+fn select_chat_project(key: String) -> Result<(), String> {
+    chat::select_chat_project(&key)
+}
+
+#[tauri::command]
+fn create_chat_session(
+    hub_name: Option<String>,
+    channel_id: String,
+) -> Result<chat::ChatSession, String> {
+    chat::create_chat_session(hub_name, channel_id)
+}
+
+#[tauri::command]
+fn delete_chat_session(id: String) -> Result<(), String> {
+    chat::delete_chat_session(&id)
 }
 
 #[tauri::command]
@@ -345,6 +376,10 @@ pub fn run() {
             doctor_fix_subagent_pins,
             list_chat_sessions,
             send_chat_message,
+            chat_projects,
+            select_chat_project,
+            create_chat_session,
+            delete_chat_session,
             list_plugins,
             set_plugin_enabled,
             list_pull_requests,

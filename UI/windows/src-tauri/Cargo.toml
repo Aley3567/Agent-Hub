@@ -27,6 +27,9 @@ dirs = "5"
 toml = "0.8"
 
 fs2 = "0.4"
+# hub 回环请求（POST 127.0.0.1/v1/messages 的 SSE 流）。不开 TLS：只连本机 http，
+# default-features = false 关掉 default-tls / system-proxy；no_proxy 另外显式禁代理。
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream"] }
 
 [profile.release]
 codegen-units = 1

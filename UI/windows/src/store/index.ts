@@ -10,9 +10,10 @@
  *   3. 动作方法直通 IPC，成功后自动 refresh 受影响的 key；失败时记进 error 并把异常抛回
  *      调用方，让视图能就地显示原因，绝不静默吞掉。
  *
- * loading / error 的 key：十个 refresh key，加上动作方法自己的名字
- * （setHidden / setAlias / setOverride / setSlot / setSlotEffort / launch /
- * doctorFixSubagentPins / openPath / revealInFolder / sendChatMessage /
+ * loading / error 的 key：十一个 refresh key（chatProjects 只服务对话视图的项目选择器），
+ * 加上动作方法自己的名字（setHidden / setAlias / setOverride / setSlot / setSlotEffort /
+ * launch / doctorFixSubagentPins / openPath / revealInFolder / sendChatMessage /
+ * selectChatProject / createChatSession / deleteChatSession /
  * setPluginEnabled / createTask / updateTask / deleteTask）。
  *
  * loadedKeys 记录每个 key 是否至少完成过一次加载（成败都算），视图用它区分
@@ -21,7 +22,10 @@
 import { create } from 'zustand';
 import {
   appEnv,
+  chatProjects as chatProjectsIpc,
+  createChatSession as createChatSessionIpc,
   createTask as createTaskIpc,
+  deleteChatSession as deleteChatSessionIpc,
   deleteTask as deleteTaskIpc,
   doctorFixSubagentPins as fixSubagentPins,
   isOffline,
@@ -37,6 +41,7 @@ import {
   recentUsage,
   revealInFolder as revealInFolderIpc,
   runDoctor,
+  selectChatProject as selectChatProjectIpc,
   sendChatMessage as sendChatMessageIpc,
   setChannelAlias,
   setChannelHidden,
@@ -52,7 +57,11 @@ import type {
   AppEnv,
   Channel,
   ChatMessage,
+  ChatProject,
   ChatSession,
+  ChatStreamChunk,
+  ChatStreamEnd,
+  ChatStreamError,
   DoctorCheck,
   Effort,
   ErrorRow,
@@ -76,6 +85,20 @@ export interface AppState {
   errors: ErrorRow[];
   doctor: DoctorCheck[];
   chatSessions: ChatSession[];
+  /** `~/.claude/projects` 下可回放的历史项目 */
+  chatProjects: ChatProject[];
+  /**
+   * 在途流式缓冲。sendChatMessage 起头创建（requestId 为空串，等首个增量认领归属），
+   * 终态或失败时收掉；非 null 就等于「这条会话上有一轮真实流在跑」。
+   * 界面只渲染它，不再自己造流式节奏（假流式已删）。
+   */
+  chatStream: { sessionId: string; requestId: string; text: string } | null;
+  /**
+   * 事件通道最近一次的终态。sendChatMessage 的 catch 靠它判断这次失败是否已经由事件
+   * 通道交代过（错误事件已经报过原文；截断的说明已由 Rust 落盘成 system 消息），
+   * 避免同一个原因既弹 toast 又弹一遍。
+   */
+  chatStreamTerminal: { sessionId: string; reason: 'stop' | 'truncated' | 'error' } | null;
   plugins: PluginItem[];
   tasks: ScheduledTask[];
   env: AppEnv | null;
@@ -86,7 +109,18 @@ export interface AppState {
   loadedKeys: Record<string, boolean>;
   /** 成败判别：refresh 自身永不抛出，await 之后读 error[key]，null 即成功 */
   refresh(
-    key: 'channels' | 'hubs' | 'pools' | 'usage' | 'errors' | 'doctor' | 'env' | 'chat' | 'plugins' | 'tasks',
+    key:
+      | 'channels'
+      | 'hubs'
+      | 'pools'
+      | 'usage'
+      | 'errors'
+      | 'doctor'
+      | 'env'
+      | 'chat'
+      | 'chatProjects'
+      | 'plugins'
+      | 'tasks',
   ): Promise<void>;
   refreshAll(): Promise<void>;
   setHidden(id: string, hidden: boolean, appType?: Channel['appType']): Promise<void>;
@@ -95,8 +129,32 @@ export interface AppState {
   setSlot(hub: string, slot: SlotName, channel: string | null, model: string | null): Promise<void>;
   setSlotEffort(hub: string, slot: SlotName, effort: Effort | null): Promise<void>;
   launch(target: LaunchTarget): Promise<LaunchResult>;
-  /** 发送后自动 refresh('chat')，返回值是演示回复本体（用户消息已追加进会话） */
+  /**
+   * 发一条消息。返回的只是最终副本：正文由 ChatStreamChunk 事件增量渲染，
+   * 失败由 `chat-stream-error` 事件报原文——调用方不要用返回值驱动界面。
+   * 成功后自动 refresh('chat')
+   */
   sendChatMessage(sessionId: string, content: string): Promise<ChatMessage>;
+  /** 选中要回放的历史项目；成功后自动 refresh('chatProjects') 与 refresh('chat') */
+  selectChatProject(key: string): Promise<void>;
+  /** 新建本地会话，hubName 为 null 表示默认 hub；成功后自动 refresh('chat') */
+  createChatSession(hubName: string | null, channelId: string): Promise<ChatSession>;
+  /** 只对本地会话有效（历史只读，删不掉）；成功后自动 refresh('chat') */
+  deleteChatSession(id: string): Promise<void>;
+  /**
+   * 收下一段流式增量。requestId 与当前在途流不一致时丢弃——切换会话、重开一条之后
+   * 才到的增量属于作废的流，不许再写状态。
+   */
+  appendChatDelta(chunk: ChatStreamChunk): void;
+  /** 终态收尾：过期的终态整体作废，命中的则记终态并收掉缓冲 */
+  endChatStream(end: ChatStreamEnd): void;
+  /**
+   * 失败收尾：记终态并清空缓冲。失败绝不留在消息流里冒充一条回复。
+   * `error` 带着这次发送的 sessionId / requestId，先过一遍归因守卫——不属于当前在途流的
+   * 错误（别的会话、已交代过的旧流、requestId 对不上）整体作废，返回 false 让调用方连
+   * toast 也不弹。返回 true = 这条失败属于在途流，缓冲已收掉、终态已记。
+   */
+  failChatStream(error: ChatStreamError): boolean;
   /** 成功后自动 refresh('plugins')；渠道级只读项会抛中文错误 */
   setPluginEnabled(id: string, enabled: boolean): Promise<void>;
   /** 成功后自动 refresh('tasks') */
@@ -125,6 +183,7 @@ export const REFRESH_KEYS: RefreshKey[] = [
   'errors',
   'doctor',
   'chat',
+  'chatProjects',
   'plugins',
   'tasks',
 ];
@@ -185,6 +244,19 @@ export const useApp = create<AppState>()((set, get) => {
    *  不许把旧 range 的数据盖在新 range 的状态上——界面顶着新标签显示旧数据
    *  就是失败被伪装成成功。 */
   const seq: Record<string, number> = {};
+
+  /**
+   * 已经发过终态（end / fail）的流。事件通道与命令回执是两条通道，回执先到、
+   * 这一轮的尾部增量后到是可能的；增量认领归属的那个窗口（requestId 还是空串）里
+   * 尤其挡得住它——否则上一轮的迟到增量会冒充新一轮的开头。
+   */
+  const retiredRequests = new Set<string>();
+  const retire = (requestId: string): void => {
+    if (requestId === '') return;
+    // 只需要记住最近这几条：能造成错写的是紧邻的上一轮，不是很久以前的流
+    if (retiredRequests.size >= 64) retiredRequests.clear();
+    retiredRequests.add(requestId);
+  };
 
   const begin = (key: string): number => {
     const ticket = (seq[key] ?? 0) + 1;
@@ -247,6 +319,9 @@ export const useApp = create<AppState>()((set, get) => {
     errors: [],
     doctor: [],
     chatSessions: [],
+    chatProjects: [],
+    chatStream: null,
+    chatStreamTerminal: null,
     plugins: [],
     tasks: [],
     env: null,
@@ -299,6 +374,11 @@ export const useApp = create<AppState>()((set, get) => {
           case 'chat': {
             const value = await listChatSessions();
             if (!isStale(key, ticket)) set({ chatSessions: value });
+            break;
+          }
+          case 'chatProjects': {
+            const value = await chatProjectsIpc();
+            if (!isStale(key, ticket)) set({ chatProjects: value });
             break;
           }
           case 'plugins': {
@@ -359,8 +439,64 @@ export const useApp = create<AppState>()((set, get) => {
       return result;
     },
 
-    sendChatMessage: (sessionId, content) =>
-      runActionResult('sendChatMessage', () => sendChatMessageIpc(sessionId, content), ['chat']),
+    sendChatMessage: (sessionId, content) => {
+      // 起头：这次尝试一律从「清空的缓冲、没有终态」开始。缓冲此刻就存在，只是正文还是
+      // 空串——界面据此进「流中」态（等首个增量的光标就是它），正文由 chat-stream 事件填。
+      set({ chatStream: { sessionId, requestId: '', text: '' }, chatStreamTerminal: null });
+      return runActionResult('sendChatMessage', () => sendChatMessageIpc(sessionId, content), ['chat']).finally(() => {
+        // 命令回执到位 = 这轮一定结束了（Rust 侧流完才返回）。窗口隐藏时 end 事件可能漏投，
+        // 靠这里兜底收掉缓冲，免得界面永远停在「流中」。终态只由真实事件写，这里不编。
+        const current = get().chatStream;
+        if (current !== null && current.sessionId === sessionId) set({ chatStream: null });
+      });
+    },
+
+    selectChatProject: (key) => runAction('selectChatProject', () => selectChatProjectIpc(key), ['chatProjects', 'chat']),
+
+    createChatSession: (hubName, channelId) =>
+      runActionResult('createChatSession', () => createChatSessionIpc(hubName, channelId), ['chat']),
+
+    deleteChatSession: (id) => runAction('deleteChatSession', () => deleteChatSessionIpc(id), ['chat']),
+
+    appendChatDelta: (chunk) => {
+      const current = get().chatStream;
+      if (current === null) return; // 没有在途流：迟到的增量不写状态
+      if (current.sessionId !== chunk.sessionId) return; // 别的会话的流
+      if (retiredRequests.has(chunk.requestId)) return; // 已经发过终态的旧流
+      if (current.requestId === '') {
+        // 首个增量认领这次尝试：Rust 的 requestId 只出现在事件里，不在命令回执里
+        set({ chatStream: { ...current, requestId: chunk.requestId, text: current.text + chunk.delta } });
+        return;
+      }
+      if (current.requestId !== chunk.requestId) return; // 作废的流不许再写状态
+      set({ chatStream: { ...current, text: current.text + chunk.delta } });
+    },
+
+    endChatStream: (end) => {
+      const current = get().chatStream;
+      if (current === null) return; // 缓冲已收掉（失败先到）：迟到的终态不写状态
+      if (current.sessionId !== end.sessionId) return; // 换过会话：这条终态不属于当前在途流
+      if (current.requestId !== '' && current.requestId !== end.requestId) return; // 重开过：同上
+      retire(current.requestId);
+      // 缓冲在这里收掉：Rust 已把正文落盘，refresh('chat') 一到就由真值接管
+      set({ chatStream: null, chatStreamTerminal: { sessionId: end.sessionId, reason: end.reason } });
+    },
+
+    failChatStream: (error) => {
+      const current = get().chatStream;
+      // 没有在途流时不动状态：迟到的错误事件不该覆盖新一轮的终态记录
+      if (current === null) return false;
+      if (current.sessionId !== error.sessionId) return false; // 别的会话的流
+      if (retiredRequests.has(error.requestId)) return false; // 已经发过终态的旧流
+      // 与 appendChatDelta 同一套口径：requestId 还是空串 = 这次尝试还没被认领，错误属于它
+      // （命令回执先到的失败走的就是这条）；认领过了就必须逐字对上，否则是作废流的迟到错误。
+      // 这一条正是「旧流的错误在新流期间才到、误收新流缓冲」的挡板。
+      if (current.requestId !== '' && current.requestId !== error.requestId) return false;
+      // 认领这次尝试的 id，同一条错误再来就被 retiredRequests 挡住
+      retire(current.requestId === '' ? error.requestId : current.requestId);
+      set({ chatStream: null, chatStreamTerminal: { sessionId: error.sessionId, reason: 'error' } });
+      return true;
+    },
 
     setPluginEnabled: (id, enabled) =>
       runAction('setPluginEnabled', () => setPluginEnabledIpc(id, enabled), ['plugins']),

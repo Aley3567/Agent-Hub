@@ -1,0 +1,18 @@
+/* 时 / 分两个原生 Select 并排。宽度由 flex 等分，跟 Select 自带的 100% 宽配合 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.separator {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

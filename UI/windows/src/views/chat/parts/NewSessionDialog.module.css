@@ -1,0 +1,14 @@
+/* 新建会话弹窗里的表单区：两个字段 + 就地显示的后端错误 */
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 失败原因原文：IPC 的中文错误照贴，不改写（AGENTS.md：错误原样暴露） */
+.failure {
+  font-size: var(--fs-13);
+  line-height: var(--lh-13);
+  color: var(--danger);
+}
