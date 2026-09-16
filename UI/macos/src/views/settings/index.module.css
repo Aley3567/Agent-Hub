@@ -1,16 +1,9 @@
-.view { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: var(--sp-6); min-width: 0; }
-.sidebar { align-self: start; position: sticky; top: 0; }
-.groupLabel { color: var(--text-tertiary); font-size: var(--fs-12); margin: var(--sp-5) var(--sp-3) var(--sp-2); }
-.navItem { display: flex; align-items: center; gap: var(--sp-3); width: 100%; padding: var(--sp-3); border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; }
-.navItem:hover { background: var(--bg-hover); }
-.navItem[aria-current='page'] { background: var(--bg-active); color: var(--text-primary); }
-.navItem:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.content { min-width: 0; }
-.section { padding: var(--sp-4) var(--sp-5) var(--sp-6); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); margin-bottom: var(--sp-4); }
+/* 设置页单列堆叠：不做第二层侧栏，避免与主导航叠成双层（yufeng 反馈：进设置后界面凌乱） */
+.view { display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; }
+.section { padding: var(--sp-4) var(--sp-5) var(--sp-6); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); }
 .section h2 { font-size: var(--fs-16); line-height: 1.4; margin: 0 0 var(--sp-6); font-weight: 600; }
 .fields, .fallback { display: flex; flex-direction: column; gap: var(--sp-5); }
 .rows { margin: 0; min-width: 0; }
 .fallback { align-items: flex-start; color: var(--text-secondary); }
 .about { color: var(--text-secondary); line-height: 1.7; display: grid; gap: var(--sp-4); }
 .brand { font-size: var(--fs-16); color: var(--text-primary); font-weight: 600; }
-@media (max-width: 900px) { .view { grid-template-columns: 1fr; gap: var(--sp-4); } .sidebar { position: static; } .sidebar nav { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-3); } .groupLabel { display: none; } }

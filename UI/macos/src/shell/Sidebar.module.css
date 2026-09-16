@@ -45,6 +45,21 @@
   padding: var(--sp-1) 0 var(--sp-4);
 }
 
+/* 主题三态切换贴在品牌区与首个导航组之间（不进底部 footer）。展开态是三段分段控件，
+   内缩 sp-2 与导航条目对齐；折叠态收成单个图标按钮并居中。内缩归零与图标居中都是
+   折叠/展开的尺寸位移，同走 --dur-normal。 */
+.themeSlot {
+  padding: 0 var(--sp-2);
+  margin-bottom: var(--sp-4);
+  transition: padding var(--dur-normal) var(--ease-out);
+}
+
+.collapsed .themeSlot {
+  display: flex;
+  justify-content: center;
+  padding: 0;
+}
+
 .groups {
   display: flex;
   flex-direction: column;

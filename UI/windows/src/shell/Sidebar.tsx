@@ -1,7 +1,7 @@
 /**
  * 主导航侧栏。展开 --sidebar-w(232px)，折叠 --sidebar-w-collapsed(56px) 只留图标（DESIGN.md 第 3 节）。
- * 分三组：会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、扩展（插件、任务）；
- * 底部固定「设置」入口与主题三态切换。
+ * 分组：工作（Pull Request）、会话（对话、渠道、槽位）、观测（用量、诊断、账号池、体检）、扩展（插件、任务）；
+ * 主题三态切换贴在品牌区正下方（第一个导航条目之上），底部固定「设置」入口与侧栏折叠。
  * 折叠态每一项都靠 Tooltip 说明自己是谁，否则只剩一排看不懂的图标。
  */
 import { t } from '../i18n';
@@ -76,6 +76,28 @@ export default function Sidebar() {
         <BrandMark collapsed={collapsed} />
       </div>
 
+      {/* 主题三态切换贴在品牌区下方、首个导航条目（Pull Request）之上，不进底部 footer */}
+      <div className={styles.themeSlot}>
+        {collapsed ? (
+          <IconButton
+            icon={THEME_ICON[theme]}
+            aria-label={t("主题：{0}，切换为{1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
+            tooltip={t("主题：{0} → {1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
+            tooltipSide="right"
+            onClick={() => setTheme(upcoming)}
+          />
+        ) : (
+          <SegmentedControl
+            options={THEME_OPTIONS.map((option) => ({...option, label: t(option.label)}))}
+            value={theme}
+            onChange={(value) => setTheme(value)}
+            aria-label={t("主题")}
+            size="sm"
+            fullWidth
+          />
+        )}
+      </div>
+
       <div className={styles.groups}>
         {SIDEBAR_GROUPS.map((group) => (
           <section key={group} className={styles.group}>
@@ -112,13 +134,6 @@ export default function Sidebar() {
         {collapsed ? (
           <div className={styles.footerActions}>
             <IconButton
-              icon={THEME_ICON[theme]}
-              aria-label={t("主题：{0}，切换为{1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
-              tooltip={t("主题：{0} → {1}", [t(THEME_LABEL[theme]), t(THEME_LABEL[upcoming])])}
-              tooltipSide="right"
-              onClick={() => setTheme(upcoming)}
-            />
-            <IconButton
               icon="sidebar"
               aria-label={t("展开侧栏")}
               tooltip={t("展开侧栏 Ctrl+B")}
@@ -128,13 +143,6 @@ export default function Sidebar() {
           </div>
         ) : (
           <div className={styles.footerActions}>
-            <SegmentedControl
-              options={THEME_OPTIONS.map((option) => ({...option, label: t(option.label)}))}
-              value={theme}
-              onChange={(value) => setTheme(value)}
-              aria-label={t("主题")}
-              size="sm"
-            />
             <IconButton
               icon="sidebar"
               aria-label={t("折叠侧栏")}
