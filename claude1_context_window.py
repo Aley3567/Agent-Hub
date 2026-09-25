@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 
 # Matrix below was extracted from this CLI build.  ``tools/extract_1m_matrix.py``
 # re-extracts it and ``--check`` reports when the installed CLI has moved on.
-MATRIX_CLI_VERSION = "2.1.229"
+MATRIX_CLI_VERSION = "2.1.280"
 
 ONE_M = 1_000_000
 # ``Xbr``: the window the CLI assumes for a model it does not recognise.
@@ -96,8 +96,13 @@ CONTEXT_MATRIX: dict[str, ModelContext] = {
     "claude-opus-5": ModelContext(
         ONE_M, native_1m=True, supports_1m_beta=True, supports_1m_suffix=True
     ),
+    "claude-opus-5-5": ModelContext(
+        ONE_M, native_1m=True, supports_1m_beta=True, supports_1m_suffix=True
+    ),
     "claude-fable-5": ModelContext(ONE_M, native_1m=True, supports_1m_beta=True),
+    "claude-fable-5-1": ModelContext(ONE_M, native_1m=True, supports_1m_beta=True),
     "claude-mythos-5": ModelContext(ONE_M, native_1m=True, supports_1m_beta=True),
+    "claude-mythos-5-1": ModelContext(ONE_M, native_1m=True, supports_1m_beta=True),
 }
 
 # Source of the window figure, most authoritative first.

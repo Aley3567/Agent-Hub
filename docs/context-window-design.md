@@ -43,7 +43,7 @@ host-managed 场景下把它删掉。对"每次启动切一个 provider"这种�
 
 ## 1M 支持矩阵
 
-提取自 v2.1.229，14 个模型。`window` 是不加后缀时的窗口。
+提取自 v2.1.280，17 个模型。`window` 是不加后缀时的窗口。
 
 | model id | window | native_1m | 3p native | 1m_beta | 1m_suffix |
 | --- | --- | --- | --- | --- | --- |
@@ -59,8 +59,11 @@ host-managed 场景下把它删掉。对"每次启动切一个 provider"这种�
 | claude-opus-4-7 | 1M | ✓ | | ✓ | ✓ |
 | claude-opus-4-8 | 1M | ✓ | | ✓ | ✓ |
 | claude-opus-5 | 1M | ✓ | | ✓ | ✓ |
+| claude-opus-5-5 | 1M | ✓ | | ✓ | ✓ |
 | claude-fable-5 | 1M | ✓ | | ✓ | |
+| claude-fable-5-1 | 1M | ✓ | | ✓ | |
 | claude-mythos-5 | 1M | ✓ | | ✓ | |
+| claude-mythos-5-1 | 1M | ✓ | | ✓ | |
 
 注意 `haiku-4-5` 与 `opus-4-0/4-1/4-5`：`supports_1m_suffix` 为真但没有
 `supports_1m_beta`。后缀会说服客户端，上游却给不了 1M——这一组是最容易踩的坑。

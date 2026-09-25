@@ -91,6 +91,14 @@ class RegistryModelPlanTest(unittest.TestCase):
         self.assertEqual(plan.window, ctx.ONE_M)
         self.assertEqual(plan.warnings, ())
 
+    def test_current_generation_models_resolve_from_the_registry(self):
+        for model in ("claude-opus-5-5", "claude-fable-5-1", "claude-mythos-5-1"):
+            with self.subTest(model=model):
+                plan = ctx.resolve_context_window(model)
+                self.assertEqual(plan.window, ctx.ONE_M)
+                self.assertEqual(plan.source, ctx.SOURCE_REGISTRY)
+                self.assertNotIn(ctx.WARN_UNKNOWN_OFFICIAL, plan.warnings)
+
     def test_beta_model_reaches_1m_only_through_a_capable_provider(self):
         plan = ctx.resolve_context_window(
             "claude-sonnet-4-6", want_1m=True, provider_kind="firstParty"
