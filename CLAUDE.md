@@ -74,8 +74,8 @@
 - `product-definition.md` — 产品定位与三档口径(现状/部分/待建)
 - `codex1-design.md` — codex1 渠道启动器设计
 - `context-window-design.md` — 上下文窗口判定与 1M 支持矩阵
-- `transport-routing-design.md` — transport 路由与故障转移(阶段 A–D 已落地)
-- `provider-snapshot-cache-design.md` — provider 快照热路径深化(已落地;`claude-hub.py` 的快照指标注释直接引用本文 §7 D5)
+- `transport-routing-design.md` — transport 路由与故障转移
+- `provider-snapshot-cache-design.md` — provider 快照热路径深化(`claude-hub.py` 的快照指标注释直接引用本文 §7 D5)
 - `cc-switch-implementation-research.md` — cc-switch 实现调研;"继承优先于发明"这条硬约束的依据
 - `维护与兼容指南.md` — 架构与维护约定
 
