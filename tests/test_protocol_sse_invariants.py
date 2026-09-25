@@ -2124,6 +2124,29 @@ class StreamStateMachineContractTests(unittest.TestCase):
             unknown.warning_codes,
         )
 
+        extra_detail = protocol.AnthropicStreamBridge("openai_responses")
+        extra_detail.feed(
+            "response.incomplete",
+            json.dumps(
+                {
+                    "type": "response.incomplete",
+                    "response": {
+                        "status": "incomplete",
+                        "incomplete_details": {
+                            "reason": "max_output_tokens",
+                            "future_terminal_field": "hidden",
+                        },
+                        "output": [],
+                    },
+                }
+            ),
+        )
+        self.assertEqual(extra_detail.stop, "max_tokens")
+        self.assertIn(
+            "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+            extra_detail.warning_codes,
+        )
+
     def test_streamed_refusal_uses_refusal_stop_reason_for_both_adapters(self) -> None:
         chat = protocol.AnthropicStreamBridge("openai_chat")
         chat_chunks = chat.feed(

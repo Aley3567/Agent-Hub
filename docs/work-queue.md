@@ -73,11 +73,14 @@
   - 流式首帧限流：两版显示的都是 Claude Code 非流重试那次的结果（改造后带原文与来源后缀）；首字节前错误的
     真实 status 要靠 S28 的延迟提交。
 
-**未闭环（打捞成卡，不留在代码注释里）**
+**收尾（2026-09-26，用户拍板后补做）**
 
-- 【部分】`incomplete_details` 带 `reason` 以外字段仍拒绝（`_responses_stop_reason`）；现在客户端能看到
-  `HUB_UPSTREAM_STOP_REASON_UNMAPPABLE at $.incomplete_details.<field>`，是否改为元数据降级未定。
-- 【部分】hub 自身的流内失败（`translated_stream_error_evidence`：截断、解码失败、转换失败）文案仍是旧格式。
+- `incomplete_details` 带 `reason` 以外字段：由拒绝改为放行，非流记 plan 降级、流内记 warning，
+  均为 `HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED`（`_responses_stop_reason(on_extra_detail=...)`）。
+- hub 自身的流内失败（`translated_stream_error_evidence`：截断、解码失败、转换失败）改为同一格式：
+  `<hub 原因> [channel · fmt · 上游 200 · HUB_* at path]`，`HUB_*` 码标明是 hub 的判定。
+- 200 带错误体的 errors 行：`status` 记上游真实 200，推断出的回给下游的状态另记 `answered`
+  （仅二者不同时写入；桌面端 serde 忽略未知键，`ErrorRow` 不变）。
 
 **明确不做**：strict 模式；第二批（S28–S30）；不伪造终态，不把未知终止原因当成功交付。
 
@@ -145,6 +148,22 @@ Anthropic 下游根本不携带 total，冲突的是一个不会被转发的字�
 **验收合同**：冲突 total 的非流与流响应均成功交付且 usage 行带降级码；base counter 非法仍拒绝；全量测试绿。
 
 **明确不做**：不从 total 反推缺失的 base counter。
+
+## S31 · 定位 A 的对外文档改写（待单独一轮讨论）
+
+**状态**：【待建】。2026-09-26 用户拍板：先单独开一轮逐条讨论，再动文档；S28 之后排。
+
+**目的**：产品定位已转向「定位 A」，但对外文档仍是旧口径。
+
+**待决（讨论时逐条过，不得默认）**：
+- `agent-hub-design.md` 的「最终形态」如何降级（保留为远期、改写、还是移出）。
+- `product-definition.md` 是否整篇重写，三档口径如何对应新定位。
+- README 的一句话定位与章节（按 github-write 规范）。
+- `package.json` 包名改不改（涉及 npm 发布与已安装用户，见 `publishing.md`）。
+
+**验收合同**：以上四项在对话里都有明确决定后再改；改动后 `tests/test_docs_index.py` 绿。
+
+**明确不做**：讨论收束前不改任何一份上述文档。
 
 ## S26 · 桌面 schedule 选择器与对话接入真实
 

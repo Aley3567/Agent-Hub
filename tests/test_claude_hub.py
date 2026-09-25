@@ -2527,6 +2527,13 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertIn("HUB_UPSTREAM_USAGE_INVALID", message)
         self.assertIn("$.usage.total_tokens", message)
         self.assertLessEqual(len(message), 512)
+        self.assertTrue(message.startswith("上游返回了无法转换的 openai_chat 流："))
+        self.assertTrue(
+            message.endswith(
+                " · openai_chat · 上游 200 · "
+                "HUB_UPSTREAM_USAGE_INVALID at $.usage.total_tokens]"
+            )
+        )
 
     def test_transformed_stream_aborts_only_if_terminal_error_cannot_be_written(self):
         upstream = _FakeUpstream(
@@ -7133,6 +7140,8 @@ class ClaudeHubTests(unittest.TestCase):
         row = json.loads(self.errors_file.read_text(encoding="utf-8"))
         self.assertEqual(row["type"], "rate_limit_error")
         self.assertEqual(row["code"], "insufficient_quota")
+        self.assertEqual(row["status"], 429)
+        self.assertNotIn("answered", row)
 
     def test_retryable_rate_limit_does_not_forbid_retries(self):
         upstream = _FakeUpstream(
@@ -7206,7 +7215,10 @@ class ClaudeHubTests(unittest.TestCase):
         )
         self.assertEqual(response.headers["x-hub-upstream-code"], "rate_limit_exceeded")
         row = json.loads(self.errors_file.read_text(encoding="utf-8"))
-        self.assertEqual((row["status"], row["code"]), (429, "rate_limit_exceeded"))
+        self.assertEqual(
+            (row["status"], row["answered"], row["code"]),
+            (200, 429, "rate_limit_exceeded"),
+        )
         self.assertFalse(self.usage_file.exists())
 
     def test_http_200_failed_responses_body_surfaces_its_reason(self):

@@ -2821,6 +2821,7 @@ def _responses_stop_reason(
     *,
     has_tool: bool,
     refused: bool,
+    on_extra_detail: Callable[[str], None] | None = None,
 ) -> str:
     raw_details = body.get("incomplete_details", _MISSING)
     if raw_details is _MISSING or raw_details is None:
@@ -2833,14 +2834,10 @@ def _responses_stop_reason(
             code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
             path="$.incomplete_details",
         )
-    unknown_detail_fields = set(incomplete_details) - {"reason"}
-    if unknown_detail_fields:
-        field_name = sorted(unknown_detail_fields)[0]
-        raise ProtocolTransformError(
-            f"OpenAI Responses incomplete_details field {field_name!r} is unsupported",
-            code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
-            path=f"$.incomplete_details.{field_name}",
-        )
+    # 终态只看 reason;其余字段无 Anthropic 载体,记降级放行。
+    for field_name in sorted(set(incomplete_details) - {"reason"}):
+        if on_extra_detail is not None:
+            on_extra_detail(f"$.incomplete_details.{field_name}")
 
     status = body.get("status", _MISSING)
     if status is not _MISSING and (
@@ -3742,6 +3739,9 @@ def responses_to_anthropic(
             body,
             has_tool=has_tool,
             refused=refused,
+            on_extra_detail=lambda path: _record_response_metadata_degradation(
+                plan, path
+            ),
         ),
         "stop_sequence": None,
         "usage": _usage_with_details(
@@ -6909,6 +6909,10 @@ class AnthropicStreamBridge:
                     raw_response,
                     has_tool=self.has_tool,
                     refused=self.refused,
+                    on_extra_detail=lambda _path: self._observe_stream_degradation(
+                        "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+                        "Responses incomplete_details metadata has no Anthropic carrier",
+                    ),
                 )
             except UpstreamStopReasonError as exc:
                 return [*chunks, *self._upstream_stop_reason_event(exc)]

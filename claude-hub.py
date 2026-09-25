@@ -56,6 +56,7 @@ from claude1_protocol_errors import (
     UpstreamErrorEvidence,
     UpstreamErrorReport,
     embedded_upstream_error,
+    format_error_message,
     report_upstream_error,
     resolve_error_type,
     sanitize_error_text,
@@ -536,6 +537,7 @@ def record_error(
     telemetry: dict | None = None,
     degrade_codes: tuple[str, ...] = (),
     error_type: str | None = None,
+    answered_status: int | None = None,
 ) -> None:
     """把一条已脱敏的错误事件追加到 JSONL。绝不能搞挂转发主路径，全部异常静默。
 
@@ -550,6 +552,9 @@ def record_error(
     任何内容。它此前只写进每会话 bridge 的临时目录，会话一退就没了，所以断流
     事后只能靠孤儿目录碰运气归因；其中 ``tail_gap_ms``（最后一个 chunk 到断开
     的静默）是区分「上游空闲超时掐断」与「上游主动关连接」的唯一判据。
+
+    ``status`` 永远是上游真实状态码；``answered_status`` 只在 hub 回给下游的
+    状态与之不同时才写（如 200 带错误体按错误类型推断成 429），落盘键 ``answered``。
     """
     try:
         row: dict = {"ts": int(time.time()), "phase": phase}
@@ -558,6 +563,7 @@ def record_error(
             ("model", model),
             ("format", api_format),
             ("status", status),
+            ("answered", answered_status),
             ("code", code),
             ("type", error_type),
             ("message", message),
@@ -1025,36 +1031,35 @@ def translated_stream_error_evidence(
     provider_name: object,
     api_format: str,
 ) -> tuple[str, str]:
-    """Return a safe code/message for an OpenAI stream that cannot continue."""
-    safe_provider = sanitize_error_text(str(provider_name or "unknown provider"))
-    # Keep the diagnostic code/path visible within sanitize_error_text's
-    # bounded 1024-character envelope even if a provider has a pathological
-    # display name.
-    safe_provider = (safe_provider or "unknown provider")[:80]
+    """Return a safe code/message for an OpenAI stream that cannot continue.
+
+    Worded like the non-stream transform failure: the hub's reason first, then
+    ``[channel · format · 上游 200 · <hub code>]``. The upstream did answer 200;
+    the ``HUB_*`` code marks the verdict as the hub's, not the upstream's.
+    """
+    location = ""
     if isinstance(exc, ProtocolTransformError):
         code = exc.code
         location = f" at {exc.path}" if exc.path else ""
-        detail = sanitize_error_text(str(exc)) or (
-            "upstream response could not be translated safely"
-        )
+        detail = f"上游返回了无法转换的 {api_format} 流：{exc}"
     elif isinstance(
         exc,
         TRANSPORT_BROKEN_ERRORS,
     ):
         code = "HUB_UPSTREAM_STREAM_INTERRUPTED"
-        location = ""
-        detail = f"upstream stream ended unexpectedly ({type(exc).__name__})"
+        detail = f"上游流意外中断（{type(exc).__name__}）"
     elif isinstance(exc, (UnicodeDecodeError, ValueError, zlib.error)):
         code = "HUB_UPSTREAM_STREAM_INVALID"
-        location = ""
-        detail = f"upstream stream could not be decoded safely ({type(exc).__name__})"
+        detail = f"上游流无法安全解码（{type(exc).__name__}）"
     else:
         code = "HUB_STREAM_TRANSLATION_FAILED"
-        location = ""
-        detail = f"local stream translation failed ({type(exc).__name__})"
-    message = (
-        f"{safe_provider} ({api_format}) "
-        f"{code}{location}: {detail}"
+        detail = f"hub 本地流转换失败（{type(exc).__name__}）"
+    message = format_error_message(
+        UpstreamErrorEvidence(message=sanitize_error_text(detail)),
+        status=200,
+        channel=str(provider_name or "unknown provider"),
+        api_format=api_format,
+        hub_code=f"{code}{location}",
     )
     safe_message = sanitize_error_text(message) or (
         f"upstream stream failed: {code}{location}"
@@ -3228,7 +3233,10 @@ def _transformed_upstream_error_response(
     journal.error(
         phase="response",
         account_id=account_id,
-        status=response_status,
+        status=upstream_status,
+        answered_status=(
+            response_status if response_status != upstream_status else None
+        ),
         code=evidence.code,
         message=evidence.message,
         error_type=report.error_type,

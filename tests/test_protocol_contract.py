@@ -1905,13 +1905,6 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                 "incomplete_details": {"reason": "future_reason"},
             },
             {
-                "status": "incomplete",
-                "incomplete_details": {
-                    "reason": "max_output_tokens",
-                    "future_terminal_field": "hidden",
-                },
-            },
-            {
                 "status": "completed",
                 "incomplete_details": {"reason": "max_output_tokens"},
             },
@@ -1938,6 +1931,27 @@ class ResponseCapabilityContractTests(unittest.TestCase):
             "openai_responses",
         )
         self.assertEqual(incomplete.payload["stop_reason"], "max_tokens")
+
+        extra_detail = protocol.prepare_response(
+            {
+                "status": "incomplete",
+                "incomplete_details": {
+                    "reason": "max_output_tokens",
+                    "future_terminal_field": "hidden",
+                },
+                "output": [],
+            },
+            "openai_responses",
+        )
+        self.assertEqual(extra_detail.payload["stop_reason"], "max_tokens")
+        self.assertIn(
+            "$.incomplete_details.future_terminal_field",
+            {
+                decision.path
+                for decision in extra_detail.plan.decisions
+                if decision.code == "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED"
+            },
+        )
 
         reason_only = protocol.prepare_response(
             {
