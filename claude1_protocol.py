@@ -23,7 +23,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable
 
-from claude1_protocol_errors import upstream_error_evidence
+from claude1_protocol_errors import (
+    UpstreamErrorEvidence,
+    report_upstream_error,
+    terminal_reason_evidence,
+    upstream_error_details,
+)
 from claude1_protocol_types import (
     CapabilityDecision,
     CapabilityProfile,
@@ -35,6 +40,7 @@ from claude1_protocol_types import (
     ProtocolTransformError,
     RequestIR,
     SupportDisposition,
+    UpstreamStopReasonError,
 )
 from claude1_protocol_usage import (
     UsageReceipt,
@@ -2740,15 +2746,37 @@ def _response_base_usage(
     return raw, values[0], values[1]
 
 
+_TOOL_STOP_REASONS = frozenset({"tool_calls", "function_call", "tool_use"})
+_NEUTRAL_STOP_REASONS = frozenset({None, "", "stop", "completed", "end_turn"})
+_REFUSAL_STOP_REASONS = frozenset({"content_filter", "refusal"})
+_KNOWN_STOP_REASONS = (
+    _TOOL_STOP_REASONS
+    | _NEUTRAL_STOP_REASONS
+    | _REFUSAL_STOP_REASONS
+    | {"length", "max_output_tokens", "max_tokens", "stop_sequence"}
+    | {"pause_turn", "model_context_window_exceeded"}
+)
+
+
 def _stop_reason(
     reason: object,
     *,
     has_tool: bool = False,
     refused: bool = False,
+    field_name: str = "finish_reason",
 ) -> str:
-    tool_reasons = {"tool_calls", "function_call", "tool_use"}
-    neutral_reasons = {None, "", "stop", "completed", "end_turn"}
-    refusal_reasons = {"content_filter", "refusal"}
+    """Map an upstream terminal reason onto an Anthropic ``stop_reason``.
+
+    A reason outside the known vocabulary raises
+    :class:`UpstreamStopReasonError`: the upstream said the generation ended
+    for a reason Anthropic cannot express, and ``end_turn`` would pass that
+    failure off as a finished answer.
+    """
+    tool_reasons = _TOOL_STOP_REASONS
+    neutral_reasons = _NEUTRAL_STOP_REASONS
+    refusal_reasons = _REFUSAL_STOP_REASONS
+    if isinstance(reason, str) and reason not in _KNOWN_STOP_REASONS:
+        raise UpstreamStopReasonError(reason, field_name=field_name)
     if has_tool:
         if refused or reason not in tool_reasons | neutral_reasons:
             raise ProtocolTransformError(
@@ -2782,6 +2810,10 @@ def _stop_reason(
         f"upstream stop reason {reason!r} cannot be represented",
         code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
     )
+
+
+def _is_unknown_stop_reason(reason: object) -> bool:
+    return isinstance(reason, str) and reason not in _KNOWN_STOP_REASONS
 
 
 def _responses_stop_reason(
@@ -2854,9 +2886,9 @@ def _responses_stop_reason(
     # Validate every supplied terminal carrier before output-derived semantics
     # can override the final Anthropic stop reason.
     if status is not _MISSING and status != "incomplete":
-        _stop_reason(status)
+        _stop_reason(status, field_name="status")
     if incomplete_reason is not _MISSING:
-        _stop_reason(incomplete_reason)
+        _stop_reason(incomplete_reason, field_name="incomplete_details.reason")
     reason = incomplete_reason if incomplete_reason is not _MISSING else status
     return _stop_reason(reason, has_tool=has_tool, refused=refused)
 
@@ -3964,9 +3996,15 @@ _RESPONSES_SSE_EVENT_FIELDS = {
     "response.created": {"type", "sequence_number", "response"},
     "response.in_progress": {"type", "sequence_number", "response"},
     "response.queued": {"type", "sequence_number", "response"},
-    "response.failed": {"type", "sequence_number", "response", "error"},
-    "error": {"type", "sequence_number", "error"},
+    # ``response.failed`` and ``error`` are absent on purpose: a failure is
+    # read by ``_responses_failure_event`` before any envelope check, so an
+    # unexpected field can never replace the upstream reason with a hub code.
 }
+
+
+_RESPONSE_SNAPSHOT_MAPPED_FIELDS = frozenset(
+    {"id", "model", "status", "incomplete_details", "usage", "output", "error"}
+)
 
 
 @dataclass
@@ -4180,6 +4218,10 @@ class AnthropicStreamBridge:
     chat_inline_think_buffer: str = ""
     observations: list[str] = field(default_factory=list)
     fsm: StreamStateMachine = field(default_factory=StreamStateMachine)
+    # (channel alias, api_format) named in upstream error messages; absent
+    # when the bridge runs outside the hub.
+    error_context: tuple[str, str] | None = None
+    terminal_error_type: str | None = None
 
     @property
     def warning_codes(self) -> tuple[str, ...]:
@@ -5636,16 +5678,7 @@ class AnthropicStreamBridge:
                 code="HUB_UPSTREAM_RESPONSE_INVALID",
                 path="$.response.error",
             )
-        mapped_fields = {
-            "id",
-            "model",
-            "status",
-            "incomplete_details",
-            "usage",
-            "output",
-            "error",
-        }
-        if set(response) - mapped_fields:
+        if set(response) - _RESPONSE_SNAPSHOT_MAPPED_FIELDS:
             self._observe_stream_degradation(
                 "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
                 "Responses response metadata has no Anthropic event carrier",
@@ -6127,6 +6160,21 @@ class AnthropicStreamBridge:
                 )
                 return pending + self.finish()
             return self.finish()
+        if self.api_format == "openai_chat" and event == "error":
+            # Relays name a failure frame ``event: error`` and put anything from
+            # a bare string to a full envelope in it. Its reason is the one
+            # thing the user needs, so it is read as the upstream error rather
+            # than dropped as metadata.
+            try:
+                error_payload = json.loads(data)
+            except json.JSONDecodeError:
+                error_payload = data
+            if not (
+                isinstance(error_payload, dict)
+                and error_payload.get("error") is not None
+            ):
+                error_payload = {"error": error_payload}
+            return self._feed_chat(error_payload)
         try:
             payload = json.loads(data)
         except json.JSONDecodeError as exc:
@@ -6182,50 +6230,73 @@ class AnthropicStreamBridge:
             else self._feed_responses(event, payload)
         )
 
+    def _upstream_error_event(
+        self,
+        error_values: list[tuple[str, object]],
+        *,
+        status_hint: int | None = None,
+    ) -> list[bytes]:
+        """Terminate the stream with the upstream's own error.
+
+        OpenAI-compatible gateways surface quota/rate failures as a bare
+        ``{"error": ...}`` frame and Responses as ``error``/``response.failed``;
+        both become one Anthropic ``error`` event carrying the sanitized
+        reason, typed by the upstream's code so Claude Code can tell a rate
+        limit or overload from a generic failure. An error value of any shape
+        is read rather than rejected: a malformed error is still an error.
+        """
+        evidence = UpstreamErrorEvidence()
+        for _error_path, error_value in error_values:
+            if error_value is None:
+                continue
+            if not isinstance(error_value, (dict, str)):
+                error_value = json.dumps(error_value, ensure_ascii=False)[:2048]
+            evidence = upstream_error_details({"error": error_value})
+            if evidence.code or evidence.message:
+                break
+        if not evidence.code and not evidence.message and any(
+            error_value is not None for _, error_value in error_values
+        ):
+            self._observe_stream_degradation(
+                "HUB_DEGRADE_UPSTREAM_ERROR_DETAIL_DROPPED",
+                "upstream error detail has no exact Anthropic streaming carrier",
+            )
+        return self._emit_upstream_error(evidence, status_hint=status_hint)
+
+    def _emit_upstream_error(
+        self,
+        evidence: UpstreamErrorEvidence,
+        *,
+        status_hint: int | None = None,
+    ) -> list[bytes]:
+        channel, api_format = self.error_context or (None, self.api_format)
+        report = report_upstream_error(
+            evidence,
+            status=status_hint,
+            channel=channel,
+            api_format=api_format,
+        )
+        self.fsm.mark_error()
+        self.fsm.close_stream()
+        self.upstream_terminal = True
+        self.error_terminal = True
+        self.terminal_error_code = evidence.code
+        self.terminal_error_message = evidence.message
+        self.terminal_error_type = report.error_type
+        self.stopped = True
+        return [sse_event("error", report.body())]
+
+    def _upstream_stop_reason_event(
+        self, exc: UpstreamStopReasonError
+    ) -> list[bytes]:
+        """Report an unmappable terminal reason as the upstream error it is."""
+        return self._emit_upstream_error(
+            terminal_reason_evidence(exc.reason, exc.field_name)
+        )
+
     def _feed_chat(self, payload: dict) -> list[bytes]:
         if payload.get("error") is not None:
-            # OpenAI-compatible chat gateways surface quota/rate failures as a
-            # bare {"error": ...} SSE frame; treat it as the terminal event and
-            # forward the sanitized reason instead of failing the transform.
-            error_value = payload["error"]
-            if not isinstance(error_value, (dict, str)):
-                raise ProtocolTransformError(
-                    "OpenAI Chat stream error must be an object or string",
-                    code="HUB_UPSTREAM_RESPONSE_INVALID",
-                    path="$.error",
-                )
-            evidence_code, evidence_message = upstream_error_evidence(
-                {"error": error_value}
-            )
-            if not evidence_code and not evidence_message:
-                self._observe_stream_degradation(
-                    "HUB_DEGRADE_UPSTREAM_ERROR_DETAIL_DROPPED",
-                    "upstream error detail has no exact Anthropic streaming carrier",
-                )
-            downstream_message = "upstream request failed"
-            if evidence_code:
-                downstream_message += f" ({evidence_code})"
-            if evidence_message:
-                downstream_message += f": {evidence_message}"
-            self.fsm.mark_error()
-            self.fsm.close_stream()
-            self.upstream_terminal = True
-            self.error_terminal = True
-            self.terminal_error_code = evidence_code
-            self.terminal_error_message = evidence_message
-            self.stopped = True
-            return [
-                sse_event(
-                    "error",
-                    {
-                        "type": "error",
-                        "error": {
-                            "type": "api_error",
-                            "message": downstream_message,
-                        },
-                    },
-                )
-            ]
+            return self._upstream_error_event([("$.error", payload["error"])])
         allowed_payload_fields = {
             "id",
             "object",
@@ -6529,6 +6600,15 @@ class AnthropicStreamBridge:
                     "upstream Chat finish_reason must be a non-empty string or null",
                     code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
                 )
+            if _is_unknown_stop_reason(finish_reason):
+                return [
+                    *chunks,
+                    *self._upstream_stop_reason_event(
+                        UpstreamStopReasonError(
+                            finish_reason, field_name="finish_reason"
+                        )
+                    ),
+                ]
             chunks.extend(self._apply_chat_terminal(finish_reason))
         return chunks
 
@@ -6574,8 +6654,48 @@ class AnthropicStreamBridge:
         self.fsm.mark_success()
         return chunks
 
+    def _responses_failure_event(self, kind: str, payload: dict) -> list[bytes]:
+        """Read a Responses ``error`` / ``response.failed`` before judging its shape.
+
+        The failure reason is the one thing the client must see, so envelope,
+        identity and snapshot checks do not run first and cannot replace it
+        with a hub code. The official ``error`` event is flat
+        (``{type, code, message, param}``); relays nest it under ``error`` or
+        send a bare string. Partial output inside ``response.failed`` is
+        dropped observably: the generation failed, and replaying half an
+        answer as content would misrepresent it.
+        """
+        error_values: list[tuple[str, object]] = []
+        if "error" in payload:
+            error_values.append(("$.error", payload["error"]))
+        flat_error = {
+            name: payload[name] for name in ("code", "message", "param") if name in payload
+        }
+        if flat_error:
+            error_values.append(("$", flat_error))
+        failed_response = payload.get("response")
+        if kind == "response.failed" and isinstance(failed_response, dict):
+            if failed_response.get("output") not in (None, []):
+                self._observe_stream_degradation(
+                    "HUB_DEGRADE_FAILED_OUTPUT_DROPPED",
+                    "Responses failure carried a partial output snapshot",
+                )
+            if set(failed_response) - _RESPONSE_SNAPSHOT_MAPPED_FIELDS:
+                self._observe_stream_degradation(
+                    "HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED",
+                    "Responses failure metadata has no Anthropic event carrier",
+                )
+            if "error" in failed_response:
+                error_values.append(("$.response.error", failed_response["error"]))
+        elif kind == "response.failed" and failed_response is not None:
+            # A non-object snapshot is still the upstream's only word on why.
+            error_values.append(("$.response", failed_response))
+        return self._upstream_error_event(error_values)
+
     def _feed_responses(self, event: str, payload: dict) -> list[bytes]:
         kind = payload.get("type") if isinstance(payload.get("type"), str) else event
+        if kind in {"response.failed", "error"}:
+            return self._responses_failure_event(kind, payload)
         self._validate_responses_event_envelope(kind, payload)
         response = payload.get("response") if isinstance(payload.get("response"), dict) else {}
         if isinstance(response.get("id"), str):
@@ -6784,97 +6904,19 @@ class AnthropicStreamBridge:
                     path="$.response.error",
                 )
             chunks = self._response_output_snapshot(raw_response)
-            self.stop = _responses_stop_reason(
-                raw_response,
-                has_tool=self.has_tool,
-                refused=self.refused,
-            )
+            try:
+                self.stop = _responses_stop_reason(
+                    raw_response,
+                    has_tool=self.has_tool,
+                    refused=self.refused,
+                )
+            except UpstreamStopReasonError as exc:
+                return [*chunks, *self._upstream_stop_reason_event(exc)]
             self.fsm.mark_success()
             self.upstream_terminal = True
             return chunks
         if kind in {"response.created", "response.in_progress", "response.queued"}:
             self._validate_response_lifecycle_snapshot(kind, payload)
-        if kind in {"response.failed", "error"}:
-            if kind == "response.failed" and "response" in payload:
-                failed_response = payload["response"]
-                if not isinstance(failed_response, dict):
-                    raise ProtocolTransformError(
-                        "Responses failure event response must be an object",
-                        code="HUB_UPSTREAM_RESPONSE_INVALID",
-                        path="$.response",
-                    )
-                self._validate_response_snapshot_fields(failed_response)
-                if "status" in failed_response and failed_response["status"] != "failed":
-                    raise ProtocolTransformError(
-                        "Responses failure status conflicts with its event",
-                        code="HUB_SSE_DUPLICATE_CONFLICT",
-                        path="$.response.status",
-                    )
-                if failed_response.get("output") not in (_MISSING, None, []):
-                    raise ProtocolTransformError(
-                        "Responses failure output snapshot cannot be represented safely",
-                        code="HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED",
-                        path="$.response.output",
-                    )
-            error_values: list[tuple[str, object]] = []
-            if "error" in payload:
-                error_values.append(("$.error", payload["error"]))
-            if kind == "response.failed" and isinstance(
-                payload.get("response"), dict
-            ) and "error" in payload["response"]:
-                error_values.append(
-                    ("$.response.error", payload["response"]["error"])
-                )
-            for error_path, error_value in error_values:
-                if error_value is not None and not isinstance(error_value, dict):
-                    raise ProtocolTransformError(
-                        "Responses failure error detail must be an object or null",
-                        code="HUB_UPSTREAM_RESPONSE_INVALID",
-                        path=error_path,
-                    )
-            evidence_code = None
-            evidence_message = None
-            for _error_path, error_value in error_values:
-                if not isinstance(error_value, dict):
-                    continue
-                evidence_code, evidence_message = upstream_error_evidence(
-                    {"error": error_value}
-                )
-                if evidence_code or evidence_message:
-                    break
-            if (
-                not evidence_code
-                and not evidence_message
-                and any(error_value is not None for _, error_value in error_values)
-            ):
-                self._observe_stream_degradation(
-                    "HUB_DEGRADE_UPSTREAM_ERROR_DETAIL_DROPPED",
-                    "upstream error detail has no exact Anthropic streaming carrier",
-                )
-            downstream_message = "upstream request failed"
-            if evidence_code:
-                downstream_message += f" ({evidence_code})"
-            if evidence_message:
-                downstream_message += f": {evidence_message}"
-            self.fsm.mark_error()
-            self.fsm.close_stream()
-            self.upstream_terminal = True
-            self.error_terminal = True
-            self.terminal_error_code = evidence_code
-            self.terminal_error_message = evidence_message
-            self.stopped = True
-            return [
-                sse_event(
-                    "error",
-                    {
-                        "type": "error",
-                        "error": {
-                            "type": "api_error",
-                            "message": downstream_message,
-                        },
-                    },
-                )
-            ]
         if kind.startswith("response.content_part.") or kind.startswith(
             "response.reasoning_summary_part."
         ):

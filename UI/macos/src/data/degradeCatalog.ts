@@ -340,6 +340,13 @@ export const DEGRADE_CATALOG: DegradeEntry[] = [
     get impact() { return t("错误类型和状态码是真的，但排查线索可能少了一截。"); },
     get action() { return t("要看完整原始错误，去 ~/.cc-switch/logs/ 下的 hub 日志里查同一时间点。"); },
     severity: 'degraded',
+  },  {
+    code: 'HUB_DEGRADE_FAILED_OUTPUT_DROPPED',
+    get title() { return t("失败响应里的半截输出被丢弃"); },
+    get what() { return t("上游以 response.failed 结束，同时附带了已生成的部分输出快照；只转发失败原因，这部分输出没有交给客户端。"); },
+    get impact() { return t("这一轮按失败处理，你看到的是上游给出的失败原因；半截内容不会被当成回答交付，也不落盘。"); },
+    get action() { return t("按错误信息里的原因处理：重试或换渠道。"); },
+    severity: 'degraded',
   },
 ];
 

@@ -30,6 +30,24 @@ class ProtocolTransformError(ValueError):
         self.http_status = http_status
 
 
+class UpstreamStopReasonError(ProtocolTransformError):
+    """The upstream ended with a terminal reason that has no Anthropic meaning.
+
+    Unlike a malformed response, this is the upstream reporting that the
+    generation did not finish (``network_error``,
+    ``insufficient_system_resource``), so callers surface ``reason`` verbatim
+    as an upstream error instead of a translation failure.
+    """
+
+    def __init__(self, reason: str, *, field_name: str):
+        super().__init__(
+            f"upstream stop reason {reason!r} cannot be represented",
+            code="HUB_UPSTREAM_STOP_REASON_UNMAPPABLE",
+        )
+        self.reason = reason
+        self.field_name = field_name
+
+
 class ProtocolRequestError(ProtocolTransformError):
     """An Anthropic request is invalid or unsupported by the target adapter."""
 

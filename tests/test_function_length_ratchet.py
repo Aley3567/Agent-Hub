@@ -41,13 +41,15 @@ BASELINE = {
 # path already used) took it 467 -> 465; shared upstream-error preparation took
 # the transformed path to 464; requiring the caller to hand in the resolved
 # target and account pool removed the entry's rebuild branch, 464 -> 460.
+# The current ceiling, _forward_to_channel_attempt, went 451 -> 450 when the
+# native error-body journal arm read evidence as one UpstreamErrorEvidence.
 #
 # claude-provider-once.py's ceiling is _launcher_main.  It went 313 -> 312 when
 # claude1_launcher_view.init_colors() became the sole owner of the palette and
 # the launcher stopped republishing it through a module global.
 WORST = {
     "claude1_protocol.py": 426,
-    "claude-hub.py": 451,
+    "claude-hub.py": 450,
     "claude-provider-once.py": 312,
     "claude1_account_pool.py": 124,
 }

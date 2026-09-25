@@ -813,6 +813,36 @@ class RouteGroupTests(unittest.TestCase):
         self.assertEqual(response.headers["x-hub-route"], "fixture-route")
         self.assertEqual(len(session.calls), 2)
 
+    def test_exhaustion_stops_retries_when_the_last_rejection_is_exhausted_quota(self):
+        # 路由耗尽与非流错误共用 resolve_error_type：额度用尽加
+        # x-should-retry: false，type 与 journal 同源。
+        self._route_config(self._fixture_route())
+        session = _SequencedFakeSession(
+            [
+                _json_upstream(429, {"error": {"message": "fixture limited a"}}),
+                _json_upstream(
+                    429,
+                    {
+                        "error": {
+                            "code": "insufficient_quota",
+                            "type": "insufficient_quota",
+                            "message": "quota exhausted",
+                        }
+                    },
+                ),
+            ]
+        )
+
+        response = self._run(
+            {"model": "route:fixture-route", "messages": []}, session
+        )
+
+        self.assertEqual(response.status, 429)
+        self.assertEqual(json.loads(response.text)["error"]["type"], "rate_limit_error")
+        self.assertEqual(response.headers["x-should-retry"], "false")
+        row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
+        self.assertEqual(row["type"], "rate_limit_error")
+
     def test_exhaustion_names_the_last_upstream_reason_without_leaking_secrets(self):
         # The whole point of the evidence plumbing: a route that burns through
         # every target must still tell the client what the upstream said, so a
@@ -848,7 +878,8 @@ class RouteGroupTests(unittest.TestCase):
         self.assertIn("(1302)", message)
         self.assertIn("5 小时限额已用完", message)
         self.assertNotIn("fixture-secret", message)
-        self.assertNotIn("vendor.invalid", message)
+        # 不含凭证的 URL 保留 host/path，指明拒绝来自哪一跳。
+        self.assertIn("https://vendor.invalid/quota", message)
         self.assertNotIn("fixture limited a", message)
 
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
@@ -1064,10 +1095,12 @@ class RouteGroupTests(unittest.TestCase):
 
         self.assertEqual(response.status, 405)
         payload = json.loads(response.text)
-        self.assertIn("upstream HTTP 405", payload["error"]["message"])
-        self.assertIn("method not allowed", payload["error"]["message"])
+        self.assertEqual(
+            payload["error"]["message"],
+            "method not allowed at https://fixture.invalid/api?[redacted] "
+            "[alpha · anthropic · 上游 405 invalid_request_error · method_not_allowed]",
+        )
         self.assertNotIn("fixture-secret", payload["error"]["message"])
-        self.assertNotIn("fixture.invalid", payload["error"]["message"])
         self.assertEqual(response.headers["allow"], "GET")
 
     def test_native_405_empty_and_html_bodies_stay_safe(self):
@@ -1088,7 +1121,10 @@ class RouteGroupTests(unittest.TestCase):
                 self.assertEqual(response.status, 405)
                 payload = json.loads(response.text)
                 message = payload["error"]["message"]
-                self.assertEqual(message, "upstream HTTP 405")
+                self.assertEqual(
+                    message,
+                    "upstream HTTP 405 [alpha · anthropic · 上游 405 invalid_request_error]",
+                )
                 self.assertNotIn("<html>", message)
                 self.assertEqual(response.headers["allow"], "GET")
 

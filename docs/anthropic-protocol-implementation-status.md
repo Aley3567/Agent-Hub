@@ -45,6 +45,7 @@
 - 未知顶层请求扩展只在默认 `visible_lossy` 模式下丢弃并记录 `code@JSON-path`，`strict` 模式拒绝；内容块、工具字段和执行类能力仍 fail closed。
 - usage 是统计回执：未知 counter 不参与推导，丢弃并告警；已登记 counter 的非法值或冲突继续拒绝。
 - 上游 HTTP 错误只向日志和客户端保留经截断、脱敏的 `code/message`；不持久化完整请求 payload 或原始错误 body。
+- **2026-09-25 变更（错误显示第一批，work-queue S27）**：证据扩为 `code/message/type/param`（`claude1_protocol_errors.upstream_error_details`），截断上限 512 → 1024；URL 只剥 `user:pass@` 与 `?query#frag`，保留 scheme/host/path，其余凭证规则不变。客户端 message 改为「上游原文优先」：`<原文> [<channel> · <format> · 上游 <status> <type> · <code>]`；`error.type` 以上游 code/type 为准，映射不到才按状态码推导；额度用尽类（`insufficient_quota`/`quota_exceeded`/`billing_*`）加 `x-should-retry: false`；上下文溢出追加 `(prompt is too long)`。非流与流内 error 事件共用 `format_error_message` / `resolve_error_type`。
 - 本轮不加入自动探测、自学习路由或 provider 特判。provider capability override、多轮客户端 fixture 和运行中模块版本标识继续作为独立后续项。
 
 **2026-08-18 变更（T0.0a/T0.0b）**：Chat 上游响应方向的未知字段策略从 fail closed 放宽为默认 observable degradation——流式 payload/choice/delta 的未知字段、未知 SSE event、非流 wrapper 的未知字段均丢弃并记录 `HUB_DEGRADE_UPSTREAM_RESPONSE_METADATA_DROPPED`，`strict` 模式维持拒绝；`reasoning` 接纳为 `reasoning_content` 的通用别名。已识别 identity、choice 索引、tool-call 因果与真实终态的严格校验不变。Responses 方向的同类放宽列为 T0.0c，尚未实施，Responses 上游未知 output item/event 仍 fail closed。
@@ -144,7 +145,8 @@
 | encrypted reasoning | `reject` | namespaced reversible redaction carrier `exact` | 非 string、未知字段或任意未登记 opaque replay 拒绝。 |
 | refusal / content filter | `exact` stop semantics | `exact` stop semantics | 输出 text，并固定 `stop_reason=refusal`。 |
 | completed client tool call | `exact` | `exact` | id/name/JSON object arguments 必须完整；空 JSON 文本、orphan、server-tool discriminator 或 index/identity 冲突拒绝。 |
-| terminal stop/status | `exact`（登记 reason） | `exact`（登记 status/reason） | 未知 reason、缺 terminal reason、成功态携带 error，以及 truncation/refusal 与 tool output 冲突均拒绝。 |
+| terminal stop/status | `exact`（登记 reason） | `exact`（登记 status/reason） | 未知 reason 报为**上游错误**（`UpstreamStopReasonError`，HTTP 502，message 引用上游 reason 原文，type 按 reason 映射，绝不降格为 `end_turn`）；缺 terminal reason、成功态携带 error，以及 truncation/refusal 与 tool output 冲突仍拒绝（502，message 带 `code at path`）。 |
+| HTTP 200 错误体 | 先于形状校验识别 `{"error": ...}`（无 choices） | 先于形状校验识别 `status: "failed"` 或无 output 的 `{"error": ...}` | 按上游错误处理：status 由上游错误类型推断（限流 429、鉴权 401 等），推不出为 502；message 为上游原文。 |
 | citation/annotation metadata | `observable degradation` | `observable degradation` | 正文保留，location 不猜测；strict 流模式拒绝。 |
 | base usage | 有真实 counter 时 `exact`；缺失 `observable degradation` | 同左 | malformed、负数、bool 或未知 carrier 拒绝；OpenAI base input 计数先扣除 cache-read，差值为负拒绝。 |
 | `total_tokens` | 两项 base 都在时校验一致；缺 base 不反推 | 同左 | 完整 snapshot 中总数冲突为 `HUB_UPSTREAM_USAGE_INVALID`。 |
@@ -156,7 +158,7 @@
 | SSE 能力 | disposition | 明确边界 |
 | --- | --- | --- |
 | 任意 transport chunk boundary、UTF-8 code point 分割、CRLF/LF/CR 混合行尾、流首 BOM | `exact` | invalid UTF-8、partial JSON、incomplete event、单事件超限分别以稳定 `HUB_SSE_*` 拒绝；解析按扫描偏移保持 O(n)。 |
-| Chat/Responses terminal lifecycle | `exact` | 缺 terminal、terminal/status 冲突、重复/迟到事件、terminal 后内容均 fail closed。 |
+| Chat/Responses terminal lifecycle | `exact` | 缺 terminal、terminal/status 冲突、重复/迟到事件、terminal 后内容均 fail closed；未知 `finish_reason` / `incomplete_details.reason` / status 以 error 事件终止并引用 reason 原文（不发 `message_stop`）。 |
 | response `id` / `model` 跨 chunk identity | `exact` | 首次观察锁定；变化或 message_start 后迟到冲突为 `HUB_SSE_DUPLICATE_CONFLICT`。 |
 | text/refusal/reasoning delta + done snapshot | `exact`；unsigned reasoning degraded | 任意合法坐标配对、suffix repair 与幂等；错序、负坐标、snapshot 冲突拒绝。 |
 | terminal-only `response.output` message/reasoning/function call | text/tool `exact`；unsigned reasoning degraded | done 与 terminal snapshot 幂等；output item type/id/content 冲突拒绝。 |
@@ -164,7 +166,7 @@
 | streamed tool arguments | `exact` | 必须最终形成显式 JSON object；空 string、partial final JSON、2 MiB 超限、identity/order conflict 拒绝。 |
 | citation/annotation event | `observable degradation` | 必须关联正确 item/output/content、开放的 output_text part、合法 metadata carrier/index；strict 拒绝。 |
 | sequence/logprobs/obfuscation、known wrapper metadata | `observable degradation` | 稳定 metadata warning；Chat 未知 wrapper/event 字段默认降级、strict 拒绝；Responses 未知 wrapper/event 字段拒绝。 |
-| upstream error detail | sanitized error + `observable degradation` | detail shape 校验，不回传 vendor secret；成功 terminal 携带 error 拒绝。 |
+| upstream error detail | sanitized error；无可用证据时 `HUB_DEGRADE_UPSTREAM_ERROR_DETAIL_DROPPED` | 错误先于信封/identity 校验读取：Responses 官方扁平 `error` 事件（顶层 `code/message/param`）、字符串 `error`、非 object 的 Chat `error`（转 JSON 文本）均放行；`response.failed` 带部分 output 时丢弃 output 并记 `HUB_DEGRADE_FAILED_OUTPUT_DROPPED`，失败原因照样给出。error 事件的 `error.type` 按上游 code/type 映射（限流 `rate_limit_error`、过载 `overloaded_error`），message 与非流同格式。不回传 vendor secret；成功 terminal 携带 error 仍拒绝。 |
 | usage stream snapshots | 与非流 registry 相同；未观测字段省略不伪造 | 未知统计字段降级丢弃；已登记 counter 的 regression/malformed/conflict 拒绝；结束时缺 base 标记 provenance unavailable；terminal 才到达的 input usage 由 message_delta 如实携带并记录 `HUB_DEGRADE_LATE_INPUT_USAGE`。 |
 
 ### 请求与内容块的具体语义

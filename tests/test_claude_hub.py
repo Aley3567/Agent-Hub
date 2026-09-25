@@ -2454,7 +2454,7 @@ class ClaudeHubTests(unittest.TestCase):
         class TypeFailingBridge:
             input_tokens = output_tokens = cache_read = cache_write = 0
 
-            def __init__(self, _api_format):
+            def __init__(self, _api_format, **_context):
                 pass
 
             def feed(self, _event, _data):
@@ -2540,7 +2540,7 @@ class ClaudeHubTests(unittest.TestCase):
         )
 
         class TypeFailingBridge:
-            def __init__(self, _api_format):
+            def __init__(self, _api_format, **_context):
                 pass
 
             def feed(self, _event, _data):
@@ -3296,8 +3296,8 @@ class ClaudeHubTests(unittest.TestCase):
                 "error": {
                     "type": "api_error",
                     "message": (
-                        "upstream HTTP 500 (fixture_upstream_error): "
-                        "fixture upstream failure"
+                        "fixture upstream failure [fast · openai_chat · "
+                        "上游 500 api_error · fixture_upstream_error]"
                     ),
                 },
             },
@@ -3932,7 +3932,7 @@ class ClaudeHubTests(unittest.TestCase):
             ],
         )
 
-    def test_transformed_nebius_chat_stream_metadata_completes_without_502(self):
+    def test_transformed_relay_chat_stream_metadata_completes_without_502(self):
         self._set_provider_endpoint(
             "Fixture HTTPS",
             "https://upstream.invalid/v1/chat/completions",
@@ -7064,13 +7064,265 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(body["error"]["type"], "rate_limit_error")
         self.assertEqual(
             body["error"]["message"],
-            "upstream HTTP 429 (rate_limit): slow down",
+            "slow down [fast · openai_chat · 上游 429 rate_limit_error · rate_limit]",
         )
         # 同一份证据同时进 journal,事后 `claude-hub errors` 才查得到。
         row = json.loads(self.errors_file.read_text(encoding="utf-8").splitlines()[-1])
         self.assertEqual((row["phase"], row["status"]), ("response", 429))
         self.assertEqual(row["format"], "openai_chat")
         self.assertEqual((row["code"], row["message"]), ("rate_limit", "slow down"))
+
+    def _transformed_error_response(self, api_format, upstream, *, stream=False):
+        endpoint = {
+            "openai_chat": "https://upstream.invalid/v1/chat/completions",
+            "openai_responses": "https://upstream.invalid/v1/responses",
+        }[api_format]
+        self._set_provider_endpoint("Fixture HTTPS", endpoint, api_format)
+        payload = {
+            "model": "fast,fixture-model",
+            "messages": [{"role": "user", "content": "fixture"}],
+        }
+        if stream:
+            payload["stream"] = True
+            downstream = _FakeDownstream(200)
+            with mock.patch.object(
+                hub.web, "StreamResponse", return_value=downstream
+            ):
+                asyncio.run(
+                    hub.handle_messages(
+                        self._request(payload, session=_FakeSession(upstream))
+                    )
+                )
+            return downstream
+        return asyncio.run(
+            hub.handle_messages(self._request(payload, session=_FakeSession(upstream)))
+        )
+
+    def test_exhausted_quota_is_typed_by_upstream_and_marked_not_retryable(self):
+        # 额度用尽重试不会成功：x-should-retry: false 让 SDK 与 Claude Code
+        # 直接停手，而不是烧完重试预算才让用户看到原因。
+        upstream = _FakeUpstream(
+            429,
+            {"Content-Type": "application/json", "Retry-After": "20"},
+            [
+                json.dumps(
+                    {
+                        "error": {
+                            "message": "You exceeded your current quota",
+                            "type": "insufficient_quota",
+                            "code": "insufficient_quota",
+                            "param": None,
+                        }
+                    }
+                ).encode()
+            ],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 429)
+        self.assertEqual(response.headers["x-should-retry"], "false")
+        self.assertEqual(response.headers["retry-after"], "20")
+        body = json.loads(response.text)
+        self.assertEqual(body["error"]["type"], "rate_limit_error")
+        self.assertEqual(
+            body["error"]["message"],
+            "You exceeded your current quota "
+            "[fast · openai_chat · 上游 429 rate_limit_error · insufficient_quota]",
+        )
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["type"], "rate_limit_error")
+        self.assertEqual(row["code"], "insufficient_quota")
+
+    def test_retryable_rate_limit_does_not_forbid_retries(self):
+        upstream = _FakeUpstream(
+            429,
+            {"Content-Type": "application/json"},
+            [b'{"error":{"message":"slow down","code":"rate_limit_exceeded"}}'],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 429)
+        self.assertNotIn("x-should-retry", response.headers)
+
+    def test_context_overflow_keeps_upstream_text_and_claude_code_marker(self):
+        upstream = _FakeUpstream(
+            400,
+            {"Content-Type": "application/json"},
+            [
+                json.dumps(
+                    {
+                        "error": {
+                            "message": (
+                                "This model's maximum context length is 128000 tokens."
+                            ),
+                            "type": "invalid_request_error",
+                            "code": "context_length_exceeded",
+                            "param": "messages",
+                        }
+                    }
+                ).encode()
+            ],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 400)
+        message = json.loads(response.text)["error"]["message"]
+        self.assertTrue(
+            message.startswith(
+                "This model's maximum context length is 128000 tokens. "
+                "(prompt is too long) ["
+            ),
+            message,
+        )
+        self.assertIn("context_length_exceeded", message)
+        self.assertIn("param messages", message)
+
+    def test_http_200_chat_error_body_answers_with_the_inferred_status(self):
+        # 上游 200 但 body 是 {"error": ...}：以前形状校验先跑，客户端只见
+        # "incompatible response"，连日志都没有原因。
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "application/json"},
+            [
+                b'{"error":{"message":"Rate limit reached for grok-4.5, '
+                b'please retry after 20s","type":"requests",'
+                b'"code":"rate_limit_exceeded"}}'
+            ],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 429)
+        body = json.loads(response.text)
+        self.assertEqual(body["error"]["type"], "rate_limit_error")
+        self.assertEqual(
+            body["error"]["message"],
+            "Rate limit reached for grok-4.5, please retry after 20s "
+            "[fast · openai_chat · 上游 200 rate_limit_error · rate_limit_exceeded"
+            " · requests]",
+        )
+        self.assertEqual(response.headers["x-hub-upstream-code"], "rate_limit_exceeded")
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual((row["status"], row["code"]), (429, "rate_limit_exceeded"))
+        self.assertFalse(self.usage_file.exists())
+
+    def test_http_200_failed_responses_body_surfaces_its_reason(self):
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "application/json"},
+            [
+                json.dumps(
+                    {
+                        "id": "resp_fixture",
+                        "object": "response",
+                        "status": "failed",
+                        "output": [],
+                        "error": {
+                            "code": "server_error",
+                            "message": "The model failed to generate a response.",
+                        },
+                    }
+                ).encode()
+            ],
+        )
+
+        response = self._transformed_error_response("openai_responses", upstream)
+
+        self.assertEqual(response.status, 502)
+        body = json.loads(response.text)
+        self.assertEqual(body["error"]["type"], "api_error")
+        self.assertEqual(
+            body["error"]["message"],
+            "The model failed to generate a response. "
+            "[fast · openai_responses · 上游 200 api_error · server_error]",
+        )
+
+    def test_untranslatable_response_names_the_code_and_path(self):
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "application/json"},
+            [json.dumps({"id": "chatcmpl_fixture", "choices": "not-a-list"}).encode()],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 502)
+        body = json.loads(response.text)
+        self.assertEqual(body["error"]["type"], "api_error")
+        message = body["error"]["message"]
+        self.assertTrue(
+            message.startswith("上游返回了无法转换的 openai_chat 响应："), message
+        )
+        self.assertRegex(message, r"\[fast · openai_chat · 上游 200 · HUB_[A-Z_]+ at \$")
+        self.assertNotIn("incompatible", message)
+
+    def test_unknown_nonstream_finish_reason_is_an_error_quoting_the_reason(self):
+        # 未知的非成功终止原因不映射成 end_turn——那等于把失败伪装成成功。
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "application/json"},
+            [
+                json.dumps(
+                    {
+                        "id": "chatcmpl_fixture",
+                        "model": "fixture-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": "part"},
+                                "finish_reason": "insufficient_system_resource",
+                            }
+                        ],
+                    }
+                ).encode()
+            ],
+        )
+
+        response = self._transformed_error_response("openai_chat", upstream)
+
+        self.assertEqual(response.status, 502)
+        body = json.loads(response.text)
+        self.assertEqual(body["error"]["type"], "overloaded_error")
+        self.assertEqual(
+            body["error"]["message"],
+            "上游以非成功的终止原因结束了响应：finish_reason "
+            "'insufficient_system_resource' [fast · openai_chat · 上游 200 "
+            "overloaded_error · insufficient_system_resource]",
+        )
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["code"], "HUB_UPSTREAM_STOP_REASON_UNMAPPABLE")
+        self.assertFalse(self.usage_file.exists())
+
+    def test_transformed_stream_rate_limit_frame_carries_its_type_and_channel(self):
+        upstream = _FakeUpstream(
+            200,
+            {"Content-Type": "text/event-stream"},
+            [
+                b'data: {"id":"chatcmpl_fixture","model":"fixture-model",'
+                b'"choices":[{"delta":{"content":"partial"},"finish_reason":null}]}\n\n',
+                b'data: {"error":{"message":"Rate limit reached","code":'
+                b'"rate_limit_exceeded"}}\n\n',
+            ],
+        )
+
+        downstream = self._transformed_error_response(
+            "openai_chat", upstream, stream=True
+        )
+
+        rendered = b"".join(downstream.writes)
+        terminal = json.loads(rendered.rsplit(b"event: error\ndata: ", 1)[1])
+        self.assertEqual(terminal["error"]["type"], "rate_limit_error")
+        self.assertEqual(
+            terminal["error"]["message"],
+            "Rate limit reached "
+            "[fast · openai_chat · 上游 rate_limit_error · rate_limit_exceeded]",
+        )
+        row = json.loads(self.errors_file.read_text(encoding="utf-8"))
+        self.assertEqual(row["type"], "rate_limit_error")
+        self.assertEqual(row["code"], "rate_limit_exceeded")
 
     def test_full_url_provider_rejects_request_query_strings(self):
         endpoint = "http://127.0.0.1:19090/v1/messages"
@@ -8175,6 +8427,9 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertTrue(downstream.eof)
         row = json.loads(self.errors_file.read_text(encoding="utf-8"))
         self.assertEqual(row["exc"], "UpstreamSSEError")
+        # 事件体里的原因只进 journal，下游字节保持原样（上面已断言）。
+        self.assertEqual(row["message"], "fixture native failure")
+        self.assertEqual(row["type"], "api_error")
         self.assertEqual(row["deg"], ["HUB_DEGRADE_SYSTEM_ROLE_PROMOTED"])
         self.assertFalse(self.usage_file.exists())
 

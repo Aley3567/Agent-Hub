@@ -1006,12 +1006,12 @@ class StreamStateMachineContractTests(unittest.TestCase):
             )
         )
         self.assertNotIn(b"secret", rendered)
-        self.assertNotIn(b"private.invalid", rendered)
         # Sanitized detail is forwarded rather than dropped, so the reason the
-        # upstream gave survives while the credential shapes do not.
+        # upstream gave survives while the credential shapes do not. A URL
+        # keeps scheme/host/path: it names the failing hop, not a secret.
         self.assertIn(b"quota exhausted", rendered)
         self.assertIn(b"token=[redacted]", rendered)
-        self.assertIn(b"[redacted-url]", rendered)
+        self.assertIn(b"https://private.invalid/path", rendered)
         self.assertNotIn(
             "HUB_DEGRADE_UPSTREAM_ERROR_DETAIL_DROPPED",
             responses.warning_codes,
@@ -1063,48 +1063,42 @@ class StreamStateMachineContractTests(unittest.TestCase):
             tolerated.warning_codes,
         )
 
-        for response in (
-            "malformed",
-            {"status": "completed", "error": {"message": "wrong status"}},
-            {"status": "failed", "error": "malformed"},
-            {
-                "status": "failed",
-                "error": {"message": "boom"},
-                "output": [{"type": "message", "content": []}],
-            },
+        # 失败事件先读原因、后看形状:以下形状过去都被拒成协议错误,把上游的
+        # 失败原因换成一条无关的 HUB 码。现在一律进错误终态并带出原因。
+        for response, expected_message in (
+            ("malformed", "malformed"),
+            ({"status": "completed", "error": {"message": "wrong status"}}, "wrong status"),
+            ({"status": "failed", "error": "malformed"}, "malformed"),
+            (
+                {
+                    "status": "failed",
+                    "error": {"message": "boom"},
+                    "output": [{"type": "message", "content": []}],
+                },
+                "boom",
+            ),
         ):
             with self.subTest(response=response):
-                malformed_failure = protocol.AnthropicStreamBridge(
-                    "openai_responses"
-                )
-                with self.assertRaises(protocol.ProtocolTransformError) as raised:
-                    malformed_failure.feed(
+                failure = protocol.AnthropicStreamBridge("openai_responses")
+                rendered = b"".join(
+                    failure.feed(
                         "response.failed",
                         json.dumps(
                             {"type": "response.failed", "response": response}
                         ),
                     )
-                self.assertIn(
-                    raised.exception.code,
-                    {
-                        "HUB_UPSTREAM_RESPONSE_INVALID",
-                        "HUB_SSE_DUPLICATE_CONFLICT",
-                        "HUB_UPSTREAM_OUTPUT_BLOCK_UNSUPPORTED",
-                    },
                 )
+                self.assertTrue(failure.error_terminal)
+                self.assertEqual(failure.terminal_error_message, expected_message)
+                self.assertIn(b"event: error", rendered)
 
-        malformed_error = protocol.AnthropicStreamBridge("openai_responses")
-        with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            malformed_error.feed(
-                "response.failed",
-                json.dumps(
-                    {"type": "response.failed", "error": "malformed"}
-                ),
-            )
-        self.assertEqual(
-            raised.exception.code,
-            "HUB_UPSTREAM_RESPONSE_INVALID",
+        string_error = protocol.AnthropicStreamBridge("openai_responses")
+        string_error.feed(
+            "response.failed",
+            json.dumps({"type": "response.failed", "error": "malformed"}),
         )
+        self.assertTrue(string_error.error_terminal)
+        self.assertEqual(string_error.terminal_error_message, "malformed")
 
         completed_with_error = protocol.AnthropicStreamBridge("openai_responses")
         with self.assertRaises(protocol.ProtocolTransformError) as raised:
@@ -3050,7 +3044,7 @@ class StreamStateMachineContractTests(unittest.TestCase):
             degraded.warning_codes,
         )
 
-    def test_chat_stream_unknown_event_and_nebius_metadata_are_compatible(self) -> None:
+    def test_chat_stream_unknown_event_and_relay_metadata_are_compatible(self) -> None:
         bridge = protocol.AnthropicStreamBridge("openai_chat")
         self.assertEqual(
             bridge.feed("provider.keepalive", json.dumps({"opaque": True})),

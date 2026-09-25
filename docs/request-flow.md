@@ -26,7 +26,7 @@ Go 实验的终态规则。没有逐行审查两端 UI，也没有对真实渠�
 | `claude1_hub_config.py`（约 390 行） | Hub 配置解释：`validate_config()` 与渠道/槽位/routes 校验；接收 raw、快照与环境映射，不做任何读取 | 读配置相关问题的第一站 |
 | `claude1_providers.py`（约 400 行） | provider 行解析、只读快照复制、`ProviderSnapshotCache`（条目、锁、single-flight、指标）；不解析路径、不做权限策略 | provider/快照问题的第一站 |
 | `claude1_protocol.py`（约 7,000 行） | 请求转换、响应转换、能力与降级判定、SSE 解析和流状态机 | 跟随协议分支读 |
-| `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 (code, message) 证据与 Anthropic 错误壳；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
+| `claude1_protocol_errors.py` | 上游错误体 → 脱敏后的 code/message/type/param 证据、Anthropic error.type 判定（`resolve_error_type`）与客户端文案（`format_error_message`）；凭证脱敏规则的唯一所有者 | 读错误归因时进入 |
 | `claude-provider-once.py`（约 7,710 行） | provider 选择、settings、Hub/bridge 生命周期、Hub 配置编辑、TUI 操作与按键、CLI、会话路由记录 | 先读启动路径，后读 TUI |
 | `claude1_terminal.py`（约 100 行） | 终端显示宽度与窗口安全绘制；无状态、不读配置，`curses` 缺失时仍可导入 | 读启动器 TUI 前先看 |
 | `claude1_launcher_view.py`（约 500 行） | curses 调色板状态（`C`/`logo_pairs`/`row_pairs`）、logo 与开场动画、只吃现成数据的面板；不读配置/凭证、不探活、不启动 | 同上 |
@@ -229,8 +229,9 @@ Chat 的裸 `[DONE]` 是已实现的兼容例外：缺 finish_reason 时推导�
 | 路由组：`handle_messages()` | 捕获 `RouteTargetExhausted` 后推进 target；通常来自 401/403/429，另包括本地池耗尽和原生流重放耗尽 | 普通上游 5xx 不自动切 provider；这里的本地 503/504 要与上游 HTTP 5xx 区分 |
 
 HTTP 尚未交付时，配置/DB 不可用由 `controlled_error_middleware()` 映射为 503；JSON/请求
-不合法通常 400，转换失败通常 502。跨协议上游错误经 `claude1_protocol_errors.py::transform_error()` 整形成 Anthropic
-错误体；原生路径通常保留上游响应，部分状态有安全错误整形。SSE 已交付后不能再改 HTTP status，
+不合法通常 400，转换失败通常 502。跨协议上游错误（含 HTTP 200 错误体，经 `embedded_upstream_error()` 先于
+形状校验识别）经 `claude1_protocol_errors.py::report_upstream_error()` 整形成 Anthropic 错误体，流内 error 事件
+走同一函数；原生路径通常保留上游响应，部分状态有安全错误整形。SSE 已交付后不能再改 HTTP status，
 只能发协议错误事件或终止连接。`record_error()` 与 `record_usage()` 记录脱敏证据及用量来源。
 
 已有 S20 指出下游写失败可能被原生重放路径误归因成上游失败；本次核对其条件仍在，未在真实

@@ -3187,24 +3187,30 @@ class ResponseCapabilityContractTests(unittest.TestCase):
                     "HUB_UPSTREAM_TOOL_ARGUMENTS_INVALID",
                 )
 
-    def test_upstream_error_type_and_sensitive_message_are_not_forwarded(self) -> None:
+    def test_unmapped_upstream_error_type_is_shown_but_not_adopted(self) -> None:
+        # 上游 type 作为证据进 message（排查要看），但认不出的 type 不冒充
+        # Anthropic error.type——那一栏仍由状态码推导。凭证照旧脱敏。
         transformed = protocol_errors.transform_error(
             {
                 "error": {
                     "type": "vendor_quota_type",
                     "message": (
                         "Bearer fixture-secret-token at "
-                        "https://private-upstream.invalid/account"
+                        "https://fixture-user:fixture-pass@private-upstream.invalid"  # secret-guard: allow embedded-url-credential
+                        "/account?key=fixture-query"
                     ),
                 }
             },
             400,
         )
         self.assertEqual(transformed["error"]["type"], "invalid_request_error")
-        serialized = json.dumps(transformed)
-        self.assertNotIn("vendor_quota_type", serialized)
+        serialized = json.dumps(transformed, ensure_ascii=False)
+        self.assertIn("vendor_quota_type", serialized)
         self.assertNotIn("fixture-secret-token", serialized)
-        self.assertNotIn("private-upstream", serialized)
+        self.assertNotIn("fixture-user", serialized)
+        self.assertNotIn("fixture-pass", serialized)
+        self.assertNotIn("fixture-query", serialized)
+        self.assertIn("https://private-upstream.invalid/account?[redacted]", serialized)
 
     def test_numeric_upstream_error_code_is_preserved(self) -> None:
         # OpenAI-compatible providers 常用 JSON 数字 code 表示参数错误
@@ -3216,7 +3222,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             transformed["error"]["message"],
-            "upstream HTTP 400 (1210): API 调用参数有误",
+            "API 调用参数有误 [上游 400 invalid_request_error · 1210]",
         )
         code, message = protocol_errors.upstream_error_evidence(
             {"error": {"code": 1302, "message": "账户达到速率限制"}}
@@ -3233,7 +3239,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         self.assertEqual(
             transformed["error"]["message"],
-            "upstream HTTP 429: usage window exhausted; retry in 5h",
+            "usage window exhausted; retry in 5h [上游 429 rate_limit_error]",
         )
 
     def test_double_encoded_upstream_error_preserves_safe_code_and_message(self) -> None:
@@ -3257,7 +3263,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         self.assertEqual(transformed["error"]["type"], "rate_limit_error")
         self.assertEqual(
             transformed["error"]["message"],
-            "upstream HTTP 429 (1308): usage window exhausted; retry after 19:16:38",
+            "usage window exhausted; retry after 19:16:38 [上游 429 rate_limit_error · 1308]",
         )
 
     def test_safe_upstream_error_message_is_redacted_before_forwarding(self) -> None:
@@ -3277,9 +3283,9 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         message = transformed["error"]["message"]
         self.assertIn("rate_limit", message)
         self.assertIn("[redacted-token]", message)
-        self.assertIn("[redacted-url]", message)
+        # 不含凭证的 URL 保留 scheme/host/path：它指明出错的是哪一跳。
+        self.assertIn("https://private-upstream.invalid/account", message)
         self.assertNotIn("fixture-secret-token", message)
-        self.assertNotIn("private-upstream", message)
 
     def test_relay_error_shapes_without_the_canonical_envelope(self) -> None:
         # 中转站常省掉 {"error": {...}} 外壳。证据通道对这些形状一律通用，
@@ -3327,15 +3333,22 @@ class ResponseCapabilityContractTests(unittest.TestCase):
 
         # HTML 里的凭证形状仍然过脱敏器，与 JSON 通道同一条规则。
         code, message = protocol_errors.upstream_error_evidence(
-            "<html><head><title>401 from https://relay.invalid/v1</title></head></html>"
+            "<html><head><title>401 from "
+            "https://fixture-user:fixture-pass@relay.invalid/v1?key=fixture-query"  # secret-guard: allow embedded-url-credential
+            "</title></head></html>"
         )
         self.assertIsNone(code)
-        self.assertIn("[redacted-url]", message)
-        self.assertNotIn("relay.invalid", message)
+        self.assertEqual(message, "401 from https://relay.invalid/v1?[redacted]")
 
-        # 非 HTML 的纯文本不该被当页面解析，仍然 fail-closed 回落 None。
+        # 没有 title/h1 的 HTML 不拿首行标签充数，只进日志。
         self.assertEqual(
-            protocol_errors.upstream_error_evidence("upstream connect error"), (None, None)
+            protocol_errors.upstream_error_evidence("<html>405</html>"), (None, None)
+        )
+
+        # 非 HTML 的纯文本取首个非空行：这是上游唯一给出的原因。
+        self.assertEqual(
+            protocol_errors.upstream_error_evidence("\nupstream connect error\nretry"),
+            (None, "upstream connect error"),
         )
 
         # 取证要真的走到下游错误体，否则客户端看到的仍是一个裸状态码。
@@ -3343,7 +3356,7 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         self.assertEqual(downstream["error"]["type"], "timeout_error")
         self.assertEqual(
             downstream["error"]["message"],
-            "upstream HTTP 504: 504 Gateway Time-out / nginx",
+            "504 Gateway Time-out / nginx [上游 504 timeout_error]",
         )
 
     def test_sanitizer_redacts_assignment_and_key_shapes(self) -> None:
@@ -3358,11 +3371,10 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         self.assertNotIn("fixture-secret", redacted)
         self.assertNotIn("fixtureSECRET", redacted)
-        self.assertNotIn("vendor.invalid", redacted)
+        self.assertIn("https://vendor.invalid/x", redacted)
         self.assertIn("auth failed", redacted)
         self.assertIn("[redacted-key]", redacted)
         self.assertIn("[redacted-token]", redacted)
-        self.assertIn("[redacted-url]", redacted)
 
         # 真实原因本身不含凭证形状时必须原样存活，中文不受影响。
         self.assertEqual(
@@ -3370,7 +3382,8 @@ class ResponseCapabilityContractTests(unittest.TestCase):
             "您的账户已达到速率限制，请控制请求频率",
         )
         # 长度有界、控制字符剥离、空文本回落 None。
-        self.assertEqual(len(protocol_errors.sanitize_error_text("x" * 900)), 512)
+        self.assertEqual(len(protocol_errors.sanitize_error_text("x" * 900)), 900)
+        self.assertEqual(len(protocol_errors.sanitize_error_text("x" * 2000)), 1024)
         self.assertEqual(protocol_errors.sanitize_error_text("a\r\nb"), "a b")
         self.assertIsNone(protocol_errors.sanitize_error_text("   "))
 
@@ -3513,7 +3526,10 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         self.assertIn(b"event: error", rendered)
         payload = json.loads(rendered.split(b"data: ", 1)[1].decode("utf-8"))
         self.assertEqual(payload["error"]["type"], "api_error")
-        self.assertIn("(1302)", payload["error"]["message"])
+        self.assertEqual(
+            payload["error"]["message"],
+            "5 小时限额已用完 token=[redacted] [openai_chat · 上游 api_error · 1302]",
+        )
         self.assertIn("5 小时限额已用完", payload["error"]["message"])
         self.assertNotIn("fixture-secret", payload["error"]["message"])
         self.assertTrue(bridge.upstream_terminal)
@@ -3531,11 +3547,357 @@ class ResponseCapabilityContractTests(unittest.TestCase):
         )
         self.assertIn(b"upstream overloaded", rendered)
 
-        # 非 object/string 的 error 仍然 fail closed，不猜形状。
-        invalid = protocol.AnthropicStreamBridge("openai_chat")
-        with self.assertRaises(protocol.ProtocolTransformError) as raised:
-            invalid.feed("message", json.dumps({"error": [1, 2, 3]}))
-        self.assertEqual(raised.exception.code, "HUB_UPSTREAM_RESPONSE_INVALID")
+        # 非 object/string 的 error 也是错误：转成 JSON 文本当原因，不再拒绝。
+        odd_shape = protocol.AnthropicStreamBridge("openai_chat")
+        rendered = b"".join(
+            odd_shape.feed("message", json.dumps({"error": [1, 2, 3]}))
+        )
+        self.assertTrue(odd_shape.error_terminal)
+        self.assertEqual(odd_shape.terminal_error_message, "[1, 2, 3]")
+        self.assertIn(b"event: error", rendered)
+
+
+def _stream_error(rendered: bytes) -> dict:
+    return json.loads(rendered.rsplit(b"event: error\ndata: ", 1)[1].decode("utf-8"))
+
+
+class UpstreamErrorDisplayContractTests(unittest.TestCase):
+    """错误显示第一批：上游原文优先、type 以上游为准、先读错误再验形状。"""
+
+    def test_quota_code_maps_to_rate_limit_and_is_not_retryable(self) -> None:
+        evidence = protocol_errors.upstream_error_details(
+            {
+                "error": {
+                    "message": "You exceeded your current quota",
+                    "type": "insufficient_quota",
+                    "code": "insufficient_quota",
+                }
+            }
+        )
+        self.assertEqual(
+            protocol_errors.resolve_error_type(evidence, 429),
+            ("rate_limit_error", False),
+        )
+        billing = protocol_errors.UpstreamErrorEvidence(code="billing_hard_limit_reached")
+        self.assertFalse(protocol_errors.resolve_error_type(billing, 400)[1])
+        # 上游 code 优先于 OpenAI 的宽泛 type，映射不到才看状态码。
+        for fields, status, expected in (
+            ({"code": "model_not_found", "type": "invalid_request_error"}, 404, "not_found_error"),
+            ({"code": "invalid_api_key", "type": "invalid_request_error"}, 401, "authentication_error"),
+            ({"code": "server_overloaded"}, 503, "overloaded_error"),
+            ({"code": "model_overloaded"}, None, "overloaded_error"),
+            ({"code": "rate_limit_exceeded"}, None, "rate_limit_error"),
+            ({"code": "context_length_exceeded"}, 400, "invalid_request_error"),
+            ({"code": "1302"}, 529, "overloaded_error"),
+            ({"code": "1302"}, None, "api_error"),
+        ):
+            with self.subTest(fields=fields, status=status):
+                evidence = protocol_errors.UpstreamErrorEvidence(**fields)
+                self.assertEqual(
+                    protocol_errors.resolve_error_type(evidence, status),
+                    (expected, True),
+                )
+
+    def test_context_overflow_appends_the_claude_code_marker_once(self) -> None:
+        overflow = protocol_errors.UpstreamErrorEvidence(
+            code="context_length_exceeded",
+            message="This model's maximum context length is 128000 tokens.",
+        )
+        message = protocol_errors.format_error_message(
+            overflow, status=400, channel="ch", api_format="openai_chat"
+        )
+        self.assertEqual(
+            message,
+            "This model's maximum context length is 128000 tokens. "
+            "(prompt is too long) "
+            "[ch · openai_chat · 上游 400 invalid_request_error · context_length_exceeded]",
+        )
+        already = protocol_errors.UpstreamErrorEvidence(message="prompt is too long: 9 > 8")
+        self.assertEqual(
+            protocol_errors.format_error_message(
+                already, status=400, channel=None, api_format=None
+            ).count("prompt is too long"),
+            1,
+        )
+
+    def test_extraction_keeps_type_param_detail_lists_text_and_spaced_codes(self) -> None:
+        evidence = protocol_errors.upstream_error_details(
+            {
+                "error": {
+                    "message": "bad value",
+                    "type": "invalid_request_error",
+                    "param": "messages[0].content",
+                    "code": "upstream error",
+                }
+            }
+        )
+        self.assertEqual(
+            evidence,
+            protocol_errors.UpstreamErrorEvidence(
+                code="upstream error",
+                message="bad value",
+                type="invalid_request_error",
+                param="messages[0].content",
+            ),
+        )
+        fastapi = protocol_errors.upstream_error_details(
+            {
+                "detail": [
+                    {"loc": ["body", "model"], "msg": "field required", "type": "missing"},
+                    {"loc": ["body", "max_tokens"], "msg": "must be positive"},
+                ]
+            }
+        )
+        self.assertEqual(
+            fastapi.message, "body.model: field required; body.max_tokens: must be positive"
+        )
+        self.assertEqual(
+            protocol_errors.upstream_error_details("\n\n  no healthy upstream  \nmore"),
+            protocol_errors.UpstreamErrorEvidence(message="no healthy upstream"),
+        )
+        # 超过 64 字符或含凭证形状的 code 不当 code 转发。
+        long_code = protocol_errors.upstream_error_details(
+            {"error": {"code": "x" * 65, "message": "m"}}
+        )
+        self.assertIsNone(long_code.code)
+        key_code = protocol_errors.upstream_error_details(
+            {"error": {"code": "sk-" + "fixtureSECRET0123456789", "message": "m"}}
+        )
+        self.assertNotIn("fixtureSECRET", key_code.code or "")
+
+    def test_url_redaction_strips_only_credential_parts(self) -> None:
+        self.assertEqual(
+            protocol_errors.sanitize_error_text("https://u:p@h/p?key=x"),  # secret-guard: allow embedded-url-credential
+            "https://h/p?[redacted]",
+        )
+        self.assertEqual(
+            protocol_errors.sanitize_error_text(
+                "at http://fixture-user:pa/ss@relay.invalid/v1/chat#frag done"
+            ),
+            "at http://relay.invalid/v1/chat#[redacted] done",
+        )
+        self.assertEqual(
+            protocol_errors.sanitize_error_text("see https://api.invalid/v1/models"),
+            "see https://api.invalid/v1/models",
+        )
+
+    def test_url_path_segment_that_looks_like_a_key_is_redacted(self) -> None:
+        # Keys carried as a path segment must not survive now that the path is
+        # forwarded; ordinary route words and short ids must.
+        opaque = "Fixture0Path1Token2Value3"
+        for url, expected in (
+            (
+                f"https://api.invalid/bot{opaque}/sendMessage",
+                "https://api.invalid/[redacted]/sendMessage",
+            ),
+            (
+                f"https://api.invalid/v1/key/{opaque}",
+                "https://api.invalid/v1/key/[redacted]",
+            ),
+            (
+                "https://api.invalid/v1/projects/proj-42/chat/completions",
+                "https://api.invalid/v1/projects/proj-42/chat/completions",
+            ),
+        ):
+            with self.subTest(url=url):
+                redacted = protocol_errors.sanitize_error_text(url)
+                self.assertEqual(redacted, expected)
+                self.assertNotIn(opaque, redacted)
+
+    def test_sanitizer_bounds_text_at_1024_characters(self) -> None:
+        self.assertEqual(len(protocol_errors.sanitize_error_text("y" * 1024)), 1024)
+        self.assertEqual(len(protocol_errors.sanitize_error_text("y" * 5000)), 1024)
+
+    def test_embedded_error_bodies_are_recognized_with_inferred_status(self) -> None:
+        chat = protocol_errors.embedded_upstream_error(
+            {"error": {"code": "invalid_api_key", "message": "bad key"}}, "openai_chat"
+        )
+        self.assertEqual(chat[1], 401)
+        self.assertEqual(chat[0].message, "bad key")
+        unknown = protocol_errors.embedded_upstream_error(
+            {"error": "something broke"}, "openai_chat"
+        )
+        self.assertEqual(unknown[1], 502)
+        failed = protocol_errors.embedded_upstream_error(
+            {"status": "failed", "error": {"code": "rate_limit_exceeded", "message": "m"}},
+            "openai_responses",
+        )
+        self.assertEqual(failed[1], 429)
+        # 正常响应与带内容的响应不归这里管。
+        self.assertIsNone(
+            protocol_errors.embedded_upstream_error(
+                {"choices": [{"message": {}}], "error": None}, "openai_chat"
+            )
+        )
+        self.assertIsNone(
+            protocol_errors.embedded_upstream_error(
+                {"status": "completed", "output": []}, "openai_responses"
+            )
+        )
+
+    def test_responses_flat_error_event_carries_text_and_type(self) -> None:
+        bridge = protocol.AnthropicStreamBridge(
+            "openai_responses", error_context=("relay", "openai_responses")
+        )
+        rendered = b"".join(
+            bridge.feed(
+                "error",
+                json.dumps(
+                    {
+                        "type": "error",
+                        "code": "rate_limit_exceeded",
+                        "message": "Rate limit reached for requests",
+                        "param": None,
+                        "sequence_number": 3,
+                    }
+                ),
+            )
+        )
+        error = _stream_error(rendered)["error"]
+        self.assertEqual(error["type"], "rate_limit_error")
+        self.assertEqual(
+            error["message"],
+            "Rate limit reached for requests "
+            "[relay · openai_responses · 上游 rate_limit_error · rate_limit_exceeded]",
+        )
+        self.assertEqual(bridge.terminal_error_type, "rate_limit_error")
+
+    def test_chat_named_error_event_reports_reason_instead_of_dropping_it(self) -> None:
+        for data, expected_type, expected_text in (
+            (
+                json.dumps({"error": {"code": "rate_limit_exceeded",
+                                      "message": "Rate limit reached"}}),
+                "rate_limit_error",
+                "Rate limit reached",
+            ),
+            (
+                json.dumps({"message": "model is overloaded",
+                            "code": "model_overloaded"}),
+                "overloaded_error",
+                "model is overloaded",
+            ),
+            ("upstream relay timed out", "api_error", "upstream relay timed out"),
+        ):
+            with self.subTest(data=data):
+                bridge = protocol.AnthropicStreamBridge(
+                    "openai_chat", error_context=("fast", "openai_chat")
+                )
+                error = _stream_error(b"".join(bridge.feed("error", data)))["error"]
+                self.assertEqual(error["type"], expected_type)
+                self.assertTrue(error["message"].startswith(expected_text))
+                self.assertIn("[fast · openai_chat · 上游", error["message"])
+                self.assertTrue(bridge.error_terminal)
+
+    def test_failed_response_with_output_still_reports_reason_and_degrades(self) -> None:
+        bridge = protocol.AnthropicStreamBridge("openai_responses")
+        rendered = b"".join(
+            bridge.feed(
+                "response.failed",
+                json.dumps(
+                    {
+                        "type": "response.failed",
+                        "response": {
+                            "id": "resp_changed",
+                            "status": "failed",
+                            "output": [{"type": "message", "content": []}],
+                            "error": {"code": "server_error", "message": "boom"},
+                        },
+                    }
+                ),
+            )
+        )
+        self.assertIn("boom", _stream_error(rendered)["error"]["message"])
+        self.assertIn("HUB_DEGRADE_FAILED_OUTPUT_DROPPED", bridge.warning_codes)
+        self.assertEqual(bridge.terminal_error_code, "server_error")
+
+    def test_stream_overload_frames_are_typed_as_overloaded(self) -> None:
+        for api_format, event, payload in (
+            ("openai_chat", "message", {"error": {"code": "model_overloaded", "message": "busy"}}),
+            (
+                "openai_responses",
+                "error",
+                {"type": "error", "error": {"type": "overloaded_error", "message": "busy"}},
+            ),
+        ):
+            with self.subTest(api_format=api_format):
+                bridge = protocol.AnthropicStreamBridge(api_format)
+                rendered = b"".join(bridge.feed(event, json.dumps(payload)))
+                self.assertEqual(_stream_error(rendered)["error"]["type"], "overloaded_error")
+
+    def test_unknown_chat_finish_reason_ends_the_stream_with_an_error(self) -> None:
+        bridge = protocol.AnthropicStreamBridge("openai_chat")
+        rendered = b"".join(
+            bridge.feed(
+                "message",
+                json.dumps(
+                    {
+                        "id": "chatcmpl_fixture",
+                        "choices": [
+                            {"delta": {"content": "part"}, "finish_reason": "network_error"}
+                        ],
+                    }
+                ),
+            )
+        )
+        self.assertIn(b'"text":"part"', rendered)
+        error = _stream_error(rendered)["error"]
+        self.assertEqual(error["type"], "api_error")
+        self.assertIn("finish_reason 'network_error'", error["message"])
+        self.assertTrue(bridge.error_terminal)
+        self.assertNotIn(b"message_stop", rendered)
+
+    def test_unknown_responses_incomplete_reason_ends_the_stream_with_an_error(self) -> None:
+        bridge = protocol.AnthropicStreamBridge("openai_responses")
+        rendered = b"".join(
+            bridge.feed(
+                "response.incomplete",
+                json.dumps(
+                    {
+                        "type": "response.incomplete",
+                        "response": {
+                            "id": "resp_fixture",
+                            "status": "incomplete",
+                            "incomplete_details": {"reason": "upstream_disconnected"},
+                            "output": [],
+                        },
+                    }
+                ),
+            )
+        )
+        error = _stream_error(rendered)["error"]
+        self.assertIn(
+            "incomplete_details.reason 'upstream_disconnected'", error["message"]
+        )
+        self.assertTrue(bridge.error_terminal)
+        self.assertNotIn(b"message_stop", rendered)
+
+    def test_unknown_nonstream_reasons_raise_the_dedicated_stop_reason_error(self) -> None:
+        cases = {
+            "openai_chat": {
+                "id": "chatcmpl_fixture",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "part"},
+                        "finish_reason": "network_error",
+                    }
+                ],
+            },
+            "openai_responses": {
+                "id": "resp_fixture",
+                "status": "incomplete",
+                "incomplete_details": {"reason": "upstream_disconnected"},
+                "output": [],
+            },
+        }
+        for api_format, body in cases.items():
+            with self.subTest(api_format=api_format):
+                with self.assertRaises(protocol.UpstreamStopReasonError) as raised:
+                    protocol.prepare_response(body, api_format)
+                self.assertEqual(
+                    raised.exception.code, "HUB_UPSTREAM_STOP_REASON_UNMAPPABLE"
+                )
+                self.assertIn(raised.exception.reason, {"network_error", "upstream_disconnected"})
 
 
 if __name__ == "__main__":

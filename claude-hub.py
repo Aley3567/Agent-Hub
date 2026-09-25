@@ -31,6 +31,7 @@ import time
 import zlib
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import urlparse
@@ -45,15 +46,21 @@ from claude1_protocol import (
     ProtocolRequestError,
     ProtocolTransformError,
     SSEParser,
+    UpstreamStopReasonError,
     prepare_request,
     prepare_response,
     protocol_format_for_endpoint,
     sse_event,
 )
 from claude1_protocol_errors import (
+    UpstreamErrorEvidence,
+    UpstreamErrorReport,
+    embedded_upstream_error,
+    report_upstream_error,
+    resolve_error_type,
     sanitize_error_text,
-    transform_error,
-    upstream_error_evidence,
+    terminal_reason_evidence,
+    upstream_error_details,
 )
 from claude1_account_pool import (
     AccountCandidate,
@@ -528,10 +535,11 @@ def record_error(
     elapsed_ms: int | None = None,
     telemetry: dict | None = None,
     degrade_codes: tuple[str, ...] = (),
+    error_type: str | None = None,
 ) -> None:
     """把一条已脱敏的错误事件追加到 JSONL。绝不能搞挂转发主路径，全部异常静默。
 
-    ``code``/``message`` 只接受 ``upstream_error_evidence`` /
+    ``code``/``message``/``error_type`` 只接受 ``upstream_error_details`` /
     ``sanitize_error_text`` 清洗过的文本；请求或响应 payload 一律不落盘。
 
     ``instance_id``/``account_id``/``elapsed_ms`` 与 ``record_usage`` 同名同义；
@@ -551,6 +559,7 @@ def record_error(
             ("format", api_format),
             ("status", status),
             ("code", code),
+            ("type", error_type),
             ("message", message),
             ("exc", exc_type),
             ("route", route),
@@ -881,6 +890,7 @@ class RouteTargetExhausted(Exception):
         evidence_code: str | None = None,
         evidence_message: str | None = None,
         degrade_codes: tuple[str, ...] = (),
+        evidence_type: str | None = None,
     ):
         super().__init__(f"route target exhausted after upstream {status}")
         self.status = status
@@ -892,6 +902,7 @@ class RouteTargetExhausted(Exception):
         self.account_id = account_id
         self.evidence_code = evidence_code
         self.evidence_message = evidence_message
+        self.evidence_type = evidence_type
         self.degrade_codes = tuple(degrade_codes)
 
 
@@ -908,15 +919,10 @@ async def _route_target_exhausted(
     buffered request body is what gets replayed, not the response.  Any
     failure while reading evidence degrades to a status-only exception.
     """
-    evidence_code = None
-    evidence_message = None
+    evidence = UpstreamErrorEvidence()
     try:
         raw = await _read_decoded_upstream_body(upstream)
-        try:
-            decoded = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            decoded = raw.decode("utf-8", "replace")
-        evidence_code, evidence_message = upstream_error_evidence(decoded)
+        evidence = _decode_upstream_error(raw)[1]
     except Exception:
         pass
     return RouteTargetExhausted(
@@ -924,8 +930,9 @@ async def _route_target_exhausted(
         upstream.headers.get("retry-after"),
         alias=alias,
         account_id=account_id,
-        evidence_code=evidence_code,
-        evidence_message=evidence_message,
+        evidence_code=evidence.code,
+        evidence_message=evidence.message,
+        evidence_type=evidence.type,
         degrade_codes=degrade_codes,
     )
 
@@ -1021,7 +1028,7 @@ def translated_stream_error_evidence(
     """Return a safe code/message for an OpenAI stream that cannot continue."""
     safe_provider = sanitize_error_text(str(provider_name or "unknown provider"))
     # Keep the diagnostic code/path visible within sanitize_error_text's
-    # bounded 512-character envelope even if a provider has a pathological
+    # bounded 1024-character envelope even if a provider has a pathological
     # display name.
     safe_provider = (safe_provider or "unknown provider")[:80]
     if isinstance(exc, ProtocolTransformError):
@@ -1718,6 +1725,10 @@ class _SSETerminalTracker:
         self._event_type: bytes | None = None
         self.terminal_kind: str | None = None
         self._event_has_data = False
+        # Data of the current ``event: error``, kept only so the journal can
+        # name the upstream reason; the downstream bytes are never touched.
+        self._error_data = bytearray()
+        self.terminal_error_data: bytes | None = None
         self._skip_leading_lf = False
         self._utf8_decoder = codecs.getincrementaldecoder("utf-8")(
             errors="strict"
@@ -1823,12 +1834,19 @@ class _SSETerminalTracker:
             ):
                 self.terminal = True
                 self.terminal_kind = self._event_type.decode("ascii")
+                if self._event_type == b"error":
+                    self.terminal_error_data = bytes(self._error_data)
             self._event_type = None
             self._event_has_data = False
+            self._error_data.clear()
             return
         field, separator, value = line.partition(b":")
         if field == b"data":
             self._event_has_data = True
+            if self._event_type == b"error" and len(self._error_data) < SSE_LINE_LIMIT:
+                self._error_data.extend(
+                    value[1:] if value.startswith(b" ") else value
+                )
             if self._classify_payloads:
                 if separator and value.startswith(b" "):
                     value = value[1:]
@@ -1839,6 +1857,19 @@ class _SSETerminalTracker:
         if separator and value.startswith(b" "):
             value = value[1:]
         self._event_type = value if separator else b""
+
+    def error_evidence(self) -> dict:
+        """Journal fields naming the reason inside an upstream ``error`` event."""
+        if not self.terminal_error_data:
+            return {}
+        evidence = upstream_error_details(
+            self.terminal_error_data.decode("utf-8", "replace")
+        )
+        return {
+            "code": evidence.code,
+            "message": evidence.message,
+            "error_type": evidence.type,
+        }
 
     def _classify_data(self, value: bytes) -> None:
         """Decide whether this SSE payload carries commit-worthy content.
@@ -2570,56 +2601,46 @@ async def _handle_transformed_messages(
                     decoded = json.loads(raw.decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     decoded = raw.decode("utf-8", "replace")
-                if upstream.status >= 400:
-                    # One shared evidence extraction feeds the downstream
-                    # shell, the log line and the response header, so every
-                    # surface shows the same sanitized upstream reason.
-                    evidence_code, evidence_message, body = _prepare_upstream_error(
-                        decoded, upstream.status
+                base_headers = {
+                    "x-hub-channel": alias,
+                    "x-hub-model": model_out,
+                    "x-hub-upstream-format": api_format,
+                    "x-hub-account": account_attempt.lease.member,
+                    **route_headers,
+                }
+                if request_warning_codes:
+                    base_headers["x-hub-protocol-warnings"] = ",".join(
+                        request_warning_codes
                     )
-                    detail = ""
-                    if evidence_code:
-                        detail = f" ({evidence_code})"
-                    if evidence_message:
-                        detail += f": {evidence_message}"
-                    log(
-                        f"{request.path} '{model_in}' -> {alias}/{model_out} "
-                        f"{api_format} upstream {upstream.status}{detail}"
+                # An HTTP 200 whose body is an error is read as that error
+                # before the response translator can reject its shape.
+                embedded = (
+                    embedded_upstream_error(decoded, api_format)
+                    if upstream.status < 400
+                    else None
+                )
+                if upstream.status >= 400 or embedded is not None:
+                    evidence, response_status = embedded or (
+                        upstream_error_details(decoded),
+                        upstream.status,
                     )
-                    record_error(
-                        phase="response",
-                        channel=alias,
-                        model=model_out,
-                        api_format=api_format,
-                        status=upstream.status,
-                        code=evidence_code,
-                        message=evidence_message,
-                        route=route_name,
-                        instance_id=cfg.get("instance_id"),
-                        account_id=journal_account,
-                        elapsed_ms=int((time.monotonic() - started) * 1000),
-                        degrade_codes=request_warning_codes,
-                    )
-                    error_headers = {
-                        "x-hub-channel": alias,
-                        "x-hub-model": model_out,
-                        "x-hub-upstream-format": api_format,
-                        "x-hub-account": account_attempt.lease.member,
-                        **route_headers,
-                    }
-                    if evidence_code:
-                        error_headers["x-hub-upstream-code"] = evidence_code
-                    if request_warning_codes:
-                        error_headers["x-hub-protocol-warnings"] = ",".join(
-                            request_warning_codes
-                        )
-                    retry_after = upstream.headers.get("retry-after")
-                    if upstream.status == 429 and retry_after:
-                        error_headers["retry-after"] = retry_after
-                    return web.json_response(
-                        body,
-                        status=upstream.status,
-                        headers=error_headers,
+                    return _transformed_upstream_error_response(
+                        _prepare_upstream_error(
+                            evidence,
+                            upstream.status,
+                            channel=alias,
+                            api_format=api_format,
+                        ),
+                        upstream_status=upstream.status,
+                        response_status=response_status,
+                        upstream_headers=upstream.headers,
+                        journal=journal,
+                        account_id=account_attempt.lease.member,
+                        log_prefix=(
+                            f"{request.path} '{model_in}' -> {alias}/{model_out} "
+                            f"{api_format}"
+                        ),
+                        headers=base_headers,
                     )
                 if not isinstance(decoded, dict):
                     raise ProtocolTransformError(
@@ -2646,13 +2667,7 @@ async def _handle_transformed_messages(
                     f"{api_format} {upstream.status} json "
                     f"{time.monotonic() - started:.1f}s {len(raw)}B"
                 )
-                response_headers = {
-                    "x-hub-channel": alias,
-                    "x-hub-model": model_out,
-                    "x-hub-upstream-format": api_format,
-                    "x-hub-account": account_attempt.lease.member,
-                    **route_headers,
-                }
+                response_headers = dict(base_headers)
                 if warning_codes:
                     response_headers["x-hub-protocol-warnings"] = ",".join(
                         warning_codes
@@ -2681,7 +2696,9 @@ async def _handle_transformed_messages(
                     "upstream SSE uses an unsupported content encoding"
                 ) from exc
             parser = SSEParser()
-            bridge = AnthropicStreamBridge(api_format)
+            bridge = AnthropicStreamBridge(
+                api_format, error_context=(alias, api_format)
+            )
             response = web.StreamResponse(
                 status=200,
                 headers={
@@ -2733,6 +2750,7 @@ async def _handle_transformed_messages(
                         account_id=journal_account,
                         code=bridge.terminal_error_code,
                         message=bridge.terminal_error_message,
+                        error_type=bridge.terminal_error_type,
                         exc_type="UpstreamSSEError",
                         telemetry=stream_telemetry.snapshot(),
                     )
@@ -2862,30 +2880,13 @@ async def _handle_transformed_messages(
         )
         return _account_pool_error(exc)
     except ProtocolTransformError as exc:
-        log(
-            f"{request.path} '{model_in}' -> {alias}/{model_out} "
-            f"{api_format} TRANSFORM FAIL {exc.code} {exc.path or '$'}"
-        )
-        record_error(
-            phase="response",
-            channel=alias,
-            model=model_out,
-            api_format=api_format,
-            code=exc.code,
-            message=sanitize_error_text(
-                f"protocol transform failed at {exc.path or '$'}"
-            ),
-            route=route_name,
-            status=502,
-            instance_id=cfg.get("instance_id"),
+        return _transform_failure_response(
+            exc,
+            journal=journal,
             account_id=journal_account,
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-            degrade_codes=request_warning_codes,
-        )
-        return anthropic_error(
-            502,
-            f"hub: channel '{alias}' returned an incompatible {api_format} response",
-            "api_error",
+            log_prefix=(
+                f"{request.path} '{model_in}' -> {alias}/{model_out} {api_format}"
+            ),
         )
     except TRANSPORT_BROKEN_ERRORS as exc:
         elapsed_ms = int((time.monotonic() - started) * 1000)
@@ -2987,11 +2988,14 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
         if last_exhausted is None:
             raise RouteError(500, f"route '{route_name}' produced no outcome")
         status = last_exhausted.status
-        error_type = {
-            401: "authentication_error",
-            403: "permission_error",
-            429: "rate_limit_error",
-        }.get(status, "api_error")
+        error_type, retryable = resolve_error_type(
+            UpstreamErrorEvidence(
+                code=last_exhausted.evidence_code,
+                message=last_exhausted.evidence_message,
+                type=last_exhausted.evidence_type,
+            ),
+            status,
+        )
         message = f"hub: route '{route_name}' exhausted all {len(targets)} targets"
         # Name the last rejection's real reason so quota/rate-limit text from
         # the upstream survives route failover instead of dying in the log.
@@ -3010,6 +3014,7 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
             channel=last_exhausted.alias,
             status=status,
             code=last_exhausted.evidence_code,
+            error_type=error_type,
             message=last_exhausted.evidence_message,
             route=route_name,
             instance_id=cfg.get("instance_id"),
@@ -3026,6 +3031,8 @@ async def handle_messages(request: web.Request) -> web.StreamResponse:
             response.headers["x-hub-route"] = route_name
         if last_exhausted.retry_after:
             response.headers["retry-after"] = last_exhausted.retry_after
+        if not retryable:
+            response.headers["x-should-retry"] = "false"
         return response
     except RouteError as exc:
         log(f"{request.path} '{model_in}' -> ROUTE ERROR {exc.status}: {exc.message}")
@@ -3140,20 +3147,18 @@ def _token_estimate_response(
     )
 
 
-def _decode_upstream_error(raw: bytes) -> tuple[object, str | None, str | None]:
-    """Decode an upstream error body and pull its evidence pair out of it.
+def _decode_upstream_error(raw: bytes) -> tuple[object, UpstreamErrorEvidence]:
+    """Decode an upstream error body and pull its evidence out of it.
 
-    JSON when the bytes parse, replacement-char text otherwise -- the shape both
-    ``upstream_error_evidence`` and ``transform_error`` accept.  A 504 from a
-    gateway is commonly an HTML page, so the text arm is the normal case, not a
-    fallback.
+    JSON when the bytes parse, replacement-char text otherwise -- the shape
+    ``upstream_error_details`` accepts.  A 504 from a gateway is commonly an
+    HTML page, so the text arm is the normal case, not a fallback.
     """
     try:
         decoded = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         decoded = raw.decode("utf-8", "replace")
-    code, message = upstream_error_evidence(decoded)
-    return decoded, code, message
+    return decoded, upstream_error_details(decoded)
 
 
 def _with_transport_configuration_hint(
@@ -3169,28 +3174,119 @@ def _with_transport_configuration_hint(
     return TRANSPORT_CONFIGURATION_HINT
 
 
-def _transform_upstream_error_with_hint(
-    decoded: object, status: int
-) -> dict:
-    body = transform_error(decoded, status)
-    error = body.get("error")
-    if isinstance(error, dict):
-        message = error.get("message")
-        if isinstance(message, str):
-            error["message"] = _with_transport_configuration_hint(status, message)
-    return body
-
-
 def _prepare_upstream_error(
-    decoded: object, status: int
-) -> tuple[str | None, str | None, dict]:
-    """Build the shared safe evidence and downstream error shell."""
-    code, message = upstream_error_evidence(decoded)
-    return (
-        code,
-        _with_transport_configuration_hint(status, message),
-        _transform_upstream_error_with_hint(decoded, status),
+    evidence: UpstreamErrorEvidence,
+    status: int,
+    *,
+    channel: str,
+    api_format: str,
+) -> UpstreamErrorReport:
+    """Build the one report every surface of an upstream failure reads from.
+
+    ``status`` is what the upstream sent.  The 451 network-policy hint joins
+    the upstream text before wording, so it sits ahead of the bracket rather
+    than trailing it.
+    """
+    hinted = _with_transport_configuration_hint(status, evidence.message)
+    if hinted != evidence.message:
+        evidence = replace(evidence, message=hinted)
+    return report_upstream_error(
+        evidence, status=status, channel=channel, api_format=api_format
     )
+
+
+def _transformed_upstream_error_response(
+    report: UpstreamErrorReport,
+    *,
+    upstream_status: int,
+    response_status: int,
+    upstream_headers,
+    journal: "_TurnJournal",
+    account_id: str,
+    log_prefix: str,
+    headers: dict,
+) -> web.Response:
+    """Answer an upstream failure on the transformed (OpenAI) path.
+
+    One evidence extraction feeds the downstream shell, the log line, the
+    journal row and the response headers, so every surface shows the same
+    sanitized upstream reason.  ``response_status`` differs from
+    ``upstream_status`` only for an HTTP 200 whose body is an error: the
+    client gets the status the error stands for, so Claude Code classifies a
+    rate limit as one.
+    """
+    evidence = report.evidence
+    detail = f" ({evidence.code})" if evidence.code else ""
+    if evidence.message:
+        detail += f": {evidence.message}"
+    shown_status = (
+        str(upstream_status)
+        if upstream_status == response_status
+        else f"{upstream_status} (error body, answered {response_status})"
+    )
+    log(f"{log_prefix} upstream {shown_status}{detail}")
+    journal.error(
+        phase="response",
+        account_id=account_id,
+        status=response_status,
+        code=evidence.code,
+        message=evidence.message,
+        error_type=report.error_type,
+    )
+    if evidence.code and evidence.code.isascii():
+        # Codes may now be free text; a non-ASCII header value is not worth
+        # the risk of a client rejecting the whole response over it.
+        headers["x-hub-upstream-code"] = evidence.code
+    if not report.retryable:
+        headers["x-should-retry"] = "false"
+    retry_after = upstream_headers.get("retry-after")
+    if response_status == 429 and retry_after:
+        headers["retry-after"] = retry_after
+    return web.json_response(report.body(), status=response_status, headers=headers)
+
+
+def _transform_failure_response(
+    exc: ProtocolTransformError,
+    *,
+    journal: "_TurnJournal",
+    account_id: str | None,
+    log_prefix: str,
+) -> web.Response:
+    """Answer a successful upstream body the response translator cannot carry.
+
+    The client sees the translator's own reason and the code/path that
+    rejected it, not a bare "incompatible response".  An unmappable terminal
+    reason is the upstream's verdict rather than the hub's, so it is worded
+    as an upstream error that quotes the reason.
+    """
+    location = exc.path or "$"
+    if isinstance(exc, UpstreamStopReasonError):
+        evidence = terminal_reason_evidence(exc.reason, exc.field_name)
+        hub_code = None
+    else:
+        evidence = UpstreamErrorEvidence(
+            message=sanitize_error_text(
+                f"上游返回了无法转换的 {journal.api_format} 响应：{exc}"
+            )
+        )
+        hub_code = f"{exc.code} at {location}"
+    report = report_upstream_error(
+        evidence,
+        status=200,
+        channel=journal.alias,
+        api_format=journal.api_format,
+        hub_code=hub_code,
+    )
+    log(f"{log_prefix} TRANSFORM FAIL {exc.code} {location}")
+    journal.error(
+        phase="response",
+        account_id=account_id,
+        status=502,
+        code=exc.code,
+        message=report.message,
+        error_type=report.error_type,
+    )
+    return anthropic_error(502, report.message, report.error_type)
 
 
 async def _native_upstream_error_response(
@@ -3214,10 +3310,14 @@ async def _native_upstream_error_response(
     upstream's; credentials and arbitrary headers do not.
     """
     raw = await _read_decoded_upstream_body(upstream)
-    decoded, evidence_code, evidence_message = _decode_upstream_error(raw)
-    evidence_message = _with_transport_configuration_hint(
-        upstream.status, evidence_message
+    report = _prepare_upstream_error(
+        _decode_upstream_error(raw)[1],
+        upstream.status,
+        channel=alias,
+        api_format="anthropic",
     )
+    evidence_code = report.evidence.code
+    evidence_message = report.evidence.message
     detail = f" ({evidence_code})" if evidence_code else ""
     if evidence_message:
         detail += f": {evidence_message}"
@@ -3228,6 +3328,7 @@ async def _native_upstream_error_response(
         status=upstream.status,
         code=evidence_code,
         message=evidence_message,
+        error_type=report.error_type,
     )
     headers = {
         "x-hub-channel": alias,
@@ -3236,7 +3337,7 @@ async def _native_upstream_error_response(
         "x-hub-account": account_id,
         **route_headers,
     }
-    if evidence_code:
+    if evidence_code and evidence_code.isascii():
         headers["x-hub-upstream-code"] = evidence_code
     if degrade_codes:
         headers["x-hub-protocol-warnings"] = ",".join(degrade_codes)
@@ -3247,7 +3348,7 @@ async def _native_upstream_error_response(
     if allow:
         headers["allow"] = allow
     return web.json_response(
-        _transform_upstream_error_with_hint(decoded, upstream.status),
+        report.body(),
         status=upstream.status,
         headers=headers,
     )
@@ -3883,7 +3984,7 @@ async def _forward_to_channel_attempt(
                 journal.error(
                     phase="stream",
                     account_id=journal_account,
-                    exc_type="UpstreamSSEError",
+                    exc_type="UpstreamSSEError", **sse_tracker.error_evidence(),
                     telemetry=stream_telemetry.snapshot(),
                 )
             elif usage_tracker is not None and not is_count:
@@ -3928,9 +4029,8 @@ async def _forward_to_channel_attempt(
                 evidence_code = None
                 evidence_message = None
                 if json_buf is not None:
-                    _, evidence_code, evidence_message = _decode_upstream_error(
-                        bytes(json_buf)
-                    )
+                    evidence = _decode_upstream_error(bytes(json_buf))[1]
+                    evidence_code, evidence_message = evidence.code, evidence.message
                 journal.error(
                     phase="response",
                     account_id=journal_account,

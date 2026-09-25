@@ -10,6 +10,142 @@
 > - 行号是 2026-08-19 快照，会漂移；以符号名为准。
 > - 【现状】/【部分】/【待建】三档分明，不把待建写成现状。
 
+## S27 · 错误显示第一批：出错时让用户看到上游的真实原因
+
+**状态**：✅ 2026-09-25 代码完成，经真实 Claude Code 2.1.280 端到端对照验证（见证据）；
+流式首字节前错误仍被 Claude Code 的非流重试覆盖，归 S28。
+
+**背景**：Claude Code 只显示 `error.message`，并靠 status / `error.type` / message 子串分类
+（过载 = 529 或 `"type":"overloaded_error"`；限流 = 429 或 `"type":"rate_limit_error"`；
+上下文溢出 = 子串 `prompt is too long`；`x-should-retry: false` 被 SDK 与 Claude Code 优先读取并停止重试）。
+转换路径（OpenAI Chat / Responses）此前：形状校验先于错误提取，上游原因被 `HUB_*` 码覆盖，
+上游 200 带 `{"error":...}` 时连日志都没有原因；非流转换失败只显示
+`hub: channel 'X' returned an incompatible … response`；流内 error 事件 type 固定 `api_error`；
+证据丢 `type`/`param`/非标识符 code/`detail` 列表/纯文本 body；URL 整段替换、上限 512。
+
+**做了什么**（按行为）
+
+- **证据与文案（`claude1_protocol_errors.py`，唯一 owner）**：新增 `UpstreamErrorEvidence`
+  （code/message/type/param）与 `upstream_error_details()`；`upstream_error_evidence()` 签名不变。
+  code 放宽为「脱敏后 ≤64 可打印字符」（如 new-api 的 `upstream error`）；FastAPI `detail` 列表拼 `loc: msg`；
+  非 JSON 非 HTML 取首个非空行；无 title/h1 的 HTML 仍不转发。`sanitize_error_text` 上限 1024，
+  URL 只剥 userinfo（`user:pass@`）、`?query#frag`（替换为 `?[redacted]`）与形似 key 的路径段
+  （≥20 字符且字母数字混合，防 `/bot<token>/`、`/key/<key>`），保留 scheme/host/path，其余凭证规则不变。
+  新增 `resolve_error_type()`（上游 code/type 优先，映射不到按状态码；合并了原 `transform_error`
+  与路由耗尽两张表）、`format_error_message()`（`<原文> [<channel> · <format> · 上游 <status> <type> · <code>]`，
+  上下文溢出追加 `(prompt is too long)`）、`report_upstream_error()`、`embedded_upstream_error()`、
+  `terminal_reason_evidence()`。
+- **非流（`claude-hub.py`）**：≥400 与「200 但 body 是错误」共用 `_transformed_upstream_error_response()`；
+  200 错误体的 status 由上游错误类型推断（限流 429、鉴权 401…，推不出 502）；额度用尽类加
+  `x-should-retry: false`；journal 新增 `type` 字段。转换失败改为
+  `上游返回了无法转换的 {fmt} 响应：{原因} [channel · fmt · 上游 200 · {code} at {path}]`（覆盖 S18 做法 2）。
+  路由耗尽改用 `resolve_error_type()`。原生 405/451 整形同格式。
+- **流桥（`claude1_protocol.py`）**：`_upstream_error_event()` / `_emit_upstream_error()` 收拢 Chat 与 Responses
+  两处重复；`AnthropicStreamBridge(error_context=(channel, fmt))`。Responses 的 `error` / `response.failed`
+  在信封与 identity 校验**之前**读取：官方扁平 `error` 事件、字符串 error、非 object 快照放行；
+  `response.failed` 带部分 output 时丢弃并记 `HUB_DEGRADE_FAILED_OUTPUT_DROPPED`。Chat 非 dict/str 的 error
+  转 JSON 文本。Chat 流 `event: error` 帧（JSON 信封、裸 `{message,code}` 或纯文本）按上游错误读取，
+  不再当元数据丢弃。未知 `finish_reason` / `incomplete_details.reason` / status 抛 `UpstreamStopReasonError`：
+  非流 502 + 引用 reason 原文，流内发 error 事件，不映射 `end_turn`。strict 孪生分支未动。
+- **原生流 journal**：`_SSETerminalTracker` 保留 `event: error` 的 data，只用于 journal 的 code/message/type，
+  下游字节不变。
+- **降级码目录**：`HUB_DEGRADE_FAILED_OUTPUT_DROPPED` 进 `UI/{macos,windows}/src/data/degradeCatalog.ts` 与 en.json。
+
+**证据**
+
+- 全量 `python -m unittest discover -s tests`：**1037 tests OK**（基线 1014，净 +23）；改写旧文案断言约 20 处。
+- `ruff check .` 通过；函数长度棘轮 claude-hub.py WORST 451 → 450（已收紧），`_handle_transformed_messages`
+  440 → 410，`_feed_chat` 349 → 317，`_feed_responses` 322 → 246。
+- 两端 `npm run typecheck` 通过（macOS 含 i18n 覆盖 1437 条）。
+- 进程内前后对照（测试 harness + 假上游，HEAD vs 工作树）：200 带限流错误体由
+  `502 api_error "hub: channel 'fast' returned an incompatible openai_chat response"` 变为
+  `429 rate_limit_error "Rate limit reached for grok-4.5, please retry after 20s [fast · openai_chat · 上游 200 rate_limit_error · rate_limit_exceeded · requests]"`；
+  流内限流帧 type 由 `api_error` 变为 `rate_limit_error`。
+- 端到端（真实 `claude -p`，Claude Code 2.1.280，HOME 与 CLAUDE_CONFIG_DIR 指向临时目录，本地假上游，
+  HEAD vs 工作树）：
+  - 429 `insufficient_quota`：`Request rejected (429) · upstream HTTP 429 (insufficient_quota): You exceeded…`（0.9s，
+    经一次重试）→ `Request rejected (429) · You exceeded… [quota · openai_chat · 上游 429 rate_limit_error · insufficient_quota]`（0.3s，
+    `x-should-retry: false` 生效，不再重试）。
+  - 200 带限流错误体：`502 hub: channel 'body200' returned an incompatible openai_chat response` →
+    `Request rejected (429) · Rate limit reached for grok-4.5, please retry after 20s [body200 · openai_chat · 上游 200 …]`。
+  - 400 `context_length_exceeded`：`400 upstream HTTP 400 (context_length_exceeded): …` → Claude Code 识别为
+    `Prompt is too long`，进入其自身的上下文溢出处理。
+  - 流式首帧限流：两版显示的都是 Claude Code 非流重试那次的结果（改造后带原文与来源后缀）；首字节前错误的
+    真实 status 要靠 S28 的延迟提交。
+
+**未闭环（打捞成卡，不留在代码注释里）**
+
+- 【部分】`incomplete_details` 带 `reason` 以外字段仍拒绝（`_responses_stop_reason`）；现在客户端能看到
+  `HUB_UPSTREAM_STOP_REASON_UNMAPPABLE at $.incomplete_details.<field>`，是否改为元数据降级未定。
+- 【部分】hub 自身的流内失败（`translated_stream_error_evidence`：截断、解码失败、转换失败）文案仍是旧格式。
+
+**明确不做**：strict 模式；第二批（S28–S30）；不伪造终态，不把未知终止原因当成功交付。
+
+## S28 · 转换流延迟提交与首字节保护（含 S19 附注「openai_chat 同类截断」）
+
+**状态**：【待建】。错误显示第二批之一，S27 验收后做。
+
+**目的**：转换流在收到任何上游字节前就 `response.prepare()` 提交了 200 SSE。于是：
+①上游在首个正文前发 error 帧（限流/额度），客户端拿到的是已提交流里的 error 事件——S19 实测 CC 把它渲染成
+误导性的「empty or malformed response」，且 HTTP 层 429/529 语义全失；②首个正文前干净 EOF 无终态，
+没有原生路径那样的静默重放（S19「明确不做」里单列的 openai_chat 同类截断）。
+
+**锚点**：`claude-hub.py::_handle_transformed_messages`（`await response.prepare(request)` 位于读流循环之前）；
+原生对照 `_SSETerminalTracker.commit_started`、`THINKING_HOLD_BUFFER_BYTES` / `THINKING_HOLD_MAX_SECONDS`、
+`UpstreamStreamReplayable`、`STREAM_REPLAY_ATTEMPTS`；桥侧 `AnthropicStreamBridge.error_terminal` / `terminal_error_type`。
+
+**做法（待评审）**：扣留下游提交直到桥产出第一个正文类事件（message_start/ping/thinking 可扣留）。
+提交前命中上游错误 → 按 `embedded_upstream_error` 同一口径回非流 JSON 错误（推断 status + `x-should-retry`）；
+提交前干净 EOF → 复用原生重放预算静默重放，每次记 `HUB_DEGRADE_STREAM_REPLAYED`；超窗降级为现状。
+注意与 route failover 的跨目标重放交互（S19 记录过 SSE 哑心跳与之冲突）。
+
+**验收合同**：首正文前 429 帧 → 客户端收到 HTTP 429 JSON；首正文前 EOF → 重放一次后成功；
+正文已可见后的失败仍以 error 事件可见；全量测试绿。
+
+**明确不做**：不伪造 `message_stop`；不对已见字节的回合重放。
+
+## S29 · 原生流终态后宽容，违例不裸 abort
+
+**状态**：【待建】。错误显示第二批之一。
+
+**目的**：原生 Anthropic SSE 在 `message_stop`/`error` 之后出现任何非注释行（常见：中转补一个
+`data: [DONE]` 或重复终态），`_SSETerminalTracker` 即判 `protocol_error`，随后
+`HUB_SSE_ORDER_VIOLATION` 并 abort transport。终态已送达时这是把成功回合打成断连；转换桥早已按
+`_repeats_terminal` 吸收同类重复并记 `HUB_DEGRADE_DUPLICATE_TERMINAL_SKIPPED`，两条路径口径不一。
+
+**锚点**：`claude-hub.py::_SSETerminalTracker._append_segment` / `_consume_line`（terminal 后判定）、
+`_forward_to_channel_attempt` 中 `if sse_tracker.protocol_error: raise ProtocolTransformError(...)`；
+对照 `claude1_protocol.AnthropicStreamBridge._repeats_terminal`。
+
+**做法（待评审）**：终态后的重复终态 / `[DONE]` 跳过并记 `HUB_DEGRADE_DUPLICATE_TERMINAL_SKIPPED`，不写下游；
+终态后的真实内容仍判违例但只记 journal、正常收尾（下游已拿到真终态，不再追加第二个终态）。
+终态前的违例（如 invalid UTF-8）在下游仍可写时以具名 `event: error` 收尾而非裸 abort（S19 第 1 层同款）。
+动手前先用测试确认当前 abort 触发面。
+
+**验收合同**：`message_stop` 后跟 `data: [DONE]` 的流客户端 exit 0 且 journal 记降级码；
+终态前违例客户端收到可渲染的 error 事件；全量测试绿。
+
+**明确不做**：不补 `message_stop`；不改写已转发的字节。
+
+## S30 · usage `total_tokens` 冲突降级而非整单失败
+
+**状态**：【待建】。错误显示第二批之一。
+
+**目的**：usage 是统计回执，但 `total_tokens != input + output` 目前抛
+`HUB_UPSTREAM_USAGE_INVALID@$.usage.total_tokens`，整轮 502 或流被掐断（2026-08-23 grok-4.5 实况，见 S18 依据）。
+Anthropic 下游根本不携带 total，冲突的是一个不会被转发的字段。
+
+**锚点**：`claude1_protocol_usage.py::_upstream_usage_total`；registry 行
+`docs/anthropic-protocol-implementation-status.md`「`total_tokens`」。
+
+**做法（待评审）**：total 与 base 冲突时丢弃 total、保留 base counter，记新降级码（如
+`HUB_DEGRADE_USAGE_TOTAL_CONFLICT`，同步 UI 两端目录与 en.json）；malformed total 是否同样降级待定。
+同步更新 registry 行。
+
+**验收合同**：冲突 total 的非流与流响应均成功交付且 usage 行带降级码；base counter 非法仍拒绝；全量测试绿。
+
+**明确不做**：不从 total 反推缺失的 base counter。
+
 ## S26 · 桌面 schedule 选择器与对话接入真实
 
 ✅ 2026-09-16 (296848d macOS, c0ab952 Windows) — 已完成。macOS 已验收；Windows 代码完成、运行态未验证。
@@ -690,6 +826,7 @@ direct-451→proxy-200、最终 451 提示四组回归测试；全套 820 项测
 ## S18 · openai_responses 转换对上游新形态 fail-closed 成 502「incompatible response」
 
 **状态**：【待建】。2026-08-25 实测定位，连续 8+ 次实况。 GitHub issue: Aley3567/Agent-Hub#118。
+做法 2（客户端文案带 `code at path`）已随 S27 落地；做法 1（三档重审拒绝点）仍待建。
 
 **目的**：`502 hub: channel 'direct' returned an incompatible openai_responses response`
 长期反复出现，客户端只看到误导性文案无法自救。根因是 openai_responses 输出转换层对
