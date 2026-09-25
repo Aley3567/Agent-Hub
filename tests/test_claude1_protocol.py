@@ -356,6 +356,49 @@ class RequestTransformTests(unittest.TestCase):
         self.assertEqual(chat["reasoning_effort"], "xhigh")
         self.assertEqual(responses["reasoning"], {"effort": "xhigh", "summary": "auto"})
 
+    def test_max_effort_degrades_to_xhigh_and_is_reported(self) -> None:
+        for field in ({"output_config": {"effort": "max"}},
+                      {"thinking": {"type": "adaptive", "effort": "max"}}):
+            payload = {
+                "model": "reasoning-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                **field,
+            }
+            with self.subTest(field=next(iter(field))):
+                chat = protocol.prepare_request(payload, "openai_chat")
+                responses = protocol.prepare_request(payload, "openai_responses")
+                self.assertEqual(chat.payload["reasoning_effort"], "xhigh")
+                self.assertEqual(responses.payload["reasoning"]["effort"], "xhigh")
+                self.assertIn(
+                    "HUB_DEGRADE_EFFORT_MAX_TO_XHIGH", chat.plan.warning_codes
+                )
+
+    def test_xhigh_effort_is_not_reported_as_max_degradation(self) -> None:
+        prepared = protocol.prepare_request(
+            {
+                "model": "reasoning-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                "output_config": {"effort": "xhigh"},
+            },
+            "openai_chat",
+        )
+        self.assertNotIn(
+            "HUB_DEGRADE_EFFORT_MAX_TO_XHIGH", prepared.plan.warning_codes
+        )
+
+    def test_strict_mode_rejects_max_effort(self) -> None:
+        with self.assertRaises(protocol.ProtocolRequestError) as caught:
+            protocol.prepare_request(
+                {
+                    "model": "reasoning-model",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "output_config": {"effort": "max"},
+                },
+                "openai_chat",
+                compatibility_mode="strict",
+            )
+        self.assertEqual(caught.exception.code, "HUB_UNSUPPORTED_THINKING")
+
     def test_chat_request_keeps_thinking_only_assistant_turn(self) -> None:
         body = protocol.prepare_request(
             {

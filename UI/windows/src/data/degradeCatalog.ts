@@ -205,6 +205,14 @@ export const DEGRADE_CATALOG: DegradeEntry[] = [
     severity: 'notice',
   },
   {
+    code: 'HUB_DEGRADE_EFFORT_MAX_TO_XHIGH',
+    title: 'effort max 降为 xhigh',
+    what: '目标的 reasoning effort 最高只到 xhigh，max 按 xhigh 发出。',
+    impact: '思考深度略低于 Claude 原生的 max。',
+    action: '不用处理；要真正的 max 请改用 Claude 原生渠道。',
+    severity: 'notice',
+  },
+  {
     code: 'HUB_DEGRADE_THINKING_BUDGET_TO_EFFORT',
     title: '思考预算换算为 effort 档位',
     what: '请求给的是 budget_tokens（具体 token 数），目标只认 low/medium/high 这类档位，已按量换档。',

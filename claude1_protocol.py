@@ -1160,6 +1160,31 @@ def anthropic_to_chat(
     return result
 
 
+_ANTHROPIC_EFFORT_LEVELS = {"low", "medium", "high", "xhigh", "max"}
+
+
+def _target_effort(
+    effort: str,
+    *,
+    plan: ConversionPlan | None,
+    compatibility_mode: str,
+    path: str,
+) -> str:
+    """OpenAI reasoning effort tops out at xhigh; Anthropic's max maps onto it."""
+    if effort != "max":
+        return effort
+    _record_lossy(
+        plan,
+        compatibility_mode=compatibility_mode,
+        code="HUB_DEGRADE_EFFORT_MAX_TO_XHIGH",
+        reject_code="HUB_UNSUPPORTED_THINKING",
+        path=path,
+        feature="thinking_control",
+        message="target reasoning effort has no level above xhigh",
+    )
+    return "xhigh"
+
+
 def _anthropic_effort(
     payload: dict,
     *,
@@ -1171,13 +1196,18 @@ def _anthropic_effort(
     if isinstance(output_config, dict):
         effort = output_config.get("effort")
         if "effort" in output_config:
-            if effort not in {"low", "medium", "high", "xhigh"}:
+            if effort not in _ANTHROPIC_EFFORT_LEVELS:
                 raise ProtocolRequestError(
                     "output_config.effort is invalid",
                     code="HUB_INVALID_OUTPUT_CONFIG",
                     path="$.output_config.effort",
                 )
-            return str(effort)
+            return _target_effort(
+                str(effort),
+                plan=plan,
+                compatibility_mode=compatibility_mode,
+                path="$.output_config.effort",
+            )
 
     thinking = payload.get("thinking")
     if thinking is None:
@@ -1212,7 +1242,7 @@ def _anthropic_effort(
         )
     effort = thinking.get("effort")
     if "effort" in thinking:
-        if effort not in {"low", "medium", "high", "xhigh"}:
+        if effort not in _ANTHROPIC_EFFORT_LEVELS:
             raise ProtocolRequestError(
                 "thinking.effort is invalid",
                 code="HUB_INVALID_THINKING_CONFIG",
@@ -1227,7 +1257,12 @@ def _anthropic_effort(
             feature="thinking_control",
             message="Anthropic thinking controls use a target reasoning effort carrier",
         )
-        return str(effort)
+        return _target_effort(
+            str(effort),
+            plan=plan,
+            compatibility_mode=compatibility_mode,
+            path="$.thinking.effort",
+        )
     budget = thinking.get("budget_tokens")
     if budget is not None and (
         not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0
