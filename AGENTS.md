@@ -23,9 +23,10 @@
 - Never push, merge, rebase, amend, force-update refs, delete branches, or prune
   worktrees without an explicit request. A local behavior-level commit is the
   proactive default; publishing and history rewriting are not.
-- Use `$change-to-commit` when the worktree mixes multiple issues or product
-  lines, when a file contains unrelated hunks, or when preparing recovery
-  commits. Do not equate a clean status with a correct history.
+- When the worktree mixes multiple issues or product lines, when a file
+  contains unrelated hunks, or when preparing recovery commits, build a
+  behavior-level change ledger first, then stage and verify precisely. Do not
+  equate a clean status with a correct history.
 - Classify changes by observable behavior and owner module before staging.
   Stage exact paths or hunks, inspect the cached diff, and bind each commit to
   its tests and remaining runtime uncertainty.
@@ -54,9 +55,10 @@
 
 ## Issue And Bug Work
 
-- Use the repository skill `$issue-to-proof` for non-obvious, recurring,
-  cross-path, intermittent, or runtime-only failures. A deterministic failure
-  with a cause already proved by an existing test may use a shorter loop.
+- Carry non-obvious, recurring, cross-path, intermittent, or runtime-only
+  failures from symptom to a causal fix with closed-loop evidence, as below. A
+  deterministic failure with a cause already proved by an existing test may use
+  a shorter loop.
 - Translate the report into observable behavior before inferring a cause.
   Keep observed facts, supported inferences, and unresolved uncertainty
   separate throughout the work.
