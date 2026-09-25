@@ -4403,7 +4403,7 @@ async def cli_check(target: str | None) -> None:
         model = (
             channel["models"][0]
             if channel.get("models")
-            else "claude-sonnet-4"
+            else "claude-haiku-4-5"
         )
         probe = {
             "model": upstream_model_id(model, api_format),
