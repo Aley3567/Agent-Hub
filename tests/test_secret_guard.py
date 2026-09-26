@@ -251,6 +251,53 @@ class SecretGuardTests(unittest.TestCase):
         self.assertEqual(commits, ["commit-a"])
         run_git.assert_any_call("rev-list", local)
 
+    def test_pre_push_skips_blobs_the_remote_already_holds(self) -> None:
+        local = "1" * 40
+        remote = "2" * 40
+        published = "a" * 40
+        added = "b" * 40
+
+        def fake_git(*args, input_bytes=None):
+            if args[0] == "cat-file" and args[1] == "-e":
+                return b""
+            if args[:3] == ("ls-tree", "-r", "-z"):
+                if args[3] == remote:
+                    return f"100644 blob {published}\told.py\0".encode()
+                return (
+                    f"100644 blob {published}\told.py\0"
+                    f"100644 blob {added}\tnew.py\0"
+                ).encode()
+            if args[:2] == ("cat-file", "blob"):
+                return args[2].encode()
+            raise AssertionError(args)
+
+        lines = [f"refs/heads/main {local} refs/heads/main {remote}"]
+        with mock.patch.object(secret_guard, "run_git", side_effect=fake_git):
+            skip = secret_guard.published_blobs_from_pre_push(lines)
+            files = list(secret_guard.history_files([local], skip))
+        self.assertEqual(skip, {published})
+        self.assertEqual(files, [(f"new.py@{local[:10]}", added.encode())])
+
+    def test_pre_push_scans_everything_without_a_known_remote_tip(self) -> None:
+        local = "1" * 40
+        remote = "2" * 40
+
+        def missing_remote(*args, input_bytes=None):
+            if args[0] == "cat-file":
+                raise secret_guard.subprocess.CalledProcessError(1, args)
+            raise AssertionError(args)
+
+        with mock.patch.object(secret_guard, "run_git", side_effect=missing_remote):
+            self.assertEqual(
+                secret_guard.published_blobs_from_pre_push(
+                    [
+                        f"refs/heads/main {local} refs/heads/main {remote}",
+                        f"refs/heads/new {local} refs/heads/new {secret_guard.ZERO_SHA}",
+                    ]
+                ),
+                set(),
+            )
+
     def test_sensitive_local_files_are_blocked_even_without_content(self) -> None:
         findings = secret_guard.scan_bytes(".env.local", b"", ())
         self.assertEqual(findings[0].category, "private-config-path")

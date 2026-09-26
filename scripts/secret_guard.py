@@ -573,12 +573,40 @@ def commits_from_pre_push(lines: Iterable[str]) -> list[str]:
     return sorted(commits)
 
 
+def published_blobs_from_pre_push(lines: Iterable[str]) -> set[str]:
+    """Blobs the remote already holds at the tips this push updates.
+
+    Rescanning them cannot stop a leak (they are already on that remote); it
+    only blocks pushes that delete an old finding while intermediate commits
+    still carry the unchanged file.
+    """
+    blobs: set[str] = set()
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 4 or fields[3] == ZERO_SHA:
+            continue
+        remote_sha = fields[3]
+        try:
+            run_git("cat-file", "-e", f"{remote_sha}^{{commit}}")
+        except subprocess.CalledProcessError:
+            continue
+        for entry in decode_paths(run_git("ls-tree", "-r", "-z", remote_sha)):
+            metadata = entry.split("\t", 1)[0]
+            _mode, object_type, object_sha = metadata.split()
+            if object_type == "blob":
+                blobs.add(object_sha)
+    return blobs
+
+
 def all_history_commits() -> list[str]:
     return run_git("rev-list", "--all").decode().splitlines()
 
 
-def history_files(commits: Iterable[str]) -> Iterable[tuple[str, bytes]]:
-    seen_blobs: set[str] = set()
+def history_files(
+    commits: Iterable[str],
+    skip_blobs: Iterable[str] = (),
+) -> Iterable[tuple[str, bytes]]:
+    seen_blobs: set[str] = set(skip_blobs)
     for commit in commits:
         entries = decode_paths(run_git("ls-tree", "-r", "-z", commit))
         for entry in entries:
@@ -637,8 +665,11 @@ def main() -> int:
             files = history_files(all_history_commits())
             label = "Git 历史"
         else:
-            commits = commits_from_pre_push(sys.stdin)
-            files = history_files(commits)
+            push_lines = sys.stdin.read().splitlines()
+            commits = commits_from_pre_push(push_lines)
+            files = history_files(
+                commits, published_blobs_from_pre_push(push_lines)
+            )
             label = "待推送提交"
         findings = scan_files(files, fingerprints)
     except subprocess.CalledProcessError as exc:
