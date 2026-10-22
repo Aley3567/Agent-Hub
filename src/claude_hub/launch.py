@@ -87,6 +87,10 @@ def launch_standalone_session(
     # 4. Isolated session environment
     claude_executable = resolve_claude_binary(claude_bin)
     base_env = dict(os.environ if environ is None else environ)
+    # Alternate inherited credentials must not outrank the selected API key
+    # or be sent to the selected profile's endpoint.
+    for key in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
+        base_env.pop(key, None)
 
     with IsolatedClaudeSession(descriptor, secret=secret) as session_env:
         exec_env = {**base_env, **session_env.environment}
