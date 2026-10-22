@@ -1573,13 +1573,10 @@ def ensure_1m_beta(headers, model_out: str) -> None:
 def upstream_model_id(model_out: str, api_format: str) -> str:
     """Resolve the model ID to send upstream.
 
-    For Anthropic-format channels the ``[1m]`` suffix is a local routing
-    signal; it is stripped here and compensated with the context-1m beta
-    header elsewhere.  For OpenAI-compatible channels the suffix is forwarded
-    unchanged so upstreams that recognise it still receive the 1M intent.
+    ``[1m]`` is Claude Code's local context selector, not part of the
+    provider model ID, for every wire format. Anthropic channels additionally
+    receive the context-1m beta header elsewhere.
     """
-    if api_format != "anthropic":
-        return model_out
     if model_out.casefold().endswith("[1m]"):
         stripped = model_out[:-4]
         if stripped:
@@ -3672,10 +3669,10 @@ async def _forward_to_channel_attempt(
 
     api_format = target.api_format
 
-    # ``[1m]`` selects Claude Code's 1M context mode.  For Anthropic channels
-    # it is not part of the provider's model ID and is stripped here; the
-    # context-1m beta header is added below.  For OpenAI-compatible channels
-    # the suffix is forwarded unchanged so the upstream sees the 1M intent.
+    # ``[1m]`` selects Claude Code's 1M context mode locally.
+    # It is not part of any provider's model ID, including OpenAI channels.
+    # Strip it at this shared boundary before protocol conversion.
+    # Anthropic channels additionally receive the context-1m beta below.
     payload["model"] = upstream_model_id(target.model_out, api_format)
     if target.is_full_url and request.query_string:
         return anthropic_error(

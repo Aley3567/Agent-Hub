@@ -1840,7 +1840,7 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(values.count("context-1m-2025-08-07"), 1)
         self.assertEqual(values.count("context-1m-old"), 1)
 
-    def test_upstream_model_id_strips_suffix_only_for_anthropic(self):
+    def test_upstream_model_id_strips_local_context_suffix_for_all_formats(self):
         cases = [
             # (api_format, model, expected)
             ("anthropic", "claude-sonnet-4[1m]", "claude-sonnet-4"),
@@ -1851,11 +1851,14 @@ class ClaudeHubTests(unittest.TestCase):
             ("anthropic", "[1m]extra", "[1m]extra"),
             ("anthropic", "", ""),
             ("anthropic", "claude-sonnet-4", "claude-sonnet-4"),
-            ("openai_chat", "glm-5.3[1M]", "glm-5.3[1M]"),
-            ("openai_chat", "glm-5.3[1m]", "glm-5.3[1m]"),
+            ("openai_chat", "glm-5.3[1M]", "glm-5.3"),
+            ("openai_chat", "glm-5.3[1m]", "glm-5.3"),
             ("openai_chat", "glm-5.3", "glm-5.3"),
-            ("openai_responses", "moonshotai/Kimi-K3[1M]", "moonshotai/Kimi-K3[1M]"),
-            ("openai_responses", "moonshotai/Kimi-K3[1m]", "moonshotai/Kimi-K3[1m]"),
+            ("openai_chat", "deepseek-ai/DeepSeek-V4.1-Flash[1M]", "deepseek-ai/DeepSeek-V4.1-Flash"),
+            ("openai_chat", "[1M]", "[1M]"),
+            ("openai_chat", "x[1m]extra", "x[1m]extra"),
+            ("openai_responses", "moonshotai/Kimi-K3[1M]", "moonshotai/Kimi-K3"),
+            ("openai_responses", "moonshotai/Kimi-K3[1m]", "moonshotai/Kimi-K3"),
         ]
         for api_format, model, expected in cases:
             with self.subTest(api_format=api_format, model=model):
@@ -7622,7 +7625,7 @@ class ClaudeHubTests(unittest.TestCase):
         self.assertEqual(b"".join(response.writes), b"".join(chunks))
         self.assertTrue(response.eof)
 
-    def test_forwarding_1m_selector_is_format_aware(self):
+    def test_forwarding_1m_selector_keeps_context_marker_local(self):
         cases = [
             (
                 "anthropic",
@@ -7635,12 +7638,12 @@ class ClaudeHubTests(unittest.TestCase):
                 "openai_chat",
                 "http://127.0.0.1:19090/v1/chat/completions",
                 "glm-5.3[1M]",
-                "glm-5.3[1M]",
+                "glm-5.3",
                 [
                     json.dumps(
                         {
                             "id": "chat_1",
-                            "model": "glm-5.3[1M]",
+                            "model": "glm-5.3",
                             "choices": [
                                 {
                                     "index": 0,
@@ -7664,12 +7667,12 @@ class ClaudeHubTests(unittest.TestCase):
                 "openai_responses",
                 "http://127.0.0.1:19090/custom/responses",
                 "custom-model[1m]",
-                "custom-model[1m]",
+                "custom-model",
                 [
                     json.dumps(
                         {
                             "id": "resp_1",
-                            "model": "custom-model[1m]",
+                            "model": "custom-model",
                             "status": "completed",
                             "output": [
                                 {
@@ -7741,13 +7744,13 @@ class ClaudeHubTests(unittest.TestCase):
                 "openai_chat",
                 "http://127.0.0.1:19090/v1/chat/completions",
                 "glm-5.3[1M]",
-                "glm-5.3[1M]",
+                "glm-5.3",
             ),
             (
                 "openai_responses",
                 "http://127.0.0.1:19090/custom/responses",
                 "custom-model[1m]",
-                "custom-model[1m]",
+                "custom-model",
             ),
         ]
 
