@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import subprocess
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -127,21 +128,22 @@ class MacOSKeychainStore(SecretStore):
         if not isinstance(secret, str) or not secret:
             raise ValueError("secret must be a non-empty string")
         account = str(ref)
-        # -U updates if existing
-        cmd = [
-            self._security_bin,
-            "add-generic-password",
-            "-U",
-            "-s",
-            self._service_name,
-            "-a",
-            account,
-            "-w",
-            secret,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # Match provider-store's stdin + hex boundary: process arguments are
+        # visible to other local processes, and interactive input is one line.
+        if "\x00" in secret or any(char in self._service_name + account for char in "\x00\r\n"):
+            raise ValueError("invalid Keychain credential input")
+        command = "add-generic-password -U -s {} -a {} -X {}\n".format(
+            shlex.quote(self._service_name), shlex.quote(account), secret.encode("utf-8").hex()
+        )
+        if len(command.encode("utf-8")) >= 4096:
+            raise ValueError("Keychain credential exceeds interactive input limit")
+        try:
+            result = subprocess.run([self._security_bin, "-i"], input=command,
+                                    capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            raise SecretStoreError("Keychain credential write unavailable") from None
         if result.returncode != 0:
-            raise SecretStoreError(f"Failed to store credential in Keychain: {result.stderr.strip()}")
+            raise SecretStoreError("Failed to store credential in Keychain")
 
     def delete_secret(self, ref: str | UUID) -> bool:
         self._require_available()
