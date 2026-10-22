@@ -8,6 +8,7 @@ includes provider or model secrets.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
@@ -91,12 +92,22 @@ def normalize_base_url(value: object) -> str:
     parsed = urlparse(trimmed)
     if parsed.scheme.lower() not in {"http", "https"}:
         raise ValueError("base_url must have http or https scheme")
-    if not parsed.netloc:
+    if not parsed.hostname:
         raise ValueError("base_url must contain a network location / host")
-    if parsed.username or parsed.password:
+    if parsed.port is not None and not 1 <= parsed.port <= 65535:
+        raise ValueError("base_url must contain a valid port")
+    if parsed.username is not None or parsed.password is not None:
         raise ValueError("base_url must not contain credentials in userinfo")
     if parsed.query or parsed.fragment:
         raise ValueError("base_url must not contain query or fragment parameters")
+    if parsed.scheme.lower() == "http":
+        host = parsed.hostname.rstrip(".").encode("idna").decode("ascii").lower()
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host == "localhost" or host.endswith(".localhost")
+        if not loopback:
+            raise ValueError("remote base_url must use HTTPS to protect credentials")
 
     normalized = f"{parsed.scheme.lower()}://{parsed.netloc}{parsed.path.rstrip('/')}"
     return normalized
