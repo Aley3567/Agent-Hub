@@ -208,6 +208,8 @@ REQ_STRIP = HOP_BY_HOP | {
     "accept-encoding",
     "authorization",
     "x-api-key",
+    "cookie",
+    "cookie2",
 }
 RESP_STRIP = HOP_BY_HOP | {"content-length"}
 
@@ -4268,6 +4270,7 @@ def _upstream_connector() -> aiohttp.TCPConnector:
 
 async def _client_session_context(app: web.Application):
     session = aiohttp.ClientSession(
+        cookie_jar=aiohttp.DummyCookieJar(),
         auto_decompress=False,
         skip_auto_headers={"Accept-Encoding"},
         connector=_upstream_connector(),
