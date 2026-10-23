@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 from typing import Protocol, runtime_checkable
 from uuid import UUID
@@ -93,9 +94,11 @@ class InMemorySecretStore(SecretStore):
 class MacOSKeychainStore(SecretStore):
     """macOS Keychain store using /usr/bin/security."""
 
-    def __init__(self, *, service_name: str = SERVICE_NAME) -> None:
+    def __init__(self, *, service_name: str = SERVICE_NAME,
+                 keychain_path: str | os.PathLike[str] | None = None) -> None:
         self._service_name = service_name
         self._security_bin = "/usr/bin/security"
+        self._keychain_args = [] if keychain_path is None else [os.fspath(keychain_path)]
 
     def is_available(self) -> bool:
         return os.path.exists(self._security_bin) and platform.system() == "Darwin"
@@ -104,67 +107,101 @@ class MacOSKeychainStore(SecretStore):
         if not self.is_available():
             raise SecretStoreUnavailableError("macOS Keychain (/usr/bin/security) is unavailable")
 
+    def _run(self, args: list[str], *, input: str | None = None):
+        try:
+            return subprocess.run([self._security_bin, *args], input=input,
+                                  capture_output=True, text=True, encoding="utf-8", timeout=15)
+        except (OSError, subprocess.TimeoutExpired, UnicodeError):
+            raise SecretStoreUnavailableError("Keychain operation unavailable") from None
+
+    @staticmethod
+    def _found(result) -> bool:
+        if result.returncode == 0:
+            return True
+        if result.returncode == 44:  # errSecItemNotFound (-25300), reduced to an exit status
+            return False
+        if result.returncode in (128, 51, 36):  # cancelled, auth failed, interaction not allowed
+            raise SecretStorePermissionError("Keychain access denied or locked")
+        raise SecretStoreUnavailableError("Keychain operation unavailable")
+
+    @staticmethod
+    def _quote(value: str) -> str:
+        if any(char in value for char in "\x00\r\n"):
+            raise ValueError("invalid Keychain credential input")
+        # security -i is not a shell: it does not concatenate adjacent quotes.
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
     def get_secret(self, ref: str | UUID) -> str | None:
         self._require_available()
         account = str(ref)
         cmd = [
-            self._security_bin,
             "find-generic-password",
             "-s",
             self._service_name,
             "-a",
             account,
-            "-w",
+            "-g",
+            *self._keychain_args,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode == 0:
-            return result.stdout.rstrip("\r\n")
-        # Exit code 44 on macOS means item not found
-        return None
+        result = self._run(cmd)
+        if not self._found(result):
+            return None
+        # -w prints bare hex for non-printable bytes, indistinguishable from a
+        # literal hex password. -g marks hex explicitly and quotes plain text.
+        for line in result.stderr.splitlines():
+            if not line.startswith("password: "):
+                continue
+            value = line.removeprefix("password: ")
+            if value.startswith('"') and value.endswith('"'):
+                return value[1:-1]
+            match = re.fullmatch(r"0x([0-9a-fA-F]+)(?: +.*)?", value)
+            if match:
+                try:
+                    return bytes.fromhex(match[1]).decode("utf-8")
+                except (ValueError, UnicodeError):
+                    break
+        raise SecretStoreError("Keychain credential response is invalid")
 
     def set_secret(self, ref: str | UUID, secret: str) -> None:
         self._require_available()
         if not isinstance(secret, str) or not secret:
             raise ValueError("secret must be a non-empty string")
         account = str(ref)
-        # -U updates if existing
-        cmd = [
-            self._security_bin,
-            "add-generic-password",
-            "-U",
-            "-s",
-            self._service_name,
-            "-a",
-            account,
-            "-w",
-            secret,
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise SecretStoreError(f"Failed to store credential in Keychain: {result.stderr.strip()}")
+        # Match provider-store's stdin + hex boundary: process arguments are
+        # visible to other local processes, and interactive input is one line.
+        if "\x00" in secret:
+            raise ValueError("invalid Keychain credential input")
+        args = ["add-generic-password", "-U", "-s", self._service_name, "-a", account,
+                "-X", secret.encode("utf-8").hex(), *self._keychain_args]
+        command = " ".join(self._quote(arg) for arg in args) + "\n"
+        if len(command.encode("utf-8")) > 4094:
+            raise ValueError("Keychain credential exceeds interactive input limit")
+        if not self._found(self._run(["-i"], input=command)):
+            raise SecretStoreError("Failed to store credential in Keychain")
+        if self.get_secret(ref) != secret:
+            raise SecretStoreError("Keychain credential write verification failed")
 
     def delete_secret(self, ref: str | UUID) -> bool:
         self._require_available()
         account = str(ref)
         cmd = [
-            self._security_bin,
             "delete-generic-password",
             "-s",
             self._service_name,
             "-a",
             account,
+            *self._keychain_args,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        return result.returncode == 0
+        return self._found(self._run(cmd))
 
     def list_secret_refs(self) -> tuple[str, ...]:
         self._require_available()
         cmd = [
-            self._security_bin,
             "dump-keychain",
+            *self._keychain_args,
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
+        result = self._run(cmd)
+        if not self._found(result):
             return ()
         # Parse output for accounts matching service
         refs: list[str] = []

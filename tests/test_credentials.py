@@ -64,5 +64,71 @@ class CredentialsTests(unittest.TestCase):
             store.set_secret(ref, None)  # type: ignore
 
 
+class MacOSKeychainBoundaryTests(unittest.TestCase):
+    def _read_result(self, cmd, value):
+        import subprocess
+        raw = value.encode()
+        printable = all(32 <= b <= 126 and b != 92 for b in raw)
+        if "-g" in cmd:
+            representation = f'"{value}"' if printable else f'0x{raw.hex()}  "display-only"'
+            return subprocess.CompletedProcess(cmd, 0, "item metadata\n", f"password: {representation}\n")
+        output = value if all(32 <= b <= 126 for b in raw) else raw.hex()
+        return subprocess.CompletedProcess(cmd, 0, output + "\n", "")
+
+    def test_reads_unicode_controls_and_literal_hex_without_guessing(self):
+        from unittest.mock import patch
+        from claude_hub.credentials import MacOSKeychainStore
+        store = MacOSKeychainStore()
+        for value in ["fixture 中文", "fixture\ntrailing\n", 'fixture "quotes"',
+                      "fixture \\ slash", "deadbeef01234567", "  fixture  "]:
+            with self.subTest(value=value), patch.object(store, "is_available", return_value=True), patch(
+                    "claude_hub.credentials.subprocess.run",
+                    side_effect=lambda cmd, **kwargs: self._read_result(cmd, value)):
+                self.assertEqual(store.get_secret(uuid4()), value)
+
+    def test_only_missing_is_none_or_false_and_permission_errors_propagate(self):
+        import subprocess
+        from unittest.mock import patch
+        from claude_hub.credentials import MacOSKeychainStore, SecretStorePermissionError, SecretStoreUnavailableError
+        store = MacOSKeychainStore()
+        for method in [store.get_secret, store.delete_secret]:
+            for code, error in [(44, None), (51, SecretStorePermissionError),
+                                (128, SecretStorePermissionError), (36, SecretStorePermissionError),
+                                (1, SecretStoreUnavailableError)]:
+                result = subprocess.CompletedProcess([], code, "", "private-backend-fixture")
+                with self.subTest(method=method.__name__, code=code), patch.object(
+                        store, "is_available", return_value=True), patch(
+                        "claude_hub.credentials.subprocess.run", return_value=result):
+                    if error:
+                        with self.assertRaises(error) as caught:
+                            method(uuid4())
+                        self.assertNotIn("private-backend-fixture", str(caught.exception))
+                    else:
+                        self.assertIn(method(uuid4()), (None, False))
+
+    def test_write_requires_matching_readback(self):
+        import subprocess
+        from unittest.mock import patch
+        from claude_hub.credentials import MacOSKeychainStore, SecretStoreError
+        store = MacOSKeychainStore()
+        with patch.object(store, "is_available", return_value=True), patch.object(
+                store, "get_secret", return_value="different-fixture"), patch(
+                "claude_hub.credentials.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")):
+            with self.assertRaises(SecretStoreError):
+                store.set_secret(uuid4(), "selected-fixture")
+
+    def test_read_timeout_is_sanitized(self):
+        import subprocess
+        from unittest.mock import patch
+        from claude_hub.credentials import MacOSKeychainStore, SecretStoreUnavailableError
+        store = MacOSKeychainStore()
+        with patch.object(store, "is_available", return_value=True), patch(
+                "claude_hub.credentials.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(["private-fixture"], 15, output="private-fixture")):
+            with self.assertRaises(SecretStoreUnavailableError) as caught:
+                store.get_secret(uuid4())
+            self.assertNotIn("private-fixture", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
