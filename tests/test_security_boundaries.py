@@ -123,10 +123,11 @@ class StandaloneCredentialTests(unittest.TestCase):
         secret = 'fixture "quoted" \\ value\nnext-line'
         store = credentials.MacOSKeychainStore()
         result = subprocess.CompletedProcess([], 0, "", "")
+        readback = subprocess.CompletedProcess([], 0, "", f'password: 0x{secret.encode().hex()}\n')
         with patch.object(store, "is_available", return_value=True), patch.object(
-                credentials.subprocess, "run", return_value=result) as run:
+                credentials.subprocess, "run", side_effect=[result, readback]) as run:
             store.set_secret(uuid4(), secret)
-        args, kwargs = run.call_args
+        args, kwargs = run.call_args_list[0]
         self.assertEqual(args[0], ["/usr/bin/security", "-i"])
         self.assertNotIn(secret, repr(args))
         self.assertIn(secret.encode().hex(), kwargs["input"])

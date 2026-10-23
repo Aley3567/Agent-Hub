@@ -114,6 +114,12 @@ jobs:
       - name: Run Python tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
 
+      - name: Verify standalone credentials in a temporary macOS Keychain
+        if: runner.os == 'macOS'
+        env:
+          AGENT_HUB_TEST_KEYCHAIN: "1"
+        run: python -m unittest discover -s tests -p test_keychain_native.py -v
+
       - name: Run shell integration tests
         run: |
           sh -n install.sh
